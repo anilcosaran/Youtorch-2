@@ -1,0 +1,104 @@
+"use client";
+
+import { useState, type ReactNode } from "react";
+import Link from "next/link";
+import { ArrowUpRight, Code2, Copy, FileText, Flame, GitCompareArrows, Play, Sparkles, Star, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonClass } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { site } from "@/config/site";
+import { cn } from "@/lib/cn";
+import type { Model } from "@/types/model";
+import { ModelArt } from "../model-art";
+
+export function ModelHeader({
+  model,
+  playgroundOpen,
+  onTogglePlayground,
+}: {
+  model: Model;
+  playgroundOpen: boolean;
+  onTogglePlayground: () => void;
+}) {
+  const toast = useToast();
+  const [starred, setStarred] = useState(false);
+
+  const copyId = () => {
+    navigator.clipboard?.writeText(model.slug);
+    toast(`Copied ${model.slug}`);
+  };
+
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-5">
+      <div className="min-w-0">
+        <h1 className="flex items-center gap-3 text-[24px] leading-8 font-semibold tracking-[-0.02em] text-fg">
+          <ModelArt model={model} className="size-8 shrink-0 rounded-lg ring-1 ring-white/10" />
+          <span className="min-w-0 truncate">
+            {!model.name.toLowerCase().startsWith(model.provider) && <span className="capitalize">{model.provider}: </span>}
+            {model.name}
+          </span>
+        </h1>
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[14px]">
+          <span className="mr-1 text-muted">
+            <Link href="/models" className="text-fg underline decoration-white/30 underline-offset-4 transition hover:decoration-white">
+              {model.provider.replace(/\s+/g, "-")}
+            </Link>
+            /{model.slug}
+          </span>
+          <IconButton label="Copy model ID" onClick={copyId}>
+            <Copy />
+          </IconButton>
+          <IconButton label={starred ? "Remove from favorites" : "Add to favorites"} onClick={() => setStarred((s) => !s)}>
+            <Star className={cn(starred && "fill-amber-chart text-amber-chart")} />
+          </IconButton>
+          <a
+            href={site.docsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line px-2.5 text-[13px] text-fg transition hover:border-line-strong hover:bg-white/[0.04]"
+          >
+            <FileText className="size-3.5 text-muted" /> Model card <ArrowUpRight className="size-3 text-muted" />
+          </a>
+          {model.tags?.includes("original") && (
+            <Badge tone="ember" className="ml-1 h-7 px-2">
+              <Sparkles /> {site.name} original
+            </Badge>
+          )}
+          {model.tags?.includes("trending") && (
+            <Badge className="ml-1 h-7 px-2 text-fg">
+              <Flame className="text-ember-400" /> Trending
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" className="h-9 px-3.5 text-[14px]">
+          <GitCompareArrows /> Compare
+        </Button>
+        <a href="#api" className={buttonClass({ variant: "outline", className: "h-9 px-3.5 text-[14px]" })}>
+          <Code2 /> API
+        </a>
+        <Button
+          variant={playgroundOpen ? "outline" : "primary"}
+          className="h-9 px-3.5 text-[14px]"
+          aria-expanded={playgroundOpen}
+          onClick={onTogglePlayground}
+        >
+          {playgroundOpen ? <X /> : <Play />} {playgroundOpen ? "Close" : "Try this model"}
+        </Button>
+      </div>
+    </header>
+  );
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="grid size-7 place-items-center rounded-md border border-line text-muted transition hover:border-line-strong hover:text-fg [&_svg]:size-3.5"
+    >
+      {children}
+    </button>
+  );
+}
