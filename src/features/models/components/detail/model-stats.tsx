@@ -38,12 +38,12 @@ export function ModelStats({ model, stats }: { model: Model; stats: Stats }) {
 
 function Stat({ label, aside, children }: { label: string; aside?: string; children: ReactNode }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-line bg-surface/40 px-3.5 py-3">
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-line bg-surface/40 px-3.5 py-2.5">
       <dt className="flex items-center justify-between gap-2">
         <span className="truncate eyebrow">{label}</span>
         {aside && <span className="shrink-0 text-[12px] font-medium text-deal">{aside}</span>}
       </dt>
-      <dd className="mt-1.5 text-[15px] font-medium text-fg tabular">{children}</dd>
+      <dd className="mt-1 truncate text-[15px] font-medium text-fg tabular">{children}</dd>
     </div>
   );
 }
@@ -51,20 +51,17 @@ function Stat({ label, aside, children }: { label: string; aside?: string; child
 function PriceLine({ model }: { model: Model }) {
   const input = model.inputPrice;
   return (
-    <>
-      <span className="block">
-        {input && (
-          <>
-            {formatPrice(discounted(model, input.price))}
-            {input.unit !== model.unit && <span className="text-[13px] text-muted"> per {input.unit}</span>}
-            <span className="text-muted"> / </span>
-          </>
-        )}
-        {formatPrice(discounted(model))}
-        <span className="text-[13px] text-muted"> per {model.unit}</span>
-      </span>
-      {model.unitDetail && <span className="mt-0.5 block text-[12px] text-muted">at {model.unitDetail}</span>}
-    </>
+    <span title={model.unitDetail ? `Billed at ${model.unitDetail}` : undefined}>
+      {input && (
+        <>
+          {formatPrice(discounted(model, input.price))}
+          {input.unit !== model.unit && <span className="text-[13px] text-muted"> per {input.unit}</span>}
+          <span className="text-muted"> / </span>
+        </>
+      )}
+      {formatPrice(discounted(model))}
+      <span className="text-[13px] text-muted"> per {model.unit}</span>
+    </span>
   );
 }
 

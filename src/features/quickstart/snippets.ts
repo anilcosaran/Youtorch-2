@@ -1,7 +1,7 @@
 import { apiKeyEnv, type Snippets } from "@/components/code/snippets";
 import { site } from "@/config/site";
 
-const exportKey = `export ${apiKeyEnv}="${site.keyPrefix}_live_..."`;
+export const exportKey = `export ${apiKeyEnv}="${site.keyPrefix}_live_..."`;
 const hookUrl = "https://your.app/hooks/youtorch";
 
 export const installSnippets: Snippets = {

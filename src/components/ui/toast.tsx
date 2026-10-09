@@ -24,7 +24,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="flex animate-fade-up items-center gap-2 rounded-xl border border-line-strong bg-overlay/95 px-3.5 py-2.5 text-[14px] shadow-xl shadow-black/50 backdrop-blur"
+            className="flex animate-pop items-center gap-2 rounded-xl border border-line-strong bg-overlay/95 px-3.5 py-2.5 text-[14px] shadow-xl shadow-black/50 backdrop-blur"
           >
             <CheckCircle2 className="size-4 text-jade-400" />
             {toast.message}

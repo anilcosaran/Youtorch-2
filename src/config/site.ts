@@ -6,6 +6,7 @@ export const site = {
   description: "One API for every generative video, image and audio model.",
   url: env(process.env.NEXT_PUBLIC_SITE_URL, "https://app.youtorch.ai"),
   apiBase: env(process.env.NEXT_PUBLIC_API_BASE_URL, "https://api.youtorch.ai/v1"),
+  mcpUrl: env(process.env.NEXT_PUBLIC_MCP_URL, "https://mcp.youtorch.ai/mcp"),
   docsUrl: env(process.env.NEXT_PUBLIC_DOCS_URL, "https://docs.youtorch.ai"),
   /** Prefix of secret keys, e.g. yt_live_… */
   keyPrefix: "yt",

@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Boxes, KeyRound, LayoutDashboard, Rocket, Wallet, type LucideIcon } from "lucide-react";
+import { Activity, BookOpen, Boxes, KeyRound, LayoutDashboard, Rocket, Wallet, Wand2, Workflow, type LucideIcon } from "lucide-react";
 import { site } from "@/config/site";
 
 export interface NavItem {
@@ -6,7 +6,7 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   external?: boolean;
-  trailing?: "balance";
+  trailing?: "balance" | "new";
 }
 
 export const navGroups: { label: string; items: NavItem[] }[] = [
@@ -15,6 +15,8 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/models", label: "Model library", icon: Boxes },
+      { href: "/apps", label: "Apps", icon: Wand2 },
+      { href: "/canvas", label: "Canvas", icon: Workflow, trailing: "new" },
       { href: "/quickstart", label: "Quickstart", icon: Rocket },
     ],
   },

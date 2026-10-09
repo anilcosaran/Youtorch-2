@@ -2,24 +2,16 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Code2, Copy, FileText, Flame, GitCompareArrows, Play, Sparkles, Star, X } from "lucide-react";
+import { ArrowUpRight, Code2, Copy, FileText, Flame, GitCompareArrows, Play, Sparkles, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClass } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { site } from "@/config/site";
 import { cn } from "@/lib/cn";
 import type { Model } from "@/types/model";
 import { ModelArt } from "../model-art";
 
-export function ModelHeader({
-  model,
-  playgroundOpen,
-  onTogglePlayground,
-}: {
-  model: Model;
-  playgroundOpen: boolean;
-  onTogglePlayground: () => void;
-}) {
+export function ModelHeader({ model, onTry, onApi }: { model: Model; onTry: () => void; onApi: () => void }) {
   const toast = useToast();
   const [starred, setStarred] = useState(false);
 
@@ -75,16 +67,11 @@ export function ModelHeader({
         <Button variant="outline" className="h-9 px-3.5 text-[14px]">
           <GitCompareArrows /> Compare
         </Button>
-        <a href="#api" className={buttonClass({ variant: "outline", className: "h-9 px-3.5 text-[14px]" })}>
+        <Button variant="outline" className="h-9 px-3.5 text-[14px]" onClick={onApi}>
           <Code2 /> API
-        </a>
-        <Button
-          variant={playgroundOpen ? "outline" : "primary"}
-          className="h-9 px-3.5 text-[14px]"
-          aria-expanded={playgroundOpen}
-          onClick={onTogglePlayground}
-        >
-          {playgroundOpen ? <X /> : <Play />} {playgroundOpen ? "Close" : "Try this model"}
+        </Button>
+        <Button variant="primary" className="h-9 px-3.5 text-[14px]" onClick={onTry}>
+          <Play /> Try this model
         </Button>
       </div>
     </header>
@@ -96,7 +83,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
     <button
       onClick={onClick}
       aria-label={label}
-      className="grid size-7 place-items-center rounded-md border border-line text-muted transition hover:border-line-strong hover:text-fg [&_svg]:size-3.5"
+      className="grid size-7 place-items-center rounded-md text-muted transition hover:bg-white/[0.06] hover:text-fg [&_svg]:size-3.5"
     >
       {children}
     </button>

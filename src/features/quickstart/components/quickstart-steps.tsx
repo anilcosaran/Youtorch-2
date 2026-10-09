@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CodeBlock } from "@/components/code/code-block";
 import { snippetsFor, type Snippets } from "@/components/code/snippets";
 import { authSnippets, installSnippets, webhookSnippets } from "../snippets";
+import { Timeline, TimelineStep } from "./timeline";
 
 const steps: { title: string; body: ReactNode; code: Snippets }[] = [
   { title: "Install", body: "Use the official SDK or call the REST API directly.", code: installSnippets },
@@ -33,17 +34,12 @@ const steps: { title: string; body: ReactNode; code: Snippets }[] = [
 
 export function QuickstartSteps() {
   return (
-    <ol className="relative max-w-4xl space-y-10 before:absolute before:top-2 before:bottom-2 before:left-[13px] before:w-px before:bg-gradient-to-b before:from-ember-500/60 before:via-line-strong before:to-transparent">
+    <Timeline>
       {steps.map((step, i) => (
-        <li key={step.title} className="relative pl-12">
-          <span className="absolute top-0 left-0 grid size-7 place-items-center rounded-full border border-line-strong bg-raised font-mono text-[13px] text-ember-300">
-            {i + 1}
-          </span>
-          <h2 className="text-[17px] font-semibold tracking-tight">{step.title}</h2>
-          <p className="mt-1 mb-3.5 text-[14.5px] text-muted">{step.body}</p>
+        <TimelineStep key={step.title} index={i + 1} title={step.title} body={step.body}>
           <CodeBlock snippets={step.code} title={step.title.toLowerCase()} />
-        </li>
+        </TimelineStep>
       ))}
-    </ol>
+    </Timeline>
   );
 }

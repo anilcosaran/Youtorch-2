@@ -52,6 +52,9 @@ function NavLink({ item, active, collapsed, onNavigate }: { item: NavItem; activ
       {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
       {!collapsed && item.external && <ArrowUpRight className="size-3.5 text-subtle" />}
       {!collapsed && item.trailing === "balance" && <span className="font-mono text-[12px] text-subtle tabular">{formatUsd(balance)}</span>}
+      {!collapsed && item.trailing === "new" && (
+        <span className="rounded-md bg-iris-500/15 px-1.5 py-px text-[11px] font-medium text-iris-300">New</span>
+      )}
     </Link>
   );
 }

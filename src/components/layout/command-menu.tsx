@@ -108,7 +108,7 @@ export function CommandMenu() {
       className="mx-auto mt-[12vh] w-[min(92vw,560px)] overflow-visible bg-transparent p-0 text-fg backdrop:bg-black/60 backdrop:backdrop-blur-sm"
     >
       {open && (
-        <div className="animate-fade-up overflow-hidden surface bg-raised shadow-2xl shadow-black/70">
+        <div className="animate-pop overflow-hidden surface bg-raised shadow-2xl shadow-black/70">
           <div className="flex items-center gap-2.5 border-b border-line px-4">
             <Search className="size-4 text-subtle" />
             <input

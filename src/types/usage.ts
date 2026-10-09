@@ -6,6 +6,8 @@ export interface DailyUsage {
   /** Long form for tooltips, e.g. "Oct 3, 2026 UTC". */
   date: string;
   spend: Record<Modality, number>;
+  /** Per-model split of `spend` and `requests`, keyed by model slug. */
+  models: Record<string, { spend: number; requests: number }>;
   requests: number;
   errors: number;
   p50: number;

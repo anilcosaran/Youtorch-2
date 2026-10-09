@@ -26,6 +26,7 @@ export function Segmented<T extends string>({
         return (
           <button
             key={option.value}
+            type="button"
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.value)}

@@ -3,81 +3,139 @@
 import { useState } from "react";
 import { formatUsd } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { XLabels, YGrid } from "./chart-axes";
 import { ChartTooltip } from "./chart-tooltip";
-import { chartAccent, type BarDatum } from "./constants";
+import type { BarDatum } from "./constants";
+import { axisLabel, labelIndices, labelWidth, niceTicks } from "./scale";
+import { useChartFrame } from "./use-chart-frame";
+
+const PAD_TOP = 8;
+const AXIS = 26;
 
 export function BarChart({
   data,
   height = 220,
   format = formatUsd,
-  accent = chartAccent,
+  highlight = null,
   className,
 }: {
   data: BarDatum[];
-  /** Pixel height of the plot, or "fill" to stretch inside a flex column. */
+  /** Pixel height of the chart including the date axis, or "fill" to stretch inside a flex column. */
   height?: number | "fill";
   format?: (value: number) => string;
-  accent?: string;
+  /** Segment key to keep at full strength while the other segments fade back. */
+  highlight?: string | null;
   className?: string;
 }) {
+  const [ref, frame] = useChartFrame<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const fill = height === "fill";
+  const { width, snapX, snapY, hairline } = frame;
+  const boxHeight = fill ? frame.height : height;
+
   const totals = data.map((d) => d.segments.reduce((s, x) => s + x.value, 0));
-  const max = Math.max(...totals, 0);
   const n = data.length;
-  const inset = n > 45 ? "px-[1px]" : n > 20 ? "px-[16%]" : "px-[24%]";
-  const ticks = [...new Set([0, Math.floor((n - 1) / 2), n - 1])].filter((i) => i >= 0 && i < n);
+  const baseline = boxHeight - AXIS;
+  const ticks = niceTicks(Math.max(...totals, 0), baseline - PAD_TOP < 150 ? 3 : 4);
+  const ceiling = ticks.at(-1) || 1;
+  const label = axisLabel(format);
+  const left = Math.ceil(labelWidth(ticks.map(label))) + 12;
+  const slot = (width - left) / Math.max(n, 1);
+  const gap = Math.min(8, Math.max(1, Math.round(slot * 0.1)));
+  const y = (v: number) => baseline - (v / ceiling) * (baseline - PAD_TOP);
+  const center = (i: number) => left + (i + 0.5) * slot;
 
   return (
-    <div className={cn("relative pt-6 select-none", fill && "flex min-h-60 flex-1 flex-col", className)}>
-      <div className={cn("relative", fill && "flex-1")} style={fill ? undefined : { height }} onMouseLeave={() => setHover(null)}>
-        {max > 0 && (
-          <>
-            <span className="absolute -top-0.5 left-0 -translate-y-full text-[12px] font-medium tabular" style={{ color: accent }}>
-              {format(max)}
-            </span>
-            <span className="absolute inset-x-0 top-0 border-t border-dashed border-white/20" />
-            <span className="absolute inset-x-0 top-1/3 border-t border-dashed border-white/[0.06]" />
-            <span className="absolute inset-x-0 top-2/3 border-t border-dashed border-white/[0.06]" />
-          </>
+    <div className={cn("relative select-none", fill && "flex min-h-60 flex-1 flex-col", className)}>
+      <div ref={ref} className={cn("relative", fill && "flex-1")} style={fill ? undefined : { height }} onMouseLeave={() => setHover(null)}>
+        {width > 0 && n > 0 && (
+          <svg width={width} height={boxHeight} className="absolute inset-0 overflow-visible">
+            <YGrid frame={frame} ticks={ticks} y={y} left={left} right={width} label={label} />
+
+            {hover !== null && (
+              <rect
+                x={snapX(left + hover * slot)}
+                width={snapX(left + (hover + 1) * slot) - snapX(left + hover * slot)}
+                y={PAD_TOP}
+                height={baseline - PAD_TOP}
+                fill="var(--color-white)"
+                fillOpacity={0.04}
+              />
+            )}
+
+            {data.map((d, i) => {
+              const barWidth = slot - gap;
+              const x0 = snapX(center(i) - barWidth / 2);
+              const w = Math.max(1, snapX(center(i) + barWidth / 2) - x0);
+              const bottom = snapY(baseline);
+              if (totals[i] <= 0) {
+                return <rect key={d.label} x={x0} y={bottom - 2} width={w} height={2} fill="var(--color-white)" fillOpacity={0.2} />;
+              }
+              const top = Math.min(snapY(y(totals[i])), bottom - 2);
+              const visible = d.segments.filter((s) => s.value > 0);
+              let acc = 0;
+              let prev = bottom;
+              return (
+                <g
+                  key={d.label}
+                  className={cn("animate-rise transition-opacity duration-200", hover !== null && hover !== i && "opacity-45")}
+                  style={{ transformOrigin: `0 ${bottom}px`, animationDelay: `${(i / n) * 320}ms` }}
+                >
+                  {visible.map((s, k) => {
+                    acc += s.value;
+                    const last = k === visible.length - 1;
+                    const segTop = last ? top : Math.max(top, snapY(y(acc)));
+                    // Stacked segments sit one hairline apart so neighbouring colors stay distinct.
+                    const h = prev - segTop - (k > 0 ? hairline : 0);
+                    prev = segTop;
+                    if (h <= 0) return null;
+                    const props = {
+                      fill: s.color,
+                      className: "transition-opacity duration-200",
+                      opacity: highlight && s.key !== highlight ? 0.22 : 1,
+                    };
+                    return last ? (
+                      <path key={s.key} d={roundedTop(x0, segTop, w, h, 2)} {...props} />
+                    ) : (
+                      <rect key={s.key} x={x0} y={segTop} width={w} height={h} {...props} />
+                    );
+                  })}
+                </g>
+              );
+            })}
+
+            <XLabels
+              labels={data.map((d) => d.label)}
+              indices={labelIndices(n, slot)}
+              x={center}
+              y={baseline + 18}
+              left={left}
+              right={width}
+            />
+
+            {data.map((d, i) => (
+              <rect
+                key={d.label}
+                x={left + i * slot}
+                width={slot}
+                y={0}
+                height={baseline}
+                fill="transparent"
+                onMouseEnter={() => setHover(i)}
+              />
+            ))}
+          </svg>
         )}
-        <span className="absolute inset-x-0 bottom-0 border-t border-white/10" />
 
-        <div className="absolute inset-0 flex">
-          {data.map((d, i) => (
-            <div key={d.label} onMouseEnter={() => setHover(i)} className="relative flex h-full flex-1 items-end">
-              <span className={cn("absolute inset-0 transition-colors", hover === i ? "bg-white/[0.05]" : "bg-transparent")} />
-              <div className={cn("relative flex h-full w-full items-end", inset)}>
-                {totals[i] > 0 ? (
-                  <div
-                    className={cn(
-                      "flex w-full origin-bottom animate-rise flex-col-reverse overflow-hidden rounded-t-[3px] transition-[height,opacity] duration-500 ease-out",
-                      hover !== null && hover !== i && "opacity-45",
-                    )}
-                    style={{ height: `${Math.max(1.5, (totals[i] / max) * 100)}%`, animationDelay: `${(i / n) * 320}ms` }}
-                  >
-                    {d.segments.map((s) =>
-                      s.value > 0 ? <span key={s.key} style={{ height: `${(s.value / totals[i]) * 100}%`, background: s.color }} /> : null,
-                    )}
-                  </div>
-                ) : (
-                  <span className="h-[2px] w-full bg-white/25" />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {hover !== null && <ChartTooltip datum={data[hover]} total={totals[hover]} index={hover} count={n} format={format} />}
-      </div>
-
-      <div className="relative mt-2.5 h-4 text-[12px] text-subtle">
-        {ticks.map((i) => (
-          <span key={i} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${((i + 0.5) / n) * 100}%` }}>
-            {data[i].label}
-          </span>
-        ))}
+        {hover !== null && (
+          <ChartTooltip datum={data[hover]} total={totals[hover]} x={center(hover)} flip={center(hover) > width / 2} format={format} />
+        )}
       </div>
     </div>
   );
+}
+
+function roundedTop(x: number, y: number, w: number, h: number, radius: number) {
+  const r = Math.min(radius, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
 }

@@ -32,7 +32,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
         if (e.target === e.currentTarget) onClose();
       }}
       className={cn(
-        "m-auto w-[min(92vw,460px)] overflow-visible bg-transparent p-0 text-fg backdrop:bg-black/70 backdrop:backdrop-blur-sm open:animate-fade-up",
+        "m-auto w-[min(92vw,460px)] overflow-visible bg-transparent p-0 text-fg backdrop:bg-black/70 backdrop:backdrop-blur-sm open:animate-pop",
         className,
       )}
     >

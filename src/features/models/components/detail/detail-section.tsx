@@ -1,15 +1,10 @@
 import type { ReactNode } from "react";
-import { detailSections, type DetailSectionId } from "./sections";
+import { panelId, tabId, type ModelTabId } from "./tabs";
 
-export function DetailSection({ id, description, children }: { id: DetailSectionId; description: string; children: ReactNode }) {
-  const { label, icon: Icon } = detailSections.find((s) => s.id === id)!;
+export function DetailSection({ id, description, children }: { id: ModelTabId; description: string; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 lg:scroll-mt-8">
-      <h2 className="flex items-center gap-2 text-[18px] font-semibold tracking-tight text-fg">
-        <Icon className="size-[18px] text-muted" />
-        {label}
-      </h2>
-      <p className="mt-1.5 mb-4 max-w-2xl text-[14.5px] leading-relaxed text-muted">{description}</p>
+    <section id={panelId(id)} role="tabpanel" aria-labelledby={tabId(id)} className="animate-[fade-in_160ms_ease-out]">
+      <p className="mb-4 max-w-2xl text-[14.5px] leading-relaxed text-muted">{description}</p>
       {children}
     </section>
   );

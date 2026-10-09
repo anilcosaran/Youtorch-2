@@ -1,22 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Database, Download, EyeOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Database, Download, EyeOff, Terminal } from "lucide-react";
+import { Button, buttonClass } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Select } from "@/components/ui/select";
 import { modalityLabel, modalityOrder } from "@/lib/modality";
-import { requestShare, usageSeries } from "@/mocks/usage";
+import { monthlyBudget, requestShare, totalSpend, usageSeries } from "@/mocks/usage";
 import { useConsole } from "@/providers/console-provider";
 import type { Modality } from "@/types/model";
 import type { DailyUsage } from "@/types/usage";
-import { sum } from "../lib/metrics";
-import { DailySpendChart } from "./daily-spend-chart";
-import { ModalityBreakdown } from "./modality-breakdown";
 import { RequestTable } from "./request-table";
+import { UsageChart } from "./usage-chart";
 import { UsageKpis } from "./usage-kpis";
-import { BudgetCard, ModalityMixCard, TopKeysCard } from "./usage-side-cards";
 
 type Period = "7" | "14" | "30" | "90";
 
@@ -50,18 +49,11 @@ export function UsageView() {
   const spendFor = (d: DailyUsage, m: Modality) => live(d.spend[m]);
   const requestsFor = (d: DailyUsage, m: Modality) => live(Math.round(d.requests * requestShare[m]));
   const spendOf = (d: DailyUsage) => scoped.reduce((s, m) => s + spendFor(d, m), 0);
-  const requestsOf = (d: DailyUsage) => live(Math.round(d.requests * scoped.reduce((s, m) => s + requestShare[m], 0)));
+  const requestsOf = (d: DailyUsage) => scoped.reduce((s, m) => s + requestsFor(d, m), 0);
 
-  const totalRequests = sum(series, requestsOf);
-  const weekSpend = sum(usageSeries.slice(-7), spendOf);
-  const mix = scoped
-    .map((modality) => ({ modality, value: series.reduce((s, d) => s + spendFor(d, modality), 0) }))
-    .sort((a, b) => b.value - a.value);
-  const topKeys = keys.length
-    ? keys.map((k, i) => ({ name: k.name, requests: live(Math.round(totalRequests * (0.6 / (i + 1)))) }))
-    : sampleMode
-      ? sampleKeyShare.map((k) => ({ name: k.name, requests: Math.round(totalRequests * k.share) }))
-      : [];
+  // The budget is workspace-wide, so it ignores the modality scope.
+  const monthToDate = live(usageSeries.slice(-7).reduce((s, d) => s + totalSpend(d), 0));
+  const keyShares = keys.length ? keys.map((k, i) => ({ name: k.name, share: 0.6 / (i + 1) })) : sampleKeyShare;
 
   return (
     <>
@@ -105,34 +97,55 @@ export function UsageView() {
         spendOf={spendOf}
         requestsOf={requestsOf}
         caption={`Last ${period} days`}
+        budget={{ label: "October budget", spent: monthToDate, limit: monthlyBudget }}
         replayKey={`${period}-${scope}-${sampleMode}`}
       />
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_340px]">
-        <DailySpendChart
-          series={series}
-          modalities={scoped}
-          scopeLabel={scope === "all" ? "All models" : modalityLabel[scope]}
-          spendOf={spendOf}
-          spendFor={spendFor}
-        />
-        <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-1">
-          <BudgetCard spent={weekSpend} />
-          <ModalityMixCard mix={mix} />
-          <TopKeysCard keys={topKeys} />
-        </div>
-      </div>
-
-      <ModalityBreakdown series={series} scope={scope} onScope={setScope} spendFor={spendFor} requestsFor={requestsFor} />
+      <UsageChart
+        scopeLabel={scope === "all" ? "All models" : modalityLabel[scope]}
+        series={series}
+        modalities={scoped}
+        live={live}
+        spendOf={spendOf}
+        requestsOf={requestsOf}
+        spendFor={spendFor}
+        requestsFor={requestsFor}
+        keyShares={keyShares}
+        onScope={setScope}
+      />
 
       <section className="mt-10">
-        <SectionHeader title="Request log" description="Most recent first. Retained for 30 days." />
+        <SectionHeader
+          title={
+            <span className="inline-flex items-center gap-2.5">
+              Request log
+              {sampleMode && (
+                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ok">
+                  <span className="size-1.5 animate-pulse-soft rounded-full bg-ok" /> Live
+                </span>
+              )}
+            </span>
+          }
+          description="Live tail of every call made with your keys, most recent first. Retained for 30 days."
+        />
         {sampleMode ? (
           <RequestTable />
         ) : (
-          <div className="grid min-h-32 place-items-center surface p-6 text-[14px] text-subtle">
-            Logs appear here as soon as your first request completes.
-          </div>
+          <EmptyState
+            icon={<Terminal />}
+            title="No requests yet"
+            description="Requests show up here a few seconds after they hit the API."
+            action={
+              <div className="flex gap-2">
+                <Link href="/quickstart" className={buttonClass({ variant: "primary", size: "sm" })}>
+                  Make a request
+                </Link>
+                <Button variant="outline" size="sm" onClick={() => setSampleMode(true)}>
+                  <Database /> Preview sample data
+                </Button>
+              </div>
+            }
+          />
         )}
       </section>
     </>

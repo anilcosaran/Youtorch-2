@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowUpRight, Flame, Sparkles, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,15 @@ import type { Model } from "@/types/model";
 import { modelHref } from "../lib/links";
 import { ModelArt } from "./model-art";
 
-export function ModelCard({ model, className, style }: { model: Model; className?: string; style?: CSSProperties }) {
+interface ModelCardProps {
+  model: Model;
+  /** Photo shown instead of the generated art. */
+  cover?: { src: string; position?: string };
+  className?: string;
+  style?: CSSProperties;
+}
+
+export function ModelCard({ model, cover, className, style }: ModelCardProps) {
   const Icon = modalityIcon[model.modality];
   return (
     <Link
@@ -19,7 +28,20 @@ export function ModelCard({ model, className, style }: { model: Model; className
       className={cn("group flex flex-col overflow-hidden surface transition-colors duration-300 hover:border-line-strong", className)}
     >
       <div className="relative m-1.5 mb-0 overflow-hidden rounded-[10px]">
-        <ModelArt model={model} className="aspect-[16/9]" />
+        {cover ? (
+          <div className="relative aspect-[16/9] bg-raised">
+            <Image
+              src={cover.src}
+              alt=""
+              fill
+              sizes="(min-width: 1280px) 22vw, (min-width: 640px) 45vw, 100vw"
+              className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+              style={{ objectPosition: cover.position }}
+            />
+          </div>
+        ) : (
+          <ModelArt model={model} className="aspect-[16/9]" />
+        )}
         <div className="absolute inset-x-2.5 top-2.5 flex items-center gap-1.5">
           <Badge tone="glass">
             <Icon /> {modalityLabel[model.modality]}

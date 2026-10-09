@@ -6,11 +6,11 @@ export interface ShowcaseSlide {
   headline: string;
 }
 
-export type AppEffect = "motion" | "cutout" | "upscale" | "voice";
-
 export interface FeaturedApp {
   title: string;
   description: string;
+  /** App page the tile opens. */
+  app: string;
   slug: string;
   image: string;
   /** Transparent version of `image`, shown on the after side of the cutout split. */
@@ -19,8 +19,14 @@ export interface FeaturedApp {
   badge?: "Top" | "New";
   /** Hover glow and border tint. */
   accent: string;
-  effect: AppEffect;
+  effect: "cutout" | "upscale";
   prompt: string;
+}
+
+export interface TopModel {
+  slug: string;
+  image: string;
+  position?: string;
 }
 
 export interface GalleryShot {
@@ -60,19 +66,9 @@ export const promo: Promo = {
 
 export const featuredApps: FeaturedApp[] = [
   {
-    title: "Image to video",
-    description: "Turn any still into a moving shot.",
-    slug: "lumen-1",
-    image: "/gallery/balloons.jpg",
-    position: "60% 40%",
-    badge: "Top",
-    accent: "#ff7a45",
-    effect: "motion",
-    prompt: "Animate this still: balloons drift upward over Cappadocia at sunrise, slow aerial push-in",
-  },
-  {
     title: "Background remover",
     description: "Clean cutouts with soft hair edges.",
+    app: "background-remover",
     slug: "nano-banana-pro",
     image: "/gallery/cutout.jpg",
     cutout: "/gallery/cutout.png",
@@ -85,6 +81,7 @@ export const featuredApps: FeaturedApp[] = [
   {
     title: "4K upscaler",
     description: "Recover fine detail without artifacts.",
+    app: "upscaler",
     slug: "seedream-4-5",
     image: "/gallery/macaw.jpg",
     position: "45% 45%",
@@ -92,17 +89,13 @@ export const featuredApps: FeaturedApp[] = [
     effect: "upscale",
     prompt: "Upscale to 4K and recover every feather barb without halos",
   },
-  {
-    title: "Voiceover",
-    description: "Expressive narration in 70+ languages.",
-    slug: "eleven-v3",
-    image: "/gallery/singer.jpg",
-    position: "60% 40%",
-    badge: "Top",
-    accent: "#c04dff",
-    effect: "voice",
-    prompt: "[warm] Welcome back to the show. Today we go behind the scenes.",
-  },
+];
+
+export const topModels: TopModel[] = [
+  { slug: "lumen-1", image: "/gallery/balloons.jpg", position: "60% 40%" },
+  { slug: "kling-3", image: "/gallery/car.jpg", position: "50% 60%" },
+  { slug: "nano-banana-pro", image: "/showcase/nano-banana.jpg", position: "60% 50%" },
+  { slug: "eleven-v3", image: "/gallery/singer.jpg", position: "60% 35%" },
 ];
 
 export const galleryShots: GalleryShot[] = [

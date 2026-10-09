@@ -87,7 +87,7 @@ export function Select<T extends string>({
           id={listId}
           role="listbox"
           className={cn(
-            "absolute top-full z-30 mt-1.5 min-w-full animate-fade-up rounded-lg border border-line-strong bg-overlay p-1 shadow-2xl shadow-black/70",
+            "absolute top-full z-30 mt-1.5 min-w-full animate-pop rounded-lg border border-line-strong bg-overlay p-1 shadow-2xl shadow-black/70",
             align === "end" ? "right-0" : "left-0",
             menuClassName,
           )}

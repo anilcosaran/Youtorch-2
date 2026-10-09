@@ -19,7 +19,7 @@ export function PromoCard() {
         src={promo.image}
         alt=""
         fill
-        sizes="(min-width: 1024px) 50vw, 100vw"
+        sizes="(min-width: 1280px) 50vw, 100vw"
         className="-z-10 object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-[1.04]"
         style={{ objectPosition: promo.position }}
       />

@@ -9,7 +9,7 @@ import type { Lang } from "./snippets";
 const langLabels: Record<Lang, string> = { curl: "cURL", python: "Python", node: "Node.js" };
 
 const tokenPattern =
-  /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|((?<![^\s])(?:#|\/\/).*$)|\b(from|import|const|await|new|print|console|curl)\b|(-[HdX]\b|\b\d+(?:\.\d+)?\b)|(\$[A-Z_]+)/gm;
+  /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|((?<![^\s])(?:#|\/\/).*$)|\b(from|import|const|await|new|print|console|curl|claude|codex|gemini)\b|(-[HdX]\b|\b\d+(?:\.\d+)?\b)|(\$[A-Z_]+)/gm;
 
 function highlight(code: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -42,16 +42,16 @@ function highlight(code: string): ReactNode[] {
 
 export function CodeBlock({
   snippets,
+  code: single,
   className,
   title = "Request",
 }: {
-  snippets: Record<Lang, string>;
   className?: string;
   title?: string;
-}) {
+} & ({ snippets: Record<Lang, string>; code?: never } | { code: string; snippets?: never })) {
   const [lang, setLang] = useState<Lang>("curl");
   const [copied, setCopied] = useState(false);
-  const code = snippets[lang];
+  const code = snippets ? snippets[lang] : (single ?? "");
   const lines = code.split("\n");
 
   return (
@@ -66,12 +66,14 @@ export function CodeBlock({
           <span className="font-mono text-[12px] text-subtle">{title}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Segmented
-            size="sm"
-            value={lang}
-            onChange={setLang}
-            options={(Object.keys(langLabels) as Lang[]).map((l) => ({ value: l, label: langLabels[l] }))}
-          />
+          {snippets && (
+            <Segmented
+              size="sm"
+              value={lang}
+              onChange={setLang}
+              options={(Object.keys(langLabels) as Lang[]).map((l) => ({ value: l, label: langLabels[l] }))}
+            />
+          )}
           <button
             aria-label="Copy code"
             onClick={async () => {

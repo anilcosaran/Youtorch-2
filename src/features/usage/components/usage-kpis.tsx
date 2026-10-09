@@ -1,8 +1,6 @@
 "use client";
 
 import { Plus, RefreshCw } from "lucide-react";
-import { MiniBars } from "@/components/charts/mini-bars";
-import { Sparkline } from "@/components/charts/sparkline";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { formatUsd, splitUsd } from "@/lib/format";
@@ -17,6 +15,7 @@ export function UsageKpis({
   spendOf,
   requestsOf,
   caption,
+  budget,
   replayKey,
 }: {
   days: DailyUsage[];
@@ -25,6 +24,8 @@ export function UsageKpis({
   spendOf: DayMetric;
   requestsOf: DayMetric;
   caption: string;
+  /** Workspace-wide month-to-date spend against the monthly budget. */
+  budget: { label: string; spent: number; limit: number };
   /** Changing this replays the chart entrance. */
   replayKey: string;
 }) {
@@ -37,6 +38,7 @@ export function UsageKpis({
   const requests = sum(days, requestsOf);
   const success = 1 - errorRate(days);
   const errorRates = groups.map(errorRate);
+  const peak = days.reduce<DailyUsage | undefined>((best, d) => (!best || requestsOf(d) > requestsOf(best) ? d : best), undefined);
 
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -71,7 +73,18 @@ export function UsageKpis({
         value={formatUsd(spend)}
         caption={caption}
       >
-        <Sparkline key={replayKey} values={groups.map((g) => sum(g, spendOf))} height={44} area animate color="var(--color-ember-400)" />
+        <div className="flex items-baseline justify-between text-[12.5px]">
+          <span className="text-muted">{budget.label}</span>
+          <span className="text-subtle tabular">
+            <span className="text-fg">{formatUsd(budget.spent)}</span> / {formatUsd(budget.limit)}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+          <div
+            className="h-full rounded-full bg-iris-400 transition-[width] duration-700"
+            style={{ width: `${Math.min(100, (budget.spent / budget.limit) * 100)}%` }}
+          />
+        </div>
       </KpiCard>
 
       <KpiCard
@@ -80,7 +93,18 @@ export function UsageKpis({
         value={requests.toLocaleString("en-US")}
         caption={caption}
       >
-        <MiniBars key={replayKey} values={groups.map((g) => sum(g, requestsOf))} animate className="h-11 gap-[3px]" />
+        <dl className="grid grid-cols-2 gap-3 text-[12.5px]">
+          <div>
+            <dt className="text-muted">Avg / day</dt>
+            <dd className="mt-0.5 text-[15px] font-medium text-fg tabular">
+              {Math.round(requests / Math.max(1, days.length)).toLocaleString("en-US")}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Peak{peak && requestsOf(peak) > 0 ? ` · ${peak.label}` : ""}</dt>
+            <dd className="mt-0.5 text-[15px] font-medium text-fg tabular">{(peak ? requestsOf(peak) : 0).toLocaleString("en-US")}</dd>
+          </div>
+        </dl>
       </KpiCard>
 
       <KpiCard
