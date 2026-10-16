@@ -28,6 +28,16 @@ Requires Node.js 20.9 or newer.
 | `npm run format`    | Prettier with Tailwind class sorting                 |
 | `npm run check`     | Typecheck, lint and format check, in that order (CI) |
 
+## Repository
+
+| Path         | What                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `/` (`src/`) | This customer console                                                                                                     |
+| `apps/admin` | Operator console: catalog, versions, routes, providers, customers, keys, requests. See its [README](apps/admin/README.md) |
+| `docs/`      | [Platform architecture](docs/architecture.md): domain model, request flow, proposed layout                                |
+
+Each app has its own `package.json`; root scripts and configs cover the console only.
+
 ## Project structure
 
 ```

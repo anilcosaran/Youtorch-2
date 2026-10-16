@@ -1,0 +1,63 @@
+import type { ApiKeyRow } from "@/lib/api/api-keys";
+import type { App, AppRelease } from "@/lib/api/apps";
+import type { AuditEntry } from "@/lib/api/audit";
+import type { Operator } from "@/lib/api/auth";
+import type { Customer, Limits } from "@/lib/api/customers";
+import type { Model } from "@/lib/api/models";
+import type { Provider } from "@/lib/api/providers";
+import type { RequestDetail } from "@/lib/api/requests";
+import type { Random } from "./random";
+
+/*
+ * What the store keeps. Records hold what an admin server would store;
+ * derived fields (counts, costs, the default flag) are computed on read in
+ * `views.ts`, so they never go stale after a change.
+ */
+
+export interface OperatorRecord extends Operator {
+  /** Accepted at sign-in besides MOCK_PASSWORD. */
+  password: string;
+}
+
+/** `routes`, `models` and `requests24h` come from the catalog. */
+export type ProviderRecord = Omit<Provider, "routes" | "models" | "requests24h">;
+
+/**
+ * `versions`, `providers` and `price` are derived; in `versionList`,
+ * `isDefault`, tier costs and route provider names are recomputed on read.
+ */
+export type ModelRecord = Omit<Model, "versions" | "providers" | "price">;
+
+/** `cost` is computed from the steps. */
+export type ReleaseRecord = Omit<AppRelease, "cost">;
+
+export type AppRecord = Omit<App, "liveRelease" | "draftRelease" | "models" | "price" | "releases"> & {
+  pausedReason: string | null;
+  releases: ReleaseRecord[];
+};
+
+/** `keys` counts active keys; `limits` and `overrides` come from the tier and `limitOverrides`. */
+export type CustomerRecord = Omit<Customer, "keys" | "limits" | "overrides"> & {
+  limitOverrides: Partial<Limits>;
+};
+
+export type ApiKeyRecord = Omit<ApiKeyRow, "customer"> & { customerId: string };
+
+export interface Store {
+  /** Date.now() when the store was seeded; seeded times are relative to it. */
+  createdAt: number;
+  /** For IDs and passwords made at runtime. */
+  random: Random;
+  operators: OperatorRecord[];
+  /** Newest first. */
+  audit: AuditEntry[];
+  providers: ProviderRecord[];
+  models: ModelRecord[];
+  apps: AppRecord[];
+  /** Newest first. */
+  customers: CustomerRecord[];
+  /** Newest first. */
+  apiKeys: ApiKeyRecord[];
+  /** Newest first. */
+  requests: RequestDetail[];
+}

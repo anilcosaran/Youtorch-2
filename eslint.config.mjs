@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Each app under apps/ has its own config.
+    "apps/**",
   ]),
 ]);
 

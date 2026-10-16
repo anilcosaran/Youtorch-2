@@ -8,3 +8,4 @@ Dockerfile
 !.env.example
 *.tsbuildinfo
 next-env.d.ts
+apps

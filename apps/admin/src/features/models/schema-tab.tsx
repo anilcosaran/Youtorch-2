@@ -1,0 +1,172 @@
+"use client";
+
+import { useState } from "react";
+import { LoaderCircle, Pencil } from "lucide-react";
+import { DetailSection } from "@/components/shared/detail-section";
+import { FormError } from "@/components/shared/field";
+import { JsonView } from "@/components/shared/json-view";
+import { Segmented } from "@/components/shared/segmented";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { errorMessage } from "@/lib/api/client";
+import { updateVersion, type JsonSchema, type Model, type ModelVersion } from "@/lib/api/models";
+import { exampleInput, isEditable, parseSchema, schemaFields } from "@/lib/catalog";
+import { usePermissions } from "@/lib/session";
+import { useApplyModel } from "./use-model-action";
+import { VersionBar } from "./version-picker";
+
+/** API origin shown in the example call. */
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.modelvend.ai/v1";
+
+function FieldTable({ schema }: { schema: JsonSchema }) {
+  const fields = schemaFields(schema);
+  if (fields.length === 0) return <p className="text-sm text-muted-foreground">No properties.</p>;
+  return (
+    <div className="scroll-thin overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-muted-foreground">
+            <th className="pb-2 text-left font-medium">Field</th>
+            <th className="pb-2 text-left font-medium">Type</th>
+            <th className="pb-2 text-left font-medium">Allowed</th>
+            <th className="pb-2 text-left font-medium">Description</th>
+          </tr>
+        </thead>
+        <tbody className="[&_td]:border-t [&_td]:py-2 [&_td]:pr-4 [&_td]:align-top">
+          {fields.map((field) => (
+            <tr key={field.name}>
+              <td className="font-mono text-xs whitespace-nowrap">
+                {field.name}
+                {field.required && <span className="ml-1 text-status-critical" title="Required">*</span>}
+              </td>
+              <td className="font-mono text-xs whitespace-nowrap text-muted-foreground">{field.type}</td>
+              <td className="max-w-64 text-xs text-muted-foreground">{field.constraints.join(" · ") || "—"}</td>
+              <td className="text-xs">{field.description ?? <span className="text-muted-foreground">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type Which = "inputSchema" | "outputSchema";
+
+function SchemaEditor({
+  model,
+  version,
+  which,
+  onClose,
+}: {
+  model: Model;
+  version: ModelVersion;
+  which: Which;
+  onClose: () => void;
+}) {
+  const apply = useApplyModel();
+  const [text, setText] = useState(() => JSON.stringify(version[which], null, 2));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const parsed = parseSchema(text);
+
+  const save = async () => {
+    if ("error" in parsed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      apply(await updateVersion(model.id, version.id, { [which]: parsed.schema }));
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3">
+      <FormError message={error} />
+      <Textarea
+        aria-label="Schema JSON"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        spellCheck={false}
+        className="h-[50vh] font-mono text-xs leading-relaxed md:text-xs"
+      />
+      {"error" in parsed && <p className="text-xs text-destructive">{parsed.error}</p>}
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button disabled={busy || "error" in parsed} onClick={() => void save()}>
+          {busy && <LoaderCircle className="animate-spin" />}
+          Save schema
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+/** A version's input and output contract; docs, playground forms and SDK types are generated from it. */
+export function SchemaTab({ model, version, onPick }: { model: Model; version: ModelVersion; onPick: (id: string) => void }) {
+  const can = usePermissions();
+  const [view, setView] = useState<"fields" | "json">("fields");
+  const [editing, setEditing] = useState<Which | null>(null);
+  const editable = can.editCatalog && isEditable(version);
+  const target = version.id === model.defaultVersion ? model.id : `${model.id}@${version.id}`;
+  const body = JSON.stringify({ model: target, ...exampleInput(version.inputSchema) }, null, 2).replace(/\n/g, "\n  ");
+  const example = `curl ${API_BASE}/generations \\
+  -H "Authorization: Bearer $MODELVEND_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '${body}'`;
+
+  const section = (which: Which, title: string) => (
+    <DetailSection
+      title={title}
+      action={
+        editable && (
+          <Button variant="outline" size="xs" onClick={() => setEditing(which)}>
+            <Pencil /> Edit JSON
+          </Button>
+        )
+      }
+    >
+      {view === "fields" ? <FieldTable schema={version[which]} /> : <JsonView value={version[which]} />}
+    </DetailSection>
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <VersionBar model={model} version={version} onPick={onPick}>
+        <Segmented
+          label="Schema view"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "fields", label: "Fields" },
+            { value: "json", label: "JSON Schema" },
+          ]}
+        />
+      </VersionBar>
+      {section("inputSchema", "Input")}
+      {section("outputSchema", "Output")}
+      <DetailSection title="Example call">
+        <pre className="scroll-thin overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed">{example}</pre>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Media models answer with a request ID to poll or a webhook; see the request log for real calls.
+        </p>
+      </DetailSection>
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editing === "outputSchema" ? "Output" : "Input"} schema of {version.id}
+            </DialogTitle>
+            <DialogDescription>JSON Schema (2020-12). The gateway validates every request against the input schema.</DialogDescription>
+          </DialogHeader>
+          {editing && <SchemaEditor model={model} version={version} which={editing} onClose={() => setEditing(null)} />}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
