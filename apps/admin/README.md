@@ -10,10 +10,12 @@ architecture behind it are in [`docs/architecture.md`](../../docs/architecture.m
 ## Getting started
 
 ```bash
+npm install        # at the repository root (npm workspaces, one lockfile)
 cd apps/admin
-npm install
 npm run dev        # http://localhost:3001
 ```
+
+From the repository root, `npm run dev:admin` and `npm run check:admin` do the same.
 
 Without `ADMIN_API_URL` the dev server answers `/api/admin/v1/*` from the in-memory mock in `src/mock-api`, which
 implements the same contract with seeded data. You start signed in as the seeded admin; after signing out, sign in
@@ -68,8 +70,11 @@ A production build without `ADMIN_API_URL` answers `/api/*` with 502 instead of 
 
 ## Deploying
 
+The image is built from the repository root, which holds the shared lockfile. The standalone output mirrors the
+workspace layout, so the server is `.next/standalone/apps/admin/server.js`.
+
 ```bash
-docker build -t modelvend-admin apps/admin
+docker build -f apps/admin/Dockerfile -t modelvend-admin .
 docker run -p 3001:3001 -e ADMIN_API_URL=http://admin-api:8081 modelvend-admin
 ```
 

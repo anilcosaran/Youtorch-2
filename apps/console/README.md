@@ -6,15 +6,18 @@ Built with Next.js 16 (App Router, Cache Components, Turbopack), React 19 and Ta
 
 > All data is mocked (`src/mocks`). Wiring a real backend means replacing those modules and the actions in `ConsoleProvider`; the UI does not import mock files directly beyond them.
 
+It lives in `apps/console` of the Modelvend monorepo; see the [repository README](../../README.md) for the other apps.
+
 ## Getting started
 
 ```bash
-npm install
+npm install                  # at the repository root (npm workspaces, one lockfile)
+cd apps/console
 cp .env.example .env.local   # optional, defaults live in src/config/site.ts
 npm run dev                  # http://localhost:3000
 ```
 
-Requires Node.js 20.9 or newer.
+Requires Node.js 20.9 or newer. From the repository root, `npm run dev:console` and `npm run check:console` do the same.
 
 ## Scripts
 
@@ -28,15 +31,7 @@ Requires Node.js 20.9 or newer.
 | `npm run format`    | Prettier with Tailwind class sorting                 |
 | `npm run check`     | Typecheck, lint and format check, in that order (CI) |
 
-## Repository
-
-| Path         | What                                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `/` (`src/`) | This customer console                                                                                                     |
-| `apps/admin` | Operator console: catalog, versions, routes, providers, customers, keys, requests. See its [README](apps/admin/README.md) |
-| `docs/`      | [Platform architecture](docs/architecture.md): domain model, request flow, proposed layout                                |
-
-Each app has its own `package.json`; root scripts and configs cover the console only.
+Run them in `apps/console`, or from the repository root with `--workspace apps/console`.
 
 ## Project structure
 
@@ -83,20 +78,22 @@ Conventions:
 
 ## Deploying
 
-The build emits a standalone server (`output: "standalone"`).
+The build emits a standalone server (`output: "standalone"`). Its tracing root is the repository root, so the output mirrors the workspace layout: `.next/standalone/apps/console/server.js` next to a trimmed `node_modules`.
+
+The image is built from the repository root, which holds the shared lockfile:
 
 ```bash
-docker build -t modelvend-console \
+docker build -f apps/console/Dockerfile -t modelvend-console \
   --build-arg NEXT_PUBLIC_SITE_URL=https://app.modelvend.ai .
 docker run -p 3000:3000 modelvend-console
 ```
 
-Without Docker:
+Without Docker (in `apps/console`):
 
 ```bash
 npm run build
-cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/
-PORT=3000 node .next/standalone/server.js
+cp -r public .next/standalone/apps/console/ && cp -r .next/static .next/standalone/apps/console/.next/
+PORT=3000 node .next/standalone/apps/console/server.js
 ```
 
 Security headers (HSTS, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) are set in `next.config.ts`. A Content Security Policy is not set yet: it needs nonces for the inline theme script and Next's runtime, so add it together with the auth/proxy layer.

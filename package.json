@@ -1,0 +1,20 @@
+{
+  "name": "modelvend",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:console": "npm run dev --workspace apps/console",
+    "dev:admin": "npm run dev --workspace apps/admin",
+    "build": "npm run build --workspaces",
+    "build:console": "npm run build --workspace apps/console",
+    "build:admin": "npm run build --workspace apps/admin",
+    "check": "npm run check --workspaces",
+    "check:console": "npm run check --workspace apps/console",
+    "check:admin": "npm run check --workspace apps/admin"
+  }
+}

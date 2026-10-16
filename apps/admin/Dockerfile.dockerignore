@@ -1,0 +1,14 @@
+# The build context is the repository root; patterns are relative to it.
+# Keep only the root manifests and this app.
+*
+!package.json
+!package-lock.json
+!apps/admin
+**/node_modules
+**/.next
+**/npm-debug.log*
+**/.env*
+!apps/admin/.env.example
+**/*.tsbuildinfo
+**/next-env.d.ts
+apps/admin/Dockerfile*

@@ -10,7 +10,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  // The Docker image runs `.next/standalone/server.js`. `/api/*` is forwarded to the
+  // The Docker image runs `.next/standalone/apps/admin/server.js`. `/api/*` is forwarded to the
   // admin API by `src/app/api/[...path]/route.ts`, which reads ADMIN_API_URL at
   // request time (and serves the built-in mock API in development when it is unset).
   output: "standalone",
@@ -19,8 +19,8 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
-    // This app has its own lockfile inside the console's repository; resolve from here, not the repo root.
-    root: path.resolve(__dirname),
+    // npm workspace root: the shared lockfile and hoisted node_modules live two levels up.
+    root: path.join(__dirname, "../.."),
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

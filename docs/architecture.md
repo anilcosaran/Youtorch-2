@@ -197,12 +197,12 @@ Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşı
 
 ## 5. Önerilen repo yapısı
 
-Bugün depo tek bir Next uygulaması (müşteri konsolu). Bu değişiklikle admin paneli `apps/admin` altına eklendi. Önerilen hedef, postpane'deki ayrımla uyumlu bir monorepo:
+Depo bir npm workspaces monoreposu: müşteri konsolu `apps/console`, admin paneli `apps/admin` altında, tek lockfile kökte. Önerilen hedef, postpane'deki ayrımla uyumlu bir monorepo:
 
 ```
 modelvend/
 ├─ apps/
-│  ├─ console/                 Müşteri konsolu (bugün kökte; apps/console'a taşınmalı)
+│  ├─ console/                 Müşteri konsolu (Next.js)
 │  ├─ admin/                   Operatör konsolu (Next.js; bu değişiklik)
 │  │  └─ src/
 │  │     ├─ app/               Rotalar ve /api proxy'si (ADMIN_API_URL, yoksa mock)
@@ -314,7 +314,7 @@ Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme or
 2. **Faz 1: Katalog backend'i.**
    - Postgres şeması ve Go admin API. Sözleşme `apps/admin/src/lib/api` dosyalarında.
    - Müşteri konsolunun `src/mocks` verisi `/v1/models` ve `/v1/models/{id}` ile değiştirilir.
-   - Konsol `apps/console` altına taşınır ve npm workspaces kurulur.
+   - Konsol `apps/console` altına taşındı ve npm workspaces kuruldu (bitti).
 3. **Faz 2: Gateway ve ilk iki adapter.**
    - `/v1/generations` (senkron ve kuyruklu) ve OpenAI uyumlu yüzey.
    - Anahtarlar, rate limit ve bakiye bloke/tahsil.
