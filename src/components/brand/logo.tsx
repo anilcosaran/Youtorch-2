@@ -1,6 +1,6 @@
 import { cn } from "@/lib/cn";
 
-/** Youtorch mark (ring + flame) on the ember brand tile. Source: Youtorch/logos/final. */
+/** Modelvend mark (ring + flame) on the ember brand tile. Source: Modelvend/logos/final. */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={cn("size-7", className)} aria-hidden>

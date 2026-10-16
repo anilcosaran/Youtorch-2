@@ -1,6 +1,6 @@
-# Youtorch Console
+# Modelvend Console
 
-Developer console for the Youtorch API: one endpoint and one balance for every generative video, image, audio and 3D model.
+Developer console for the Modelvend API: one endpoint and one balance for every generative video, image, audio and 3D model.
 
 Built with Next.js 16 (App Router, Cache Components, Turbopack), React 19 and Tailwind CSS v4.
 
@@ -63,11 +63,11 @@ Conventions:
 
 ## Environment
 
-| Variable                   | Default                      | Used for                      |
-| -------------------------- | ---------------------------- | ----------------------------- |
-| `NEXT_PUBLIC_SITE_URL`     | `https://app.youtorch.ai`    | `metadataBase`, absolute URLs |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://api.youtorch.ai/v1` | Code samples                  |
-| `NEXT_PUBLIC_DOCS_URL`     | `https://docs.youtorch.ai`   | Docs links                    |
+| Variable                   | Default                       | Used for                      |
+| -------------------------- | ----------------------------- | ----------------------------- |
+| `NEXT_PUBLIC_SITE_URL`     | `https://app.modelvend.ai`    | `metadataBase`, absolute URLs |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://api.modelvend.ai/v1` | Code samples                  |
+| `NEXT_PUBLIC_DOCS_URL`     | `https://docs.modelvend.ai`   | Docs links                    |
 
 `NEXT_PUBLIC_*` values are inlined at build time; rebuild after changing them.
 
@@ -76,9 +76,9 @@ Conventions:
 The build emits a standalone server (`output: "standalone"`).
 
 ```bash
-docker build -t youtorch-console \
-  --build-arg NEXT_PUBLIC_SITE_URL=https://app.youtorch.ai .
-docker run -p 3000:3000 youtorch-console
+docker build -t modelvend-console \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://app.modelvend.ai .
+docker run -p 3000:3000 modelvend-console
 ```
 
 Without Docker:

@@ -42,7 +42,7 @@ export const mcpClients: McpClient[] = [
     needsKey: true,
     steps: ["Run this once in your terminal.", "Type /mcp inside Claude Code to check it's connected."],
     file: "terminal",
-    code: `claude mcp add --transport http youtorch ${site.mcpUrl} \\
+    code: `claude mcp add --transport http modelvend ${site.mcpUrl} \\
   --header "${bearer}"`,
   },
   {
@@ -67,7 +67,7 @@ export const mcpClients: McpClient[] = [
     needsKey: true,
     steps: ["Add this block to your Codex config.", `Codex reads the key from ${apiKeyEnv}.`],
     file: "~/.codex/config.toml",
-    code: `[mcp_servers.youtorch]
+    code: `[mcp_servers.modelvend]
 url = "${site.mcpUrl}"
 bearer_token_env_var = "${apiKeyEnv}"`,
   },
@@ -81,7 +81,7 @@ bearer_token_env_var = "${apiKeyEnv}"`,
     file: "~/.gemini/settings.json",
     code: `{
   "mcpServers": {
-    "youtorch": {
+    "modelvend": {
       "httpUrl": "${site.mcpUrl}",
       "headers": { "Authorization": "Bearer $${apiKeyEnv}" }
     }
@@ -98,7 +98,7 @@ bearer_token_env_var = "${apiKeyEnv}"`,
     file: ".cursor/mcp.json",
     code: `{
   "mcpServers": {
-    "youtorch": {
+    "modelvend": {
       "url": "${site.mcpUrl}",
       "headers": { "Authorization": "Bearer \${env:${apiKeyEnv}}" }
     }

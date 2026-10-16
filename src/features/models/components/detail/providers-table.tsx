@@ -161,7 +161,7 @@ export function ProvidersTable({ model, endpoints }: { model: Model; endpoints: 
                 <tr key={e.id} className="border-t border-line transition-colors hover:bg-white/[0.025]">
                   <td>
                     <div className="flex items-center gap-2.5">
-                      {e.kind === "direct" && model.provider !== "youtorch" ? (
+                      {e.kind === "direct" && model.provider !== "modelvend" ? (
                         <ModelArt model={model} className="size-5 shrink-0 rounded-[4px]" />
                       ) : (
                         <LogoMark className="size-5 shrink-0" />

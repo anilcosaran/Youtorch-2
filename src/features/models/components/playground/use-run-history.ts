@@ -5,7 +5,7 @@ import type { PlaygroundRun } from "../../lib/playground";
 
 const MAX_RUNS = 24;
 const EMPTY: PlaygroundRun[] = [];
-const storageKey = (slug: string) => `youtorch:playground:${slug}`;
+const storageKey = (slug: string) => `modelvend:playground:${slug}`;
 
 const cache = new Map<string, PlaygroundRun[]>();
 const persisted = new Map<string, string>();

@@ -5,7 +5,7 @@ export const models: Model[] = [
   {
     slug: "lumen-1",
     name: "Lumen 1",
-    provider: "youtorch",
+    provider: "modelvend",
     modality: "video",
     description: "Our in-house cinematic model with camera control, consistent characters and native audio up to 20s.",
     price: 0.152,
