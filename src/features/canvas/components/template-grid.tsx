@@ -8,13 +8,15 @@ import { getModel } from "@/mocks/models";
 export function TemplateGrid() {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {flowTemplates.map((template) => (
+      {flowTemplates.map((template, i) => (
         <article key={template.title} className="overflow-hidden surface">
           <div className="relative aspect-[16/9]">
             <Image
               src={template.image}
               alt=""
               fill
+              // The first row is the largest image on the page, so it shouldn't wait on lazy loading.
+              loading={i < 4 ? "eager" : "lazy"}
               sizes="(min-width: 1280px) 25vw, (min-width: 640px) 50vw, 100vw"
               className="object-cover"
               style={{ objectPosition: template.position }}

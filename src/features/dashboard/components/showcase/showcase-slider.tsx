@@ -49,7 +49,7 @@ export function ShowcaseSlider() {
               {s.video ? (
                 <video src={s.video} poster={s.image} autoPlay muted loop playsInline className="size-full object-cover" />
               ) : (
-                <Image src={s.image} alt="" fill priority={i === 0} sizes="100vw" className="object-cover" />
+                <Image src={s.image} alt="" fill loading={i === 0 ? "eager" : "lazy"} sizes="100vw" className="object-cover" />
               )}
             </div>
           </div>

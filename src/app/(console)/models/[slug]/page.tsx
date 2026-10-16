@@ -5,6 +5,9 @@ import { ModelDetail } from "@/features/models/components/detail/model-detail";
 import { ModelDetailSkeleton } from "@/features/models/components/detail/model-detail-skeleton";
 import { findModel, models } from "@/mocks/models";
 
+// The slug is read outside Suspense on purpose (see below), so navigations here block instead of streaming.
+export const instant = false;
+
 export function generateStaticParams() {
   return models.map((m) => ({ slug: m.slug }));
 }

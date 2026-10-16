@@ -21,12 +21,15 @@ function Picture({
   className,
   style,
   lowRes,
+  eager,
 }: {
   src: string;
   alt: string;
   className?: string;
   style?: CSSProperties;
   lowRes?: boolean;
+  /** Load right away; for the hero sample, which is above the fold. */
+  eager?: boolean;
 }) {
   if (src.startsWith("data:")) {
     return (
@@ -34,7 +37,17 @@ function Picture({
       <img src={src} alt={alt} className={cn("absolute inset-0 size-full object-cover", lowRes && "blur-[3px]", className)} style={style} />
     );
   }
-  return <Image src={src} alt={alt} fill sizes={lowRes ? "96px" : sizes} className={cn("object-cover", className)} style={style} />;
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      loading={eager ? "eager" : "lazy"}
+      sizes={lowRes ? "96px" : sizes}
+      className={cn("object-cover", className)}
+      style={style}
+    />
+  );
 }
 
 /** The sample result in the app's hero, before anything is uploaded. */
@@ -45,20 +58,20 @@ export function AppShowcase({ app }: { app: App }) {
       return (
         <CompareSlider
           sweep
-          before={<Picture src={s.before} alt={`${app.name}, before`} lowRes={s.lowRes} />}
+          before={<Picture src={s.before} alt={`${app.name}, before`} lowRes={s.lowRes} eager />}
           after={
             <div className="absolute inset-0" style={s.transparent ? checkerboard : undefined}>
-              <Picture src={s.after} alt={`${app.name}, after`} />
+              <Picture src={s.after} alt={`${app.name}, after`} eager />
             </div>
           }
         />
       );
     case "video":
-      return <VideoPreview src={s.image} alt={app.name} seconds={s.seconds} sizes={sizes} autoplay />;
+      return <VideoPreview src={s.image} alt={app.name} seconds={s.seconds} sizes={sizes} autoplay eager />;
     case "audio":
       return (
         <>
-          <Picture src={s.image} alt="" />
+          <Picture src={s.image} alt="" eager />
           <div className="absolute inset-0 bg-gradient-to-t from-[rgb(0_0_0/0.85)] via-[rgb(0_0_0/0.35)] to-transparent" />
           <div className="absolute inset-x-4 bottom-4 rounded-xl border border-[rgb(255_255_255/0.12)] bg-[rgb(10_12_16/0.7)] p-4 text-left text-[#fff] backdrop-blur-xl sm:inset-x-6 sm:bottom-6">
             <p className="mb-3 line-clamp-2 text-[14px] leading-relaxed text-[rgb(255_255_255/0.85)]">“{s.script}”</p>
@@ -75,7 +88,7 @@ export function AppShowcase({ app }: { app: App }) {
           {s.images.map((src) => (
             <div key={src} className="relative overflow-hidden">
               <div className="absolute inset-0 motion-safe:animate-drift">
-                <Picture src={src} alt={app.name} />
+                <Picture src={src} alt={app.name} eager />
               </div>
             </div>
           ))}

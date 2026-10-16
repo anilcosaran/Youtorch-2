@@ -14,8 +14,8 @@ const badgeTone: Record<NonNullable<App["badge"]>, string> = {
 
 const sizes = "(min-width: 1280px) 560px, (min-width: 640px) 50vw, 100vw";
 
-/** Cover shows the input; hovering a before/after app reveals its result. */
-export function AppCard({ app }: { app: App }) {
+/** Cover shows the input; hovering a before/after app reveals its result. `eager` for covers above the fold. */
+export function AppCard({ app, eager }: { app: App; eager?: boolean }) {
   const model = appModel(app);
   const s = app.showcase;
   const reveal = s.kind === "compare" ? s : undefined;
@@ -30,6 +30,7 @@ export function AppCard({ app }: { app: App }) {
           src={app.cover}
           alt={app.name}
           fill
+          loading={eager ? "eager" : "lazy"}
           sizes={reveal?.lowRes ? "64px" : sizes}
           className="object-cover transition duration-700 group-hover:scale-[1.03]"
           style={{ objectPosition: app.position }}

@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { AppStudio } from "@/features/apps/components/app-studio";
 import { apps, findApp } from "@/mocks/apps";
 
+// The slug is read outside Suspense so unknown apps get a real 404 status; navigations here block instead of streaming.
+export const instant = false;
+
 export function generateStaticParams() {
   return apps.map((a) => ({ slug: a.slug }));
 }

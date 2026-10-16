@@ -39,9 +39,7 @@ export function McpSetup({ client }: { client: McpClient }) {
             </li>
           ))}
         </ol>
-        {client.needsKey && (
-          <CodeBlock code={exportKey} title={`export ${apiKeyEnv}`} className="mb-3" />
-        )}
+        {client.needsKey && <CodeBlock code={exportKey} title={`export ${apiKeyEnv}`} className="mb-3" />}
         <CodeBlock key={client.id} code={client.code} title={client.file} />
       </TimelineStep>
 

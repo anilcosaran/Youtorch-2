@@ -15,7 +15,7 @@ export const stepKinds: Record<FlowStep["kind"], { label: string; icon: LucideIc
   voice: { label: "Voice", icon: modalityIcon.audio },
 };
 
-const wave = Array.from({ length: 30 }, (_, i) => 22 + Math.abs(Math.sin(i * 0.9) * Math.cos(i * 0.31)) * 78);
+const wave = Array.from({ length: 30 }, (_, i) => Math.round(22 + Math.abs(Math.sin(i * 0.9) * Math.cos(i * 0.31)) * 78));
 
 /** One step on a Canvas board: what it makes, which model runs it and what it costs per run. */
 export function FlowNode({ step, className, style }: { step: FlowStep; className?: string; style?: CSSProperties }) {

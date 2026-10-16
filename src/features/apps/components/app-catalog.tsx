@@ -17,9 +17,10 @@ export function AppCatalog() {
     <>
       <Segmented value={filter} onChange={setFilter} options={filters} className="mb-5" />
       <ul className="grid gap-4 min-[1800px]:grid-cols-4 sm:grid-cols-2 xl:grid-cols-3">
-        {shown.map((app) => (
+        {shown.map((app, i) => (
           <li key={app.slug}>
-            <AppCard app={app} />
+            {/* The first row is above the fold at every breakpoint up to four columns. */}
+            <AppCard app={app} eager={i < 4} />
           </li>
         ))}
       </ul>

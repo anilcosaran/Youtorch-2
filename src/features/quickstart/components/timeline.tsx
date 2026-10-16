@@ -8,17 +8,7 @@ export function Timeline({ children }: { children: ReactNode }) {
   );
 }
 
-export function TimelineStep({
-  index,
-  title,
-  body,
-  children,
-}: {
-  index: number;
-  title: string;
-  body: ReactNode;
-  children?: ReactNode;
-}) {
+export function TimelineStep({ index, title, body, children }: { index: number; title: string; body: ReactNode; children?: ReactNode }) {
   return (
     <li className="relative pl-12">
       <span className="absolute top-0 left-0 grid size-7 place-items-center rounded-full border border-line-strong bg-raised font-mono text-[13px] text-ember-300">

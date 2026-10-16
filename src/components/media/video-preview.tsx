@@ -13,12 +13,15 @@ export function VideoPreview({
   seconds,
   sizes,
   autoplay,
+  eager,
 }: {
   src: string;
   alt: string;
   seconds: number;
   sizes: string;
   autoplay?: boolean;
+  /** Load the poster right away, for previews above the fold. */
+  eager?: boolean;
 }) {
   const { time, playing, cue, seek, toggle } = usePlayhead(seconds, autoplay);
   const [muted, setMuted] = useState(true);
@@ -34,7 +37,7 @@ export function VideoPreview({
           animationPlayState: playing ? "running" : "paused",
         }}
       >
-        <Image src={src} alt={alt} fill sizes={sizes} className="object-cover" />
+        <Image src={src} alt={alt} fill loading={eager ? "eager" : "lazy"} sizes={sizes} className="object-cover" />
       </div>
 
       <button type="button" onClick={toggle} aria-label={playing ? "Pause" : "Play"} className="absolute inset-0 grid place-items-center">

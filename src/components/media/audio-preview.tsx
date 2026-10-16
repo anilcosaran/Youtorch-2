@@ -5,7 +5,9 @@ import { cn } from "@/lib/cn";
 import { Scrubber } from "./scrubber";
 import { clock, usePlayhead } from "./use-playhead";
 
-const wave = (count: number) => Array.from({ length: count }, (_, i) => 18 + Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.23)) * 82);
+// Rounded so the server-rendered style matches what the browser serializes back (it keeps ~6 digits).
+const wave = (count: number) =>
+  Array.from({ length: count }, (_, i) => Math.round(18 + Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.23)) * 82));
 const full = wave(72);
 // Gaps are fixed pixels, so narrow cards need fewer bars or the bars collapse to nothing.
 const short = wave(28);

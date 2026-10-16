@@ -16,7 +16,7 @@ export function Badge({ tone = "neutral", className, ...props }: HTMLAttributes<
   return (
     <span
       className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1 rounded-md whitespace-nowrap border px-1.5 text-[12px] font-medium tracking-wide [&_svg]:size-3",
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[12px] font-medium tracking-wide whitespace-nowrap [&_svg]:size-3",
         tones[tone],
         className,
       )}
