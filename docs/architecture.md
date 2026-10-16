@@ -197,6 +197,8 @@ Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşı
 
 ## 5. Önerilen repo yapısı
 
+> Ayrıntılı ve güncel hâli: [structure.md](structure.md) (teknoloji seçimi, servisler, white-label, app'ler, task API'si, MCP).
+
 Depo bir npm workspaces monoreposu: müşteri konsolu `apps/console`, admin paneli `apps/admin` altında, tek lockfile kökte. Önerilen hedef, postpane'deki ayrımla uyumlu bir monorepo:
 
 ```
