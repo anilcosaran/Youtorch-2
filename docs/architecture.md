@@ -202,7 +202,7 @@ Depo bir npm workspaces monoreposu: müşteri konsolu `apps/console`, admin pane
 ```
 modelvend/
 ├─ apps/
-│  ├─ console/                 Müşteri konsolu (Next.js)
+│  ├─ console/                 Müşteri konsolu (Next.js; iç yapısı bölüm 6'da)
 │  ├─ admin/                   Operatör konsolu (Next.js; bu değişiklik)
 │  │  └─ src/
 │  │     ├─ app/               Rotalar ve /api proxy'si (ADMIN_API_URL, yoksa mock)
@@ -252,7 +252,110 @@ Neden Go:
 
 Neden admin ayrı uygulama: Ayrı host'ta çalışır, ayrı oturum modeli ve operatör hesapları vardır, admin API dışarıya hiç açılmaz. Bu, postpane'de denenmiş bir model.
 
-## 6. Veritabanı taslağı (Postgres)
+## 6. Müşteri konsolu (apps/console): dosya yapısı
+
+### Bugünkü durum
+
+Konsolun ekranları iyi durumda, ama altındaki yapı gerçek bir backend'e ve yeni katalog modeline hazır değil:
+
+- **Mock'lar her yerde.** 45'ten fazla dosya `@/mocks/*`'ı doğrudan import ediyor: sayfalar, feature bileşenleri, komut menüsü ve `ConsoleProvider`. Backend'e geçmek için değiştirilecek tek bir yer yok.
+- **Tipler katalogla uyuşmuyor.** `types/model.ts`'deki `Model` tipinin `slug`'ı, tek bir `price`'ı ve tek bir `provider`'ı var. Publisher, sürüm, sürüm başına fiyat listesi ve route bilgisi yok. Admin'in kullandığı modelle (bölüm 3) aynı şeyi anlatmıyor.
+- **Playground kontrolleri elle yazılmış.** `features/models/lib/playground.ts` kontrolleri modaliteye göre sabit tanımlıyor. Yeni bir model eklemek ya da bir modelin parametresi değişmek kod değişikliği gerektiriyor.
+- **İki tür state karışık.** `ConsoleProvider` UI durumunu (açık diyalog, live/test seçimi) sunucu verisiyle (bakiye, anahtarlar, kartlar, işlemler) aynı yerde tutuyor.
+- **URL sürüm ifade edemiyor.** `/models/[slug]` publisher'ı ve sürümü taşıyamıyor.
+- **Playground gerçek istek atmıyor.** Çalıştırma simüle ediliyor ve istek geçmişi de mock'tan geliyor.
+
+### Hedef yapı
+
+```
+apps/console/src/
+├─ app/                                 Sadece rotalar: layout, page, metadata, hata sınırları
+│  ├─ (console)/
+│  │  ├─ page.tsx                       Dashboard
+│  │  ├─ models/page.tsx                Katalog
+│  │  ├─ models/[publisher]/[slug]/     Model sayfası; ?tab= ve ?version= URL'de
+│  │  ├─ apps/page.tsx
+│  │  ├─ apps/[slug]/page.tsx
+│  │  ├─ canvas/
+│  │  ├─ requests/page.tsx              (yeni) İstek geçmişi; detay yan panelde (?panel=request:req_…)
+│  │  ├─ usage/page.tsx                 Harcama grafikleri (log tablosu requests'e taşınır)
+│  │  ├─ api-keys/page.tsx
+│  │  ├─ billing/page.tsx
+│  │  ├─ settings/                      (yeni) Workspace, üyeler, webhook'lar, limitler
+│  │  └─ quickstart/
+│  ├─ (auth)/                           (yeni) sign-in, sign-up, invite/[token]
+│  └─ api/                              BFF: tarayıcı API anahtarı görmez
+│     ├─ generations/route.ts           Playground ve app çalıştırma: POST, GET /:id, SSE durum akışı
+│     └─ uploads/route.ts               Referans medya için imzalı yükleme URL'si
+├─ features/                            Ürün alanı başına bir klasör; içinde components/, hooks/, lib/
+│  ├─ catalog/                          Model kartı, liste, filtreler (bugünkü models/'in katalog kısmı)
+│  ├─ model-page/                       Model sayfası sekmeleri
+│  ├─ playground/                       Şemadan form, çalıştırma, çıktı, geçmiş
+│  ├─ requests/                         İstek listesi ve detay paneli
+│  └─ apps/ canvas/ dashboard/ usage/ billing/ api-keys/ settings/ quickstart/
+├─ data/                                (yeni) Veri katmanı: feature'lar veriye yalnızca buradan ulaşır
+│  ├─ catalog.ts                        listModels, getModel, getVersion, listApps, getApp
+│  ├─ requests.ts                       listRequests, getRequest
+│  ├─ workspace.ts                      Bakiye, anahtarlar, kartlar, ledger, kullanım
+│  ├─ actions/                          Server Action'lar: createKey, revokeKey, addFunds, setAutoReload, inviteMember
+│  └─ source/                           Verinin nereden geldiği, tek bir yerde seçilir
+│     ├─ gateway.ts                     Gerçek: Modelvend public API (/v1)
+│     └─ mock/                          Geliştirme: bugünkü src/mocks buraya taşınır ve aynı sözleşmeyi uygular
+├─ lib/
+│  ├─ schema-form/                      (yeni) JSON Schema → form alanları
+│  └─ format.ts, pricing.ts, modality.ts, cn.ts, theme.ts
+├─ components/                          ui/, layout/, charts/, media/, code/, brand/ (bugünkü gibi)
+├─ providers/ui-provider.tsx            Sadece UI durumu: diyaloglar, komut menüsü, live/test seçimi
+└─ config/site.ts
+
+packages/api-types/                     /v1 OpenAPI'den üretilen tipler; bugünkü src/types/'ın yerini alır
+```
+
+### Kurallar
+
+1. **Feature'lar mock import etmez, fetch de yapmaz.** Veriye yalnızca `@/data/*` üzerinden ulaşırlar. Kaynağın mock mu gateway mi olduğu `data/source` içinde, tek yerde seçilir. Admin'deki `/api` proxy'si ve mock API ile aynı fikir.
+2. **Tipler `packages/api-types`'tan gelir.** Bu tipler public API'nin OpenAPI tanımından üretilir. Model kartının renkleri gibi yalnızca konsolda gereken görünüm tipleri ilgili feature'ın `lib/`'inde kalır.
+3. **Katalog önbelleğe alınır, değişince yenilenir.** Server Component'ler katalogu `data/catalog.ts` ile okur; bu fonksiyonlar `"use cache"` ve `cacheTag("model:google/veo-3.1")` kullanır. Admin bir sürümü yayınladığında admin API konsola bir revalidate çağrısı yapar ve sayfa saniyeler içinde güncellenir.
+4. **Değişiklikler Server Action ile yapılır.** Anahtar oluşturma, bakiye yükleme, üye davet etme gibi işlemler `data/actions` üzerinden gider ve ilgili veriyi yeniden doğrular. `ConsoleProvider`'da tutulan sahte state kalkar.
+5. **Playground ve app çalıştırma BFF'den geçer.** İstekler `app/api/generations` üzerinden gateway'e gider. BFF, oturumdaki workspace için sunucu tarafında tutulan bir konsol anahtarı kullanır; tarayıcı anahtarı hiç görmez.
+6. **Playground formu sürümün input şemasından üretilir.** Yerleşim ipuçları şemanın içinde, `x-ui` anahtarıyla taşınır:
+   - `group`: `quick` (prompt altındaki çipler), `toggle` (prompt kartındaki anahtarlar) veya `advanced`.
+   - `widget`: `aspect-ratio`, `duration`, `seed` veya `image-upload`.
+   - `icon`.
+
+   Böylece yeni bir model eklemek konsolda kod değişikliği gerektirmez. Admin'deki Schema sekmesi bu ipuçlarını da düzenler.
+
+7. **Model URL'si:** `/models/{publisher}/{slug}?version=v2&tab=playground`. Eski `/models/{slug}` linkleri `next.config.ts` içindeki redirect'lerle yeni adrese yönlenir.
+8. **Model sayfası sekmeleri:** Playground, **Versions** (yeni: changelog, deprecated uyarısı, sunset tarihi), Pricing (seçili sürümün kademeleri), Providers, Performance, Uptime, API. Providers sekmesi route'ların herkese açık görünümüdür: sağlayıcı, bölge, uptime ve gecikme; maliyet gösterilmez. API sekmesindeki kod örnekleri şemadan üretilir.
+9. **App'ler de şemadan beslenir.** App sayfası canlı release'i çalıştırır. Seçenekler bugünkü `options[]` dizisi yerine release'in input şemasından gelir.
+
+### Bugünkü dosyalar nereye gider
+
+| Bugün                                                                             | Hedef                                                                                            |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/mocks/*`                                                                     | `src/data/source/mock/*`                                                                         |
+| `src/types/model.ts`, `usage.ts`, `workspace.ts`                                  | `packages/api-types`; konsola özel görünüm tipleri feature `lib/`'lerine                         |
+| `src/providers/console-provider.tsx`                                              | `providers/ui-provider.tsx` (diyalog, live/test) ve `data/actions` (bakiye, anahtarlar, kartlar) |
+| `features/models/components/model-card.tsx`, `model-catalog.tsx`, `model-art.tsx` | `features/catalog/`                                                                              |
+| `features/models/components/detail/*`                                             | `features/model-page/`                                                                           |
+| `features/models/components/playground/*`                                         | `features/playground/`                                                                           |
+| `features/models/lib/playground.ts` (modalite başına sabit kontroller)            | `lib/schema-form/` ve şemadaki `x-ui` ipuçları                                                   |
+| `features/models/lib/endpoints.ts`, `mocks/model-stats.ts`                        | `features/model-page/` içindeki Providers sekmesi; veri `/v1/models/{id}/endpoints`'ten          |
+| `features/usage/components/request-table.tsx`                                     | `features/requests/` (detay paneliyle)                                                           |
+| `app/(console)/models/[slug]/`                                                    | `app/(console)/models/[publisher]/[slug]/`                                                       |
+
+### Geçiş sırası
+
+Her adım ayrı bir PR olur ve ekranlar adımlar boyunca aynı görünür:
+
+1. Konsolu `apps/console` altına taşı (bitti: npm workspaces, tek lockfile kökte).
+2. `data/` katmanını mock kaynakla kur ve feature'lardaki bütün `@/mocks` importlarını `data/` çağrılarına çevir. Davranış değişmez.
+3. Tipleri katalog modeline geçir: `publisher/slug`, sürümler, sürüm başına fiyat. URL'leri `[publisher]/[slug]` yapısına taşı ve eski linkler için redirect ekle.
+4. `ConsoleProvider`'ı UI provider ve Server Action'lar olarak ikiye böl.
+5. Playground'u şemadan üret (`lib/schema-form`) ve Versions sekmesini ekle.
+6. Gateway hazır olduğunda `data/source/gateway.ts`'i bağla ve `/api/generations` BFF'ini aç.
+
+## 7. Veritabanı taslağı (Postgres)
 
 ```sql
 providers        (id text pk, name, kind, adapter, status, base_url, regions text[], credential_ciphertext bytea,
@@ -289,7 +392,7 @@ Notlar:
 - Raporlar ve sağlık pencereleri ileride ClickHouse gibi bir analitik depoya akıtılabilir. İlk aşamada Postgres'teki materialized view'lar ve Redis sayaçları yeterli.
 - Katalog okumaları gateway'de bellekte önbelleğe alınır. Admin'de bir değişiklik olduğunda Postgres `NOTIFY` ile önbellek geçersiz kılınır.
 
-## 7. Admin paneli (bu değişiklik)
+## 8. Admin paneli (bu değişiklik)
 
 `apps/admin` uygulaması postpane admin'inin kabuğunu, UI kitini ve kalıplarını kullanıyor: sidebar, komut paleti (Ctrl K), J/K ile gezilen yan panel, URL'de tutulan filtreler, audit log ve operatör izinleri.
 
@@ -308,7 +411,7 @@ Ekranlar:
 
 Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme ortamında `src/mock-api` aynı sözleşmeyi bellekte uygular. Sözleşmenin kendisi `apps/admin/src/lib/api/*.ts` dosyalarındaki tipler ve yorumlardır. Go admin API yazılırken bu dosyalar `docs/admin-api.md`'ye dökülür ve mock ile karşılaştırılarak test edilir.
 
-## 8. Yol haritası
+## 9. Yol haritası
 
 1. **Faz 0 (bitti): Admin arayüzü ve sözleşme.** Bu değişiklik.
 2. **Faz 1: Katalog backend'i.**
@@ -332,7 +435,7 @@ Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme or
    - fal'daki gibi değişmez revision'lar ve rollback.
    - Router bu deployment'ları diğer route'larla aynı şekilde görür. Maliyeti GPU-saniye üzerinden hesaplanır.
 
-## 9. Açık kararlar
+## 10. Açık kararlar
 
 - **Sürüm ID'si:** `v1, v2, …` mi, tarih mi (`2026-10-01`)? Admin ikisini de kabul ediyor. Öneri: `vN`, insanlar için ayrıca `label` alanı.
 - **Promosyon:** Sürüm seviyesinde mi kalsın, yoksa zaman aralıklı override olarak mı tanımlansın (OpenRouter'daki `pricing.overrides` gibi)?
