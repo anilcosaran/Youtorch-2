@@ -15,8 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/brieeflabs/modelvend/services/internal/adminapi"
-	"github.com/brieeflabs/modelvend/services/internal/app"
+	"github.com/brieeflabs/modelvend/services/internal/api/admin"
+	"github.com/brieeflabs/modelvend/services/internal/bootstrap"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 )
 
@@ -31,7 +31,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	d, err := app.Open(ctx, "adminapi", ":8081")
+	d, err := bootstrap.Open(ctx, "adminapi", ":8081")
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(middleware.Recoverer)
-	adminapi.Routes(router)
+	admin.Routes(router)
 
 	mux := http.NewServeMux()
 	httpx.Health(mux, d.DB)

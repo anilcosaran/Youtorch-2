@@ -23,8 +23,8 @@ import (
 	"github.com/brieeflabs/modelvend/services/internal/apps"
 	"github.com/brieeflabs/modelvend/services/internal/billing"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
+	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/providers/mapping"
-	"github.com/brieeflabs/modelvend/services/internal/schema"
 )
 
 type Model struct {

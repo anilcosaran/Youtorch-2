@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/providers"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
@@ -92,34 +91,6 @@ func PublicTask(t tasks.Task) Task {
 // Dollars turns micro-dollars into dollars for display.
 func Dollars(micros int64) float64 {
 	return math.Round(float64(micros)) / 1e6
-}
-
-// Public error codes. Messages are ours; the provider's text stays on the attempt.
-const (
-	CodeInvalidInput     = "invalid_input"
-	CodeContentPolicy    = "content_policy"
-	CodeGenerationFailed = "generation_failed"
-	CodeTimeout          = "timeout"
-	CodeUnavailable      = "model_unavailable"
-)
-
-// UpstreamError maps a provider's failure to the error customers see.
-func UpstreamError(e *providers.UpstreamError) Error {
-	if e == nil {
-		return Error{Code: CodeGenerationFailed, Message: "The model couldn't complete this task. You weren't charged."}
-	}
-	switch e.Kind {
-	case providers.InvalidInput:
-		return Error{Code: CodeInvalidInput, Message: "The model couldn't use this input. Check it against the model's schema. You weren't charged."}
-	case providers.ContentPolicy:
-		return Error{Code: CodeContentPolicy, Message: "The input or the output was blocked by the content policy."}
-	case providers.Timeout:
-		return Error{Code: CodeTimeout, Message: "The model took too long to answer. You weren't charged; try again."}
-	case providers.Unavailable:
-		return Error{Code: CodeUnavailable, Message: "The model is unavailable right now. You weren't charged; try again shortly."}
-	default:
-		return Error{Code: CodeGenerationFailed, Message: "The model couldn't complete this task. You weren't charged."}
-	}
 }
 
 // Model is a model as customers see it.

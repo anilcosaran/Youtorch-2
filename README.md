@@ -8,31 +8,31 @@ platform: the web apps, the Go backend services, and the contracts and packages 
 
 ```
 modelvend/
-├─ apps/                        Next.js apps (npm workspaces)
-│  ├─ console/                  Customer console, app.modelvend.ai
-│  └─ admin/                    Operator console, admin.modelvend.ai (mock admin API in src/mock-api)
-├─ services/                    Go backend: one module, several binaries
+├─ apps/                        User interfaces (Next.js, npm workspaces)
+│  ├─ console/                  Customer UI, app.modelvend.ai
+│  └─ admin/                    Operator UI, admin.modelvend.ai (mock admin API in src/mock-api)
+├─ services/                    Go backend: one module, several binaries (see services/README.md)
 │  ├─ cmd/
-│  │  ├─ gateway/               Public API /v1: tasks, models, OpenAI-compatible endpoints (:8080)
-│  │  ├─ mcp/                   MCP server at /mcp (:8090)
-│  │  ├─ worker/                River job workers; health and metrics (:9090)
-│  │  ├─ adminapi/              /admin/v1 for the operator console (:8081, answers 501 for now)
-│  │  └─ migrate/               Schema migrations, catalog import, dev seed
+│  │  ├─ gateway/               PUBLIC: /v1 tasks and models, OpenAI-compatible endpoints (:8080)
+│  │  ├─ mcp/                   PUBLIC: MCP server at /mcp (:8090)
+│  │  ├─ adminapi/              INTERNAL: /admin/v1 for the operator UI (:8081, answers 501 for now)
+│  │  ├─ worker/                INTERNAL: River job workers; health and metrics (:9090)
+│  │  └─ migrate/               Ops: schema migrations, catalog import, dev seed
 │  ├─ internal/
-│  │  ├─ platform/              config, database (+ dbtest), httpx, ids, logging
-│  │  ├─ app/                   Wiring every process shares
-│  │  ├─ catalog/               Models, versions, routes, ID resolution; manifest/ imports catalog YAML
-│  │  ├─ schema/                JSON Schema validation and defaults for task input
-│  │  ├─ tasks/                 Task record, store and service (create, get, wait, cancel)
+│  │  ├─ api/                   Inbound adapters, no business logic
+│  │  │  ├─ public/             rest/ (/v1), openaicompat/, mcpserver/, redact/ (public DTOs and errors)
+│  │  │  └─ admin/              /admin/v1
+│  │  ├─ catalog/               Models, versions, routes, ID resolution; schema/ (JSON Schema), manifest/ (YAML import)
+│  │  ├─ tasks/                 Task record, state machine and service; jobs/ (dispatch and poll workers)
 │  │  ├─ routing/               Orders a version's routes by strategy
-│  │  ├─ providers/             Provider interface; mapping/ and a fake/ provider (real adapters come later)
-│  │  ├─ jobs/                  Worker jobs: dispatch and poll
-│  │  ├─ redact/                Public shapes of tasks, models and errors; nothing provider-side leaks
-│  │  ├─ media/                 Copies outputs to our storage
+│  │  ├─ providers/             Provider port; mapping/ and a fake/ provider (real adapters come later)
 │  │  ├─ apps/                  App releases and step templates
-│  │  ├─ billing/  keys/  webhooks/
-│  │  ├─ publicapi/  openaicompat/  mcpserver/  adminapi/
-│  │  └─ accounts/  ratelimit/  operators/  audit/    Package docs only, for now
+│  │  ├─ billing/               Prices and costs
+│  │  ├─ identity/              accounts/, keys/ (API keys), operators/
+│  │  ├─ delivery/              media/ (copies outputs to our storage), webhooks/
+│  │  ├─ audit/  ratelimit/     Package docs only, for now
+│  │  ├─ platform/              config, database (+ dbtest), httpx, ids, logging
+│  │  └─ bootstrap/             Wiring every process shares
 │  └─ migrations/               goose SQL
 ├─ api/                         OpenAPI contracts: public, admin, webhooks (placeholder)
 ├─ packages/
@@ -49,12 +49,12 @@ modelvend/
 └─ package.json                 npm workspaces: apps/*
 ```
 
-| Path           | Details                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `apps/console` | [README](apps/console/README.md)                                                           |
-| `apps/admin`   | [README](apps/admin/README.md)                                                             |
-| `services`     | Go 1.26: chi, pgx, goose, River, go-redis, minio-go, MCP go-sdk. `go test ./...` from here |
-| `docs`         | [Architecture](docs/architecture.md) and [platform structure](docs/structure.md)           |
+| Path           | Details                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| `apps/console` | [README](apps/console/README.md)                                                              |
+| `apps/admin`   | [README](apps/admin/README.md)                                                                |
+| `services`     | [README](services/README.md). Go 1.26: chi, pgx, goose, River, go-redis, minio-go, MCP go-sdk |
+| `docs`         | [Architecture](docs/architecture.md) and [platform structure](docs/structure.md)              |
 
 The apps are npm workspaces with one lockfile at the root. Each app keeps its own `package.json`, configs, Dockerfile and
 README; the root only installs dependencies and runs scripts across them.

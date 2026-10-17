@@ -1,7 +1,6 @@
 package keys
 
 import (
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -29,17 +28,5 @@ func TestWellFormed(t *testing.T) {
 		if WellFormed(bad) {
 			t.Errorf("%q should be rejected", bad)
 		}
-	}
-}
-
-func TestBearer(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.Header.Set("Authorization", "Bearer  mv_live_x ")
-	if Bearer(r) != "mv_live_x" {
-		t.Fatal(Bearer(r))
-	}
-	r.Header.Set("Authorization", "Basic abc")
-	if Bearer(r) != "" {
-		t.Fatal("basic auth is not a bearer key")
 	}
 }

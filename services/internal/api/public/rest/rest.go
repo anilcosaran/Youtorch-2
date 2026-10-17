@@ -1,11 +1,10 @@
-// Package publicapi serves /v1, the customer API described by api/public.yaml:
+// Package rest serves /v1, the customer API described by api/public.yaml:
 // tasks (models and apps), the catalog, and later uploads and usage. Every
 // body it writes is a redact type; internal records never reach the encoder.
-package publicapi
+package rest
 
 import (
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -14,13 +13,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/brieeflabs/modelvend/services/internal/api/public/openaicompat"
+	"github.com/brieeflabs/modelvend/services/internal/api/public/redact"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/keys"
-	"github.com/brieeflabs/modelvend/services/internal/openaicompat"
+	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/platform/ids"
-	"github.com/brieeflabs/modelvend/services/internal/redact"
-	"github.com/brieeflabs/modelvend/services/internal/schema"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
@@ -38,7 +36,7 @@ const maxWait = 60 * time.Second
 // Routes mounts /v1 on r.
 func (a *API) Routes(r chi.Router) {
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(requestID, a.Keys.Middleware)
+		r.Use(requestID, authenticate(a.Keys))
 		r.Post("/tasks", a.createTask)
 		r.Get("/tasks", a.listTasks)
 		r.Get("/tasks/{id}", a.getTask)
@@ -249,35 +247,5 @@ func (a *API) getModel(w http.ResponseWriter, r *http.Request) {
 
 // fail answers with the public form of err.
 func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
-	httpx.WriteError(w, r, a.Logger, PublicError(err))
-}
-
-// PublicError turns a domain error into the *httpx.Error customers see. Errors
-// it doesn't know are returned as they are and answered as a generic 500.
-// MCP uses it too, so both surfaces say the same thing.
-func PublicError(err error) error {
-	var fields schema.FieldErrors
-	switch {
-	case errors.As(err, &fields):
-		err = &httpx.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_input",
-			Message: "The input doesn't match the model's schema.", Fields: fields}
-	case errors.Is(err, catalog.ErrNotFound):
-		err = httpx.Errorf(http.StatusNotFound, "model_not_found", "There's no model with that ID, or your key can't use it.")
-	case errors.Is(err, catalog.ErrPaused):
-		err = httpx.Errorf(http.StatusServiceUnavailable, "model_paused", "This model is paused. Try again later.")
-	case errors.Is(err, catalog.ErrNotLive):
-		err = httpx.Errorf(http.StatusNotFound, "model_not_found", "This model has no version you can call yet.")
-	case errors.Is(err, catalog.ErrGone):
-		err = httpx.Errorf(http.StatusGone, "version_retired", "This version was retired. Call the model without a version, or pin a live one.")
-	case errors.Is(err, tasks.ErrTarget):
-		err = &httpx.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_request",
-			Message: "Name a model as publisher/slug or publisher/slug@version, or an app.", Fields: map[string]string{"model": err.Error()}}
-	case errors.Is(err, tasks.ErrAppsUnavailable):
-		err = httpx.Errorf(http.StatusNotImplemented, "not_implemented", "App runs aren't available through the API yet.")
-	case errors.Is(err, tasks.ErrNotFound):
-		err = httpx.Errorf(http.StatusNotFound, "task_not_found", "There's no task with that ID in this workspace.")
-	case errors.Is(err, tasks.ErrFinal):
-		err = httpx.Errorf(http.StatusConflict, "task_finished", "This task has already finished.")
-	}
-	return err
+	httpx.WriteError(w, r, a.Logger, redact.PublicError(err))
 }

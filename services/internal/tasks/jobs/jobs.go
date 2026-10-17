@@ -6,7 +6,9 @@
 // A route that fails before producing output hands the task to the next one,
 // up to the version's max attempts; then the task fails with our error. On
 // success the output is copied to our storage and the task is priced.
-// Webhook delivery, app runs and maintenance jobs join this package next.
+// App runs join this package next. Jobs of other contexts live with them
+// (webhook delivery in delivery/webhooks, settlement in billing); cmd/worker
+// registers them all.
 package jobs
 
 import (
@@ -21,10 +23,9 @@ import (
 
 	"github.com/brieeflabs/modelvend/services/internal/billing"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/media"
+	"github.com/brieeflabs/modelvend/services/internal/delivery/media"
 	"github.com/brieeflabs/modelvend/services/internal/providers"
 	"github.com/brieeflabs/modelvend/services/internal/providers/mapping"
-	"github.com/brieeflabs/modelvend/services/internal/redact"
 	"github.com/brieeflabs/modelvend/services/internal/routing"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
@@ -298,7 +299,7 @@ func (d *Deps) succeed(ctx context.Context, r *run, rt catalog.Route, number int
 }
 
 func (d *Deps) fail(ctx context.Context, taskID string, e *providers.UpstreamError) error {
-	pub := redact.UpstreamError(e)
+	pub := tasks.UpstreamFailure(e)
 	err := d.Tasks.Fail(ctx, taskID, pub.Code, pub.Message, time.Now())
 	if errors.Is(err, tasks.ErrFinal) {
 		return nil

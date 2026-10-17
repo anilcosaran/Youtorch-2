@@ -18,13 +18,13 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	"github.com/brieeflabs/modelvend/services/internal/app"
-	"github.com/brieeflabs/modelvend/services/internal/jobs"
-	"github.com/brieeflabs/modelvend/services/internal/media"
+	"github.com/brieeflabs/modelvend/services/internal/bootstrap"
+	"github.com/brieeflabs/modelvend/services/internal/delivery/media"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/providers"
 	"github.com/brieeflabs/modelvend/services/internal/providers/fake"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
+	"github.com/brieeflabs/modelvend/services/internal/tasks/jobs"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	d, err := app.Open(ctx, "worker", ":9090")
+	d, err := bootstrap.Open(ctx, "worker", ":9090")
 	if err != nil {
 		return err
 	}

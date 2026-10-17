@@ -12,8 +12,8 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
+	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/platform/ids"
-	"github.com/brieeflabs/modelvend/services/internal/schema"
 )
 
 // DispatchArgs starts or retries a task on its next route.

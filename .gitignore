@@ -13,12 +13,12 @@ node_modules/
 # testing
 coverage/
 
-# next.js
+# next.js (anchored to the apps, so Go packages named out/ or build/ aren't ignored)
 .next/
-out/
+/apps/*/out/
 
 # production
-build/
+/apps/*/build/
 
 # misc
 .DS_Store

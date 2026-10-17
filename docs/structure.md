@@ -1,6 +1,6 @@
 # Modelvend platform yapısı: monorepo, teknoloji, white-label ve app'ler
 
-> Durum: onay bekleyen öneri, 16 Ekim 2026. Onaylanınca bu yapının iskeleti kurulacak (bölüm 7). Gerçek sağlayıcı çağrıları, faturalama ve tam API daha sonra yazılacak.
+> Durum: iskelet kuruldu (bölüm 7). 17 Ekim 2026'da backend paketleri bounded context'lere ve dışa açık / iç yüzeylere göre yeniden düzenlendi (bölüm 3). Gerçek sağlayıcı çağrıları, faturalama ve tam API daha sonra yazılacak.
 > [architecture.md](architecture.md)'deki domain modelinin üstüne kurulur. Bölüm 5'teki repo yapısının ayrıntılı ve güncel hâli budur.
 
 ## 1. Kısaca
@@ -37,63 +37,123 @@
 
 TypeScript backend (Hono, pg-boss/BullMQ) de düşünüldü. Artısı tiplerin doğrudan paylaşılması. Eksisi postpane'de çalışan altyapıyı (River pool'ları, admin oturumları, audit, Helm) baştan yazmak. Tip paylaşımını OpenAPI'den üretim zaten sağladığı için Go seçildi.
 
-## 3. Monorepo dosya yapısı
+## 3. Mimari tarz ve monorepo dosya yapısı
+
+### Karar: bounded context'lere bölünmüş modüler monolit
+
+Modelvend backend'i microservice'lere bölünmez. Klasik DDD katmanlaması (her pakette domain, application, infrastructure) da kullanılmaz. Yapı şu:
+
+- **Tek Go modülü, tek veritabanı, tek imaj, birden çok ince binary.** `cmd/*` altındaki her binary yalnızca kendi yüzeyini açar (gateway, mcp, worker, adminapi, migrate). Hepsi aynı `internal/` paketlerini kullanır. Bir yüzey ayrı ölçeklenmek isterse binary'si ayrı deploy edilir; kod ayrılmaz.
+- **Paketler katmana göre değil, iş alanına (bounded context) göre ayrılır:** `catalog`, `tasks`, `routing`, `providers`, `billing`, `identity`, `delivery`, `apps`. Grafana'nın `pkg/services/<alan>` düzeni de böyledir.
+- **Ports/adapters yalnızca değişen kenarlarda kullanılır.** Örnekler: sağlayıcılar (`providers.Provider`), çıktı deposu (`media.Store`), ödeme (Stripe, sonra) ve webhook teslimatı. Geri kalanı düz Go'dur.
+- **Context'ler arası olaylar River job'larıyla taşınır.** Job, veriyi yazan transaction'ın içinde kuyruğa girer. Bu bir transactional outbox'tır; ayrı bir broker (Kafka, NATS) ya da relay süreci gerekmez. Örneğin `tasks.Service.Create`, task kaydını ve `dispatch_task` job'ını aynı transaction'da yazar. Job argümanları kuyruğa yazan context'te durur (`tasks.DispatchArgs`).
+- **Context'ler birbirini süreç içinde çağırır.** Çağrılar Go fonksiyonları ve arayüzleriyle yapılır; servisler arasında HTTP ya da gRPC yoktur. Gateway ile worker birbirini çağırmaz, aynı veritabanını paylaşır.
+
+Neden bu tarz? Benzer şirketlerin herkese açık bilgileri aşağıda. "Çıkarım" yazan satırlar iş ilanlarına ya da üçüncü taraf kaynaklara dayanır.
+
+| Kim           | Bilinen                                                                                                                                                                          | Kaynak                                                                                                                                                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fal           | Kuyruk API'si (`queue.fal.run`). Runner düşerse istek aynı `request_id` ile en fazla 10 kez başka runner'a gider. Ed25519 imzalı webhook. Yalnız başarılı çıktı ücretlendirilir. | [queue](https://fal.ai/docs/documentation/model-apis/inference/queue.md), [requests](https://fal.ai/docs/documentation/deployment/requests)                                                        |
+| fal (çıkarım) | Çekirdek platform Python/Rust, Kubernetes üzerinde                                                                                                                               | [iş ilanı](https://job-boards.greenhouse.io/fal/jobs/4009193009)                                                                                                                                   |
+| OpenRouter    | Uçtan uca TypeScript; Cloudflare, GCP, Postgres. Fallback yalnız ilk token'dan önce yapılır. Bakiye yetmezse istek çalışmadan 402 döner. Management key'ler ayrıdır.             | [iş ilanı](https://jobs.somacap.com/companies/openrouter-2/jobs/76125251-software-engineer-platform), [routing](https://openrouter.ai/docs/features/provider-routing)                              |
+| Replicate     | Go altyapısı. Her sürümün bir `openapi_schema`'sı var. Webhook'lar Standard Webhooks biçiminde.                                                                                  | [replicate/go](https://github.com/replicate/go), [şemalar](https://replicate.com/changelog/2023-03-20-get-model-input-and-output-schemas-via-the-api)                                              |
+| Stripe        | On yıl boyunca tek bir monolit. Idempotency anahtarları ve aynı transaction'da job yazma (job drain, yani outbox). Değişmez ledger.                                              | [idempotency](https://brandur.org/idempotency-keys), [job drain](https://brandur.org/job-drain), [Ledger](https://stripe.dev/blog/ledger-stripe-system-for-tracking-and-validating-money-movement) |
+| Segment       | 140'tan fazla microservice'ten tek servise döndü; ekip zamanının çoğunu sistemi ayakta tutmaya harcıyordu.                                                                       | [Goodbye Microservices](https://www.twilio.com/en-us/blog/developers/best-practices/goodbye-microservices)                                                                                         |
+| Grafana Loki  | Tek binary, `-target` ile rol seçer. Microservice modunu yalnız çok büyük kümelere önerir.                                                                                       | [deployment modes](https://grafana.com/docs/loki/latest/get-started/deployment-modes/)                                                                                                             |
+
+Bilinçli olarak yapılmayanlar:
+
+- Servis başına ayrı repo, ayrı veritabanı ya da ayrı admin veritabanı yok.
+- Kafka, NATS ya da Temporal yok; River yeterli. Bir broker gerekirse outbox'tan ona aktaran bir forwarder eklenir.
+- Dual write yok: job commit'ten sonra değil, aynı transaction'da yazılır. Sağlayıcı ve Stripe çağrıları transaction içinde yapılmaz.
+- Upstream bir işi kabul ettikten sonra başka sağlayıcıya fallback yapılmaz; aynı iş iki kez üretilir ve iki kez ödenirdi.
+
+### Kontrol düzlemi ve veri düzlemi
+
+| Düzlem          | Ne yapar                                                                                                 | Paketler                                                                                            | Kim yazar                  |
+| --------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------- |
+| Kontrol düzlemi | Katalog, model şemaları, fiyatlar, route'lar, app release'leri, hesaplar, anahtarlar, operatörler, audit | `catalog` (+ `schema`, `manifest`), `apps`, `identity/*`, `audit`, `billing` (ledger yönetimi)      | `adminapi`, `migrate`      |
+| Veri düzlemi    | Task alma, doğrulama, fiyatlama, kuyruk, sağlayıcıya gönderme, çıktı kopyalama, webhook                  | `tasks` (+ `jobs`), `routing`, `providers`, `delivery/*`, `ratelimit`, `billing` (hold ve tahsilat) | `gateway`, `mcp`, `worker` |
+
+Veri düzlemi kataloğu yalnızca okur ve önbelleğe alır. Admin API'yi hiçbir zaman çağırmaz.
+
+### Yüzeyler: dışa açık ve iç
+
+| Yüzey                            | Binary     | Nerede                                              | Kim çağırır                                      | Kimlik doğrulama   | Paket                                                 |
+| -------------------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------ | ------------------ | ----------------------------------------------------- |
+| Public REST `/v1`                | `gateway`  | `api.modelvend.ai` (dışa açık)                      | Müşteriler, SDK'lar, müşteri konsolu             | API anahtarı       | `internal/api/public/rest`                            |
+| OpenAI uyumlu `/v1/...`          | `gateway`  | `api.modelvend.ai` (dışa açık)                      | OpenAI istemcileri, postpane                     | API anahtarı       | `internal/api/public/openaicompat`                    |
+| MCP `/mcp`                       | `mcp`      | `mcp.modelvend.ai` (dışa açık)                      | Claude, Cursor ve diğer MCP istemcileri          | API anahtarı       | `internal/api/public/mcpserver`                       |
+| Admin `/admin/v1`                | `adminapi` | Yalnız iç ağ veya SSO arkası                        | `apps/admin` (Next.js `/api` proxy'si üzerinden) | Operatör oturumu   | `internal/api/admin`                                  |
+| Job worker                       | `worker`   | Dışarıdan erişilemez; yalnız `/healthz`, `/metrics` | River kuyruğu                                    | Yok                | `internal/tasks/jobs` ve diğer context'lerin job'ları |
+| Migration ve katalog içe aktarma | `migrate`  | CLI                                                 | CI ve operatörler                                | Veritabanı erişimi | `platform/database`, `catalog/manifest`               |
+
+`internal/api/public/redact` dışa açık üç yüzeyin ortak son kapısıdır: müşteriye giden task, model ve hata biçimlerini yalnızca o üretir.
+
+### Dosya yapısı
 
 ```
 modelvend/
-├─ apps/                                Next.js arayüzleri (npm workspaces)
-│  ├─ console/                          app.modelvend.ai: müşteri konsolu (iç yapısı: architecture.md bölüm 6)
-│  ├─ admin/                            admin.modelvend.ai: operatör konsolu (yalnız iç ağ veya SSO arkasında)
-│  └─ docs/                             docs.modelvend.ai (sonra): model sayfaları katalogdan üretilir
+├─ apps/                                Kullanıcı arayüzleri (Next.js, npm workspaces)
+│  ├─ console/                          MÜŞTERİ UI: app.modelvend.ai
+│  │  └─ src/                           app/ (rotalar), features/, components/, lib/, config/, mocks/
+│  ├─ admin/                            YÖNETİM UI: admin.modelvend.ai (yalnız iç ağ veya SSO arkasında)
+│  │  └─ src/                           app/ (+ api/[...path] proxy'si), features/, components/,
+│  │                                    lib/api/ (admin API sözleşmesi ve istemci), mock-api/ (geliştirme)
+│  └─ docs/                             (sonra) docs.modelvend.ai, model sayfaları katalogdan üretilir
 │
-├─ services/                            Go backend: tek modül, birden çok binary
-│  ├─ go.mod                            github.com/brieeflabs/modelvend/services
-│  ├─ cmd/
-│  │  ├─ gateway/                       api.modelvend.ai: /v1 (tasks, models, apps, uploads) ve OpenAI uyumlu yüzey
-│  │  ├─ mcp/                           mcp.modelvend.ai/mcp: MCP sunucusu
-│  │  ├─ worker/                        River worker havuzları: dispatch, poll, finalize, webhook, cleanup
-│  │  ├─ adminapi/                      /admin/v1, yalnız admin konsolu çağırır
-│  │  └─ migrate/                       goose migration'ları ve katalog içe aktarma
+├─ services/                            Go backend: tek modül, birden çok binary (ayrıntı: services/README.md)
+│  ├─ cmd/                              Yalnız kurulum ve bağlantı; iş mantığı yok
+│  │  ├─ gateway/                       DIŞA AÇIK: /v1 ve OpenAI uyumlu yüzey (:8080)
+│  │  ├─ mcp/                           DIŞA AÇIK: /mcp (:8090)
+│  │  ├─ adminapi/                      İÇ: /admin/v1, yalnız admin konsolu çağırır (:8081)
+│  │  ├─ worker/                        İÇ: River job worker'ları; health ve metrics (:9090)
+│  │  └─ migrate/                       Operasyon: migration'lar, katalog içe aktarma, dev seed
 │  ├─ internal/
-│  │  ├─ platform/                      config, db, redis, storage, log, metrics, httpx, id üretimi, hata tipleri
-│  │  ├─ catalog/                       Model, sürüm, fiyat, görünürlük ve disclosure; ID çözümleyici ve önbellek
-│  │  ├─ schema/                        JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
-│  │  ├─ tasks/                         Task kaydı, durum makinesi, idempotency, olay akışı (SSE)
-│  │  ├─ routing/                       Strateji, sağlık pencereleri, devre kesici, eşzamanlılık
-│  │  ├─ providers/                     Sağlayıcı adapter'ları
-│  │  │  ├─ provider.go                 Ortak arayüz: Submit, Status, Fetch, Cancel, ParseWebhook
-│  │  │  ├─ mapping/                    Bizim girdimizden sağlayıcının parametrelerine eşleme ve transform kaydı
+│  │  ├─ api/                           Giriş kapıları (inbound adapter'lar): HTTP ve MCP; iş mantığı yok
+│  │  │  ├─ public/                     Dışa açık yüzeyler, API anahtarıyla
+│  │  │  │  ├─ rest/                    /v1: tasks, models; API anahtarı middleware'i
+│  │  │  │  ├─ openaicompat/            /v1/chat/completions, /v1/images/generations
+│  │  │  │  ├─ mcpserver/               /mcp araçları (bölüm 6)
+│  │  │  │  └─ redact/                  Public DTO'lar ve hata eşleme: müşteriye giden her şeyin son kapısı
+│  │  │  └─ admin/                      /admin/v1 handler'ları (apps/admin/src/lib/api sözleşmesi)
+│  │  │
+│  │  ├─ catalog/                       Model, sürüm, route, fiyat, görünürlük; ID çözümleme
+│  │  │  ├─ schema/                     Model şemaları: JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
+│  │  │  └─ manifest/                   catalog/*.yaml'ı draft sürüm olarak içe aktarır
+│  │  ├─ tasks/                         Task kaydı, durum makinesi, servis, job argümanları, müşteri hata kodları
+│  │  │  └─ jobs/                       dispatch_task, poll_task (River worker'ları)
+│  │  ├─ routing/                       Strateji, sağlık penceresi, devre kesici
+│  │  ├─ providers/                     Sağlayıcı arayüzü (port) ve kayıt
+│  │  │  ├─ mapping/                    Bizim girdimizden sağlayıcının parametrelerine
 │  │  │  ├─ fake/                       Geliştirme ve testler için sahte sağlayıcı
-│  │  │  ├─ fal/  replicate/  vertex/  openai/  elevenlabs/  runway/  kling/  minimax/  byteplus/  (sonra)
-│  │  │  └─ managed/                    (sonra) kendi GPU'larımız
-│  │  ├─ apps/                          App release çalıştırıcı: adımlar, şablonlar, çıktı eşleme
-│  │  ├─ media/                         Çıktıyı R2'ye kopyalama, metadata temizliği, imzalı URL, saklama süresi
-│  │  ├─ redact/                        Müşteriye giden her şeyin son kapısı: hata eşleme, header temizliği, white-label kuralları
-│  │  ├─ billing/                       Fiyat hesabı, bloke ve tahsilat, ledger, Stripe, auto-reload
-│  │  ├─ accounts/                      Workspace, kullanıcı, üyelik, tier, limit
-│  │  ├─ keys/                          API anahtarları: hash, scope, harcama limiti
-│  │  ├─ ratelimit/
-│  │  ├─ webhooks/                      İmzalama, teslimat, yeniden deneme
-│  │  ├─ jobs/                          River iş tanımları
-│  │  ├─ publicapi/                     /v1 handler'ları ve public DTO'lar (iç struct'lar asla serileşmez)
-│  │  ├─ openaicompat/                  /v1/chat/completions, /v1/images/generations, /v1/models
-│  │  ├─ mcpserver/                     MCP araçları (bölüm 6)
-│  │  ├─ adminapi/                      /admin/v1 handler'ları (apps/admin/src/lib/api sözleşmesi)
-│  │  ├─ operators/  audit/             Operatör oturumları, izinler, audit (postpane'den uyarlanır)
-│  │  └─ app/                           Süreçlerin ortak kurulumu: config, log, veritabanı, kuyruk istemcisi
-│  └─ migrations/                       00001_init.sql, … (goose)
+│  │  │  └─ fal/ replicate/ vertex/ …   (sonra) Gerçek adapter'lar
+│  │  ├─ apps/                          App release'leri ve adım şablonları (kara kutu iş akışları)
+│  │  ├─ billing/                       Fiyat ve maliyet hesabı; sonra ledger, hold ve tahsilat, Stripe
+│  │  ├─ identity/                      Kimlik ve erişim
+│  │  │  ├─ accounts/                   Workspace, kullanıcı, üyelik, tier (henüz yalnız doc.go)
+│  │  │  ├─ keys/                       API anahtarları: üretme, hash, doğrulama
+│  │  │  └─ operators/                  Operatör oturumları ve izinleri (henüz yalnız doc.go)
+│  │  ├─ delivery/                      Sonucu müşteriye ulaştırma
+│  │  │  ├─ media/                      Çıktıyı R2'ye kopyalama, imzalı URL
+│  │  │  └─ webhooks/                   İmzalama; sonra teslimat ve yeniden deneme job'ları
+│  │  ├─ audit/  ratelimit/             (henüz yalnız doc.go)
+│  │  │
+│  │  ├─ platform/                      Altyapı: config, database (+ dbtest), httpx, ids, logging
+│  │  └─ bootstrap/                     Süreçlerin ortak kurulumu: config, log, veritabanı, kuyruk istemcisi, store'lar
+│  └─ migrations/                       goose SQL (embed ile binary'ye girer)
 │
-├─ api/                                 Sözleşmeler: tek doğruluk kaynağı
-│  ├─ public.yaml                       /v1 (OpenAPI 3.1)
-│  ├─ admin.yaml                        /admin/v1
-│  └─ webhooks.yaml                     task.succeeded, task.failed, … olay gövdeleri
+├─ api/                                 Sözleşmeler (OpenAPI 3.1): tek doğruluk kaynağı
+│  ├─ public.yaml                       DIŞA AÇIK: /v1 → internal/api/public
+│  ├─ admin.yaml                        İÇ: /admin/v1 → internal/api/admin
+│  └─ webhooks.yaml                     Müşteriye giden olay gövdeleri: task.succeeded, task.failed, …
 │
 ├─ packages/                            Paylaşılan JS paketleri
-│  ├─ api-types/                        api/*.yaml'dan üretilen TS tipleri (console, admin, sdk-js kullanır)
+│  ├─ api-types/                        api/*.yaml'dan üretilen TS tipleri (console, admin, sdk-js)
 │  └─ sdk-js/                           @modelvend/sdk: tasks.create, tasks.wait, tasks.stream
 │
-├─ catalog/                             Model ve app manifest'leri (YAML); admin ve CLI ile içe/dışa aktarılır
-│  ├─ manifest.schema.json              Manifest biçiminin şeması (editörde otomatik tamamlama)
+├─ catalog/                             Model ve app manifest'leri (YAML); migrate ile içe aktarılır
+│  ├─ manifest.schema.json              Manifest biçiminin şeması
 │  ├─ models/<publisher>/<slug>.yaml
 │  └─ apps/<slug>.yaml
 │
@@ -104,10 +164,29 @@ modelvend/
 ├─ docs/
 ├─ scripts/                             gen-types, seed, …
 ├─ Makefile                             make dev | gen | test | lint | migrate | images
-└─ package.json                         npm workspaces: apps/*, packages/*
+└─ package.json                         npm workspaces: apps/*
 ```
 
-Kurallar:
+Frontend'de `packages/ui` yok, çünkü müşteri konsolu ile admin konsolu iki ayrı tasarım sistemi kullanıyor. Konsolda kendi token'ları ve bileşenleri var, admin'de postpane'den gelen shadcn kiti. Ortak bir UI paketi taşıma değil yeniden tasarım olurdu.
+
+### Bağımlılık kuralları
+
+Oklar "import edebilir" demektir. Döngü yoktur.
+
+```
+cmd/*  ──►  bootstrap, kendi api/* paketi
+api/*  ──►  context'ler, platform          (api/public/* yalnızca redact'ı paylaşır;
+                                              rest ayrıca openaicompat'ı /v1 router'ına bağlar)
+context'ler  ──►  başka context'ler, platform   (api/* ve cmd/* import edilmez)
+platform/*  ──►  hiçbir iç paket (logging → config, database → migrations hariç)
+```
+
+- `api/admin` ile `api/public/*` birbirini hiç import etmez. Admin yüzeyi sağlayıcı ve maliyet ayrıntılarını gösterebilir; public yüzey gösteremez.
+- Sağlayıcı adı, upstream ID'si, upstream URL'si ve ham sağlayıcı hatası yalnızca `providers`, `routing`, `tasks` (attempt kaydı), `tasks/jobs` ve `api/admin` içinde görünür. `api/public/*` bunlara erişmez; `redact` tipleri bu alanları hiç taşımaz.
+- Her context yalnızca kendi tablolarına yazar. Başka bir context'in verisini değiştirmek için o context'in fonksiyonunu çağırır ya da job kuyruğa koyar.
+- Bir context'in job'ları kendi altında durur (`tasks/jobs`; sonra `delivery/webhooks` ve `billing` altında). `cmd/worker` hepsini kaydeder.
+
+Diğer kurallar:
 
 - `apps/*` ve `packages/*` yalnızca HTTP üzerinden konuşur. Go koduna erişmezler, tipleri `packages/api-types`'tan alırlar.
 - **Sözleşme önce değişir.**
@@ -120,6 +199,7 @@ Kurallar:
   - Çalışma anında doğruluk kaynağı veritabanıdır; admin'den düzenlenir.
   - `catalog/` altındaki YAML dosyaları yeni model ve sürüm yazmanın, git'te gözden geçirmenin ve yedeklemenin yoludur.
   - İçe aktarma her zaman yeni bir **draft sürüm** oluşturur, canlı bir sürümü asla değiştirmez. Yaşam döngüsü (promote, default, pause) admin'de yürür.
+  - Doğrulama kodu `services/internal/catalog/schema` içindedir. Müşteriye giden şema `redact.Model` ile, sağlayıcıya giden parametreler `providers/mapping` ile üretilir.
 
 ## 4. Kendi isimle yayın (white-label)
 
@@ -139,8 +219,8 @@ Aynı upstream model iki kez yayınlanabilir. Örneğin `kling/kling-3` açık o
 
 | Nerede sızar             | Nasıl kapatılır                                                                                                                                                                                                                                                                                                           |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Yanıt gövdesi            | `publicapi` yalnızca kendi DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                           |
-| Hata mesajları           | Upstream hataları `redact` içinde bizim kodlarımıza çevrilir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                                                                                         |
+| Yanıt gövdesi            | `api/public/*` yalnızca `redact` DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                     |
+| Hata mesajları           | Upstream hataları `tasks.UpstreamFailure` bizim kodlarımıza çevirir, `redact.PublicError` da domain hatalarını public biçime getirir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                 |
 | Girdi alanları           | Müşteri bizim şemamızı görür. Sağlayıcıya özgü parametre adlarına çeviri route'un `mapping` kısmında, içeride yapılır.                                                                                                                                                                                                    |
 | Çıktı URL'leri           | Çıktı her zaman `cdn.modelvend.ai/o/<task>/<n>.<ext>` adresine kopyalanır. Upstream URL'si dışarı çıkmaz.                                                                                                                                                                                                                 |
 | Dosya metadata'sı        | EXIF, XMP ve ID3 etiketleri temizlenir (örneğin `Software` alanı). C2PA ve SynthID gibi "yapay zekâ ile üretildi" işaretleri **silinmez**: AB Yapay Zekâ Yasası sentetik içeriğin işaretlenmesini istiyor ve sağlayıcı sözleşmeleri genelde bunları korumayı şart koşuyor. Gerekirse bunlara kendi C2PA kaydımız eklenir. |

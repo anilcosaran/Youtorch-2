@@ -1,6 +1,6 @@
-// Package app wires a process together: configuration, logging, the database,
+// Package bootstrap wires a process together: configuration, logging, the database,
 // the job queue client and the stores every binary shares.
-package app
+package bootstrap
 
 import (
 	"context"
@@ -15,15 +15,15 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/keys"
+	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
+	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 	"github.com/brieeflabs/modelvend/services/internal/platform/config"
 	"github.com/brieeflabs/modelvend/services/internal/platform/database"
 	"github.com/brieeflabs/modelvend/services/internal/platform/logging"
-	"github.com/brieeflabs/modelvend/services/internal/schema"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
-// Version is the build's version, set with -ldflags "-X .../internal/app.Version=…".
+// Version is the build's version, set with -ldflags "-X .../internal/bootstrap.Version=…".
 var Version = "dev"
 
 // Deps is what every process shares.

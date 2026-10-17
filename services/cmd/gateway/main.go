@@ -15,9 +15,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/brieeflabs/modelvend/services/internal/app"
+	"github.com/brieeflabs/modelvend/services/internal/api/public/rest"
+	"github.com/brieeflabs/modelvend/services/internal/bootstrap"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
-	"github.com/brieeflabs/modelvend/services/internal/publicapi"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	d, err := app.Open(ctx, "gateway", ":8080")
+	d, err := bootstrap.Open(ctx, "gateway", ":8080")
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(middleware.Recoverer)
-	api := &publicapi.API{Tasks: d.Tasks, Catalog: d.Catalog, Keys: d.Keys, Logger: d.Logger}
+	api := &rest.API{Tasks: d.Tasks, Catalog: d.Catalog, Keys: d.Keys, Logger: d.Logger}
 	api.Routes(router)
 
 	mux := http.NewServeMux()

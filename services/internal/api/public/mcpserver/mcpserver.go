@@ -16,11 +16,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/brieeflabs/modelvend/services/internal/api/public/redact"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/keys"
+	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
-	"github.com/brieeflabs/modelvend/services/internal/publicapi"
-	"github.com/brieeflabs/modelvend/services/internal/redact"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
@@ -79,7 +78,7 @@ func principal(req *mcp.CallToolRequest) keys.Principal {
 func result(v any, err error) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		var he *httpx.Error
-		if errors.As(publicapi.PublicError(err), &he) {
+		if errors.As(redact.PublicError(err), &he) {
 			text := he.Code + ": " + he.Message
 			for field, msg := range he.Fields {
 				text += "\n- " + field + ": " + msg

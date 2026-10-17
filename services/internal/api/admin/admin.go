@@ -1,4 +1,4 @@
-// Package adminapi serves /admin/v1 for the operator console (apps/admin).
+// Package admin serves /admin/v1 for the operator console (apps/admin).
 // Its contract is apps/admin/src/lib/api/*.ts, written up in api/admin.yaml;
 // the console's mock API implements it today. The handlers land screen by
 // screen, starting with the catalog; until then every route answers 501 so
@@ -6,7 +6,7 @@
 //
 // Operator sessions, permissions and the audit log come from postpane's
 // cloud/internal/adminapi.
-package adminapi
+package admin
 
 import (
 	"net/http"

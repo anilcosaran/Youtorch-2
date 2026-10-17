@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/providers"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
@@ -40,18 +39,6 @@ func TestAppTasksHideTheirRelease(t *testing.T) {
 	pub := PublicTask(task)
 	if pub.Target.Version != "" {
 		t.Fatalf("app tasks must not show a version: %+v", pub.Target)
-	}
-}
-
-func TestUpstreamErrorsNeverEchoProviderText(t *testing.T) {
-	for _, kind := range []providers.Kind{providers.InvalidInput, providers.ContentPolicy, providers.Timeout, providers.Unavailable, providers.Internal, "weird"} {
-		e := UpstreamError(&providers.UpstreamError{Kind: kind, Message: "fal-ai: SECRET upstream detail"})
-		if strings.Contains(e.Message, "SECRET") || strings.Contains(e.Message, "fal") {
-			t.Errorf("%s leaks upstream text: %s", kind, e.Message)
-		}
-		if e.Code == "" {
-			t.Errorf("%s has no code", kind)
-		}
 	}
 }
 

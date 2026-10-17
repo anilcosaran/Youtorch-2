@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/brieeflabs/modelvend/services/internal/keys"
+	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 )
 
 // DevWorkspace is the seeded workspace's ID.

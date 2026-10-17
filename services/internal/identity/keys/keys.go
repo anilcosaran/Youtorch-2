@@ -10,13 +10,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/big"
-	"net/http"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 )
 
 const base62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -108,7 +105,7 @@ var ErrSuspended = errors.New("keys: workspace suspended")
 
 type ctxKey struct{}
 
-// FromContext returns the principal Middleware stored.
+// FromContext returns the principal the API stored with WithPrincipal.
 func FromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(ctxKey{}).(Principal)
 	return p, ok
@@ -117,35 +114,4 @@ func FromContext(ctx context.Context) (Principal, bool) {
 // WithPrincipal stores p in ctx.
 func WithPrincipal(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, ctxKey{}, p)
-}
-
-// Bearer reads "Authorization: Bearer <key>".
-func Bearer(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	token, ok := strings.CutPrefix(h, "Bearer ")
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(token)
-}
-
-// Middleware authenticates every request with its bearer key.
-func (s *Store) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, err := s.Authenticate(r.Context(), Bearer(r))
-		switch {
-		case errors.Is(err, ErrInvalid):
-			w.Header().Set("WWW-Authenticate", `Bearer realm="modelvend"`)
-			httpx.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": httpx.Errorf(http.StatusUnauthorized,
-				"unauthenticated", "Send a valid API key as Authorization: Bearer mv_live_….")})
-		case errors.Is(err, ErrSuspended):
-			httpx.WriteJSON(w, http.StatusForbidden, map[string]any{"error": httpx.Errorf(http.StatusForbidden,
-				"account_suspended", "This workspace is suspended. Contact support.")})
-		case err != nil:
-			httpx.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": httpx.Errorf(http.StatusServiceUnavailable,
-				"unavailable", "We couldn't check your key right now. Try again in a moment.")})
-		default:
-			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
-		}
-	})
 }

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brieeflabs/modelvend/services/internal/app"
-	"github.com/brieeflabs/modelvend/services/internal/mcpserver"
+	"github.com/brieeflabs/modelvend/services/internal/api/public/mcpserver"
+	"github.com/brieeflabs/modelvend/services/internal/bootstrap"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 )
 
@@ -27,13 +27,13 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	d, err := app.Open(ctx, "mcp", ":8090")
+	d, err := bootstrap.Open(ctx, "mcp", ":8090")
 	if err != nil {
 		return err
 	}
 	defer d.Close()
 
-	server := &mcpserver.Server{Tasks: d.Tasks, Catalog: d.Catalog, Keys: d.Keys, Logger: d.Logger, Version: app.Version}
+	server := &mcpserver.Server{Tasks: d.Tasks, Catalog: d.Catalog, Keys: d.Keys, Logger: d.Logger, Version: bootstrap.Version}
 	mux := http.NewServeMux()
 	httpx.Health(mux, d.DB)
 	mux.Handle("/mcp", server.Handler())

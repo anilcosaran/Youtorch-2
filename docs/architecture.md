@@ -197,54 +197,9 @@ Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşı
 
 ## 5. Önerilen repo yapısı
 
-> Ayrıntılı ve güncel hâli: [structure.md](structure.md) (teknoloji seçimi, servisler, white-label, app'ler, task API'si, MCP).
+Güncel yapı [structure.md](structure.md) bölüm 3'te: mimari tarz (bounded context'lere bölünmüş modüler monolit), kontrol ve veri düzlemi, dışa açık ve iç yüzeyler, dosya ağacı ve bağımlılık kuralları. Go tarafının ayrıntısı ve ortam değişkenleri [services/README.md](../services/README.md)'de.
 
-Depo bir npm workspaces monoreposu: müşteri konsolu `apps/console`, admin paneli `apps/admin` altında, tek lockfile kökte. Önerilen hedef, postpane'deki ayrımla uyumlu bir monorepo:
-
-```
-modelvend/
-├─ apps/
-│  ├─ console/                 Müşteri konsolu (Next.js; iç yapısı bölüm 6'da)
-│  ├─ admin/                   Operatör konsolu (Next.js; bu değişiklik)
-│  │  └─ src/
-│  │     ├─ app/               Rotalar ve /api proxy'si (ADMIN_API_URL, yoksa mock)
-│  │     ├─ features/          models, apps, providers, customers, api-keys, requests, overview, audit, operators
-│  │     ├─ components/        UI kiti (postpane admin'den)
-│  │     ├─ lib/api/           Admin API sözleşmesi: tipler ve istemci
-│  │     └─ mock-api/          Sözleşmeyi uygulayan bellek içi sahte API (geliştirme)
-│  └─ docs/                    (sonra) Herkese açık dokümanlar; model sayfaları şemadan üretilir
-├─ services/                   Go backend (postpane ile aynı yapı)
-│  ├─ cmd/
-│  │  ├─ gateway/              Herkese açık API: /v1 (OpenAI uyumlu ve generations)
-│  │  ├─ worker/               River worker'ları: dispatch, poll, rehost, webhook, settle
-│  │  ├─ admin/                Admin API: /admin/v1
-│  │  └─ migrate/
-│  ├─ internal/
-│  │  ├─ catalog/              Model, sürüm, route ve fiyat listesi; çözümleme ve önbellek
-│  │  ├─ routing/              Strateji, sağlık penceresi, devre kesici, eşzamanlılık
-│  │  ├─ adapters/             Sağlayıcı başına bir paket: fal, replicate, openai, vertex, elevenlabs, runway, http
-│  │  ├─ requests/             Request ve attempt kayıtları, durum makinesi, idempotency
-│  │  ├─ billing/              Ledger, hold ve settle, fiyat hesabı, auto-reload
-│  │  ├─ keys/                 Anahtar hash'leme, scope, limit
-│  │  ├─ ratelimit/            Tier ve anahtar limitleri (Redis)
-│  │  ├─ storage/              Çıktı kopyalama, imzalı URL, saklama süresi
-│  │  ├─ webhooks/             İmzalama, teslimat, yeniden deneme
-│  │  ├─ apps/                 App release çalıştırıcısı (adım zinciri)
-│  │  ├─ publicapi/            /v1 handler'ları
-│  │  ├─ adminapi/             /admin/v1 handler'ları (apps/admin/src/lib/api sözleşmesi)
-│  │  ├─ auth/                 Operatör oturumları, izinler
-│  │  └─ audit/
-│  └─ migrations/
-├─ packages/
-│  ├─ api-types/               OpenAPI'den üretilen TS tipleri (console, admin ve SDK ortak)
-│  └─ sdk-js/, sdk-python/     (sonra) @modelvend/sdk, modelvend
-├─ deploy/
-│  ├─ docker/                  gateway, worker, admin-api, console-web, admin-web imajları
-│  └─ helm/
-└─ docs/
-   ├─ architecture.md          Bu belge
-   └─ admin-api.md             (backend yazılırken) /admin/v1 sözleşmesi
-```
+Kısaca: müşteri UI'ı `apps/console`, yönetim UI'ı `apps/admin`. Backend `services/` altında tek Go modülü. Dışa açık yüzeyler (`/v1`, OpenAI uyumlu uçlar, `/mcp`) `services/internal/api/public`, iç yönetim yüzeyi (`/admin/v1`) `services/internal/api/admin` altında. İş mantığı bunların dışında, iş alanı başına bir pakette durur.
 
 Neden Go:
 
