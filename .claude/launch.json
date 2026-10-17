@@ -2,10 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "modelvend-dev",
+      "name": "modelvend-console",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev:console"],
       "port": 3000
+    },
+    {
+      "name": "modelvend-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["exec", "--workspace", "apps/admin", "--", "next", "dev", "--port", "3011"],
+      "port": 3011
     }
   ]
 }

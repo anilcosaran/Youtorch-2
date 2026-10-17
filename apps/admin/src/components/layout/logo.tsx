@@ -1,0 +1,17 @@
+import { cn } from "@/lib/utils";
+
+/** The Modelvend mark (ring + flame) on its ember tile, the same as the customer console's. */
+export function Logo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 64 64" className={cn("inline-block shrink-0", className)} aria-hidden>
+      <rect width="64" height="64" rx="16" fill="#FF5A1F" />
+      <g transform="translate(4.78 4.78) scale(0.54437)">
+        <path d="M84.71 36.54 A38 38 0 1 1 65.46 17.29" fill="none" stroke="#0A0A0A" strokeWidth="11" />
+        <path
+          d="M 54.16 28.12 C 60.4 36.96 67.68 46.32 67.68 58.8 C 67.68 69.72 59.88 77 50 77 C 40.12 77 32.84 70.24 32.84 60.88 C 32.84 55.16 35.96 51 39.6 48.4 C 38.56 53.6 40.12 58.28 44.8 59.32 C 50 60.36 52.6 55.68 50 50.48 C 47.4 45.28 48.96 35.92 54.16 28.12 Z"
+          fill="#0A0A0A"
+        />
+      </g>
+    </svg>
+  );
+}
