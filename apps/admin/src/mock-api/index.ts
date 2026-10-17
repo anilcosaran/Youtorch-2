@@ -17,7 +17,7 @@ import { getStore } from "./store";
 import { isObject, type Body } from "./validate";
 
 /*
- * An in-memory admin API for development: the contract in `src/lib/api`,
+ * An in-memory admin API for development: the contract in `packages/admin-api`,
  * answered from seeded data that lives until the server restarts.
  */
 

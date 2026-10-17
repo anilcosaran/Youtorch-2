@@ -1,0 +1,11 @@
+{
+  "name": "@modelvend/config-eslint",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ESLint flat config shared by the Next.js apps and the JS packages.",
+  "exports": "./index.mjs",
+  "peerDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0"
+  }
+}

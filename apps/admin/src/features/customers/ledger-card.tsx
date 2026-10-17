@@ -1,7 +1,7 @@
+import type { LedgerEntry } from "@modelvend/admin-api/customers";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/states";
 import { DateTime } from "@/components/shared/time";
-import type { LedgerEntry } from "@/lib/api/customers";
 import { integer, usd } from "@/lib/format";
 import { LEDGER_KIND_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";

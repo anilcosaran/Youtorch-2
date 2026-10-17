@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Ban, CircleCheck, KeyRound, MoreHorizontal, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import type { Operator } from "@modelvend/admin-api/auth";
+import { fieldErrors } from "@modelvend/admin-api/client";
+import { listOperators, resetOperatorPassword, updateOperator } from "@modelvend/admin-api/operators";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { ListPanel } from "@/components/data/list-panel";
 import { EmptyState } from "@/components/data/states";
@@ -20,12 +23,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Operator } from "@/lib/api/auth";
-import { fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { listOperators, resetOperatorPassword, updateOperator } from "@/lib/api/operators";
 import { toastError } from "@/lib/notify";
 import { accessLabel } from "@/lib/permissions";
+import { keys } from "@/lib/query-keys";
 import { useSession } from "@/lib/session";
 import { PasswordDialog } from "./operator-dialogs";
 import { CreateOperatorSheet, EditAccessSheet, usePermissionCatalog } from "./operator-sheets";

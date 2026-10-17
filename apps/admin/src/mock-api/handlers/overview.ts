@@ -1,5 +1,5 @@
-import { RANGES, type Range } from "@/lib/api/client";
-import type { Overview, OverviewDay } from "@/lib/api/overview";
+import { RANGES, type Range } from "@modelvend/admin-api/client";
+import type { Overview, OverviewDay } from "@modelvend/admin-api/overview";
 import { badRequest } from "../http";
 import { createRandom, hashSeed } from "../random";
 import { route, type Context, type RouteDef } from "../router";

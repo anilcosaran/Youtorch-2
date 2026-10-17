@@ -1,4 +1,4 @@
-import type { Page } from "@/lib/api/client";
+import type { Page } from "@modelvend/admin-api/client";
 
 /** An API error: the status plus the `{ error: { code, message, fields? } }` body. */
 export class MockError extends Error {

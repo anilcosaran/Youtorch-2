@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
+import { adjustCredits, type Customer } from "@modelvend/admin-api/customers";
 import { Field, FormError } from "@/components/shared/field";
 import { Segmented } from "@/components/shared/segmented";
 import { Button } from "@/components/ui/button";
@@ -16,8 +18,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { adjustCredits, type Customer } from "@/lib/api/customers";
 import { usd } from "@/lib/format";
 import { Balance } from "./balance";
 import { storeCustomer } from "./cache";

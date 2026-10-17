@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Suspense, useState } from "react";
 import { ChevronsUpDown, KeyRound, LogOut, Moon, PanelLeft, Search, Sun } from "lucide-react";
+import type { Operator } from "@modelvend/admin-api/auth";
+import { getPermissionCatalog } from "@modelvend/admin-api/operators";
+import { listProviders } from "@modelvend/admin-api/providers";
 import { Monogram } from "@/components/shared/monogram";
 import {
   DropdownMenu,
@@ -20,13 +23,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChangePasswordDialog } from "@/features/auth/change-password-dialog";
-import type { Operator } from "@/lib/api/auth";
-import { keys } from "@/lib/api/keys";
-import { getPermissionCatalog } from "@/lib/api/operators";
-import { listProviders } from "@/lib/api/providers";
 import { BRAND } from "@/lib/brand";
 import { badgeCount } from "@/lib/format";
 import { accessLabel } from "@/lib/permissions";
+import { keys } from "@/lib/query-keys";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useCommandPalette, useShortcutLabel } from "./command-palette";

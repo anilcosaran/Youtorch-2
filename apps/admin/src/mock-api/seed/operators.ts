@@ -1,5 +1,5 @@
-import type { Permission } from "@/lib/api/auth";
-import type { AccessPreset, PermissionInfo } from "@/lib/api/operators";
+import type { Permission } from "@modelvend/admin-api/auth";
+import type { AccessPreset, PermissionInfo } from "@modelvend/admin-api/operators";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { OperatorRecord } from "../types";
 import { DAY, HOUR, iso } from "../util";

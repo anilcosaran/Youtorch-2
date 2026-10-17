@@ -3,9 +3,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { keys } from "@/lib/api/keys";
-import type { Model } from "@/lib/api/models";
+import type { Model } from "@modelvend/admin-api/models";
 import { toastError } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 
 /**
  * Puts a model a change returned in the cache. Lists, provider route counts

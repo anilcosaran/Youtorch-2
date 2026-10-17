@@ -1,7 +1,7 @@
+import type { Overview } from "@modelvend/admin-api/overview";
+import type { HealthState } from "@modelvend/admin-api/providers";
 import { AccessLink } from "@/components/shared/access-link";
 import { HealthPill } from "@/components/shared/status";
-import type { Overview } from "@/lib/api/overview";
-import type { HealthState } from "@/lib/api/providers";
 import { compact, milliseconds, percent } from "@/lib/format";
 
 type ProviderHealthRow = Overview["providers"][number];

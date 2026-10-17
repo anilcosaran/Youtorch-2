@@ -2,6 +2,14 @@
 
 import { useState } from "react";
 import { ArrowRight, ArrowUpRight, Braces, CircleDollarSign, Ellipsis, Plus, Route, Star } from "lucide-react";
+import {
+  promoteVersion,
+  retireVersion,
+  setDefaultVersion,
+  VERSION_STATUSES,
+  type Model,
+  type ModelVersion,
+} from "@modelvend/admin-api/models";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/states";
 import { useConfirm } from "@/components/shared/confirm";
@@ -17,14 +25,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  promoteVersion,
-  retireVersion,
-  setDefaultVersion,
-  VERSION_STATUSES,
-  type Model,
-  type ModelVersion,
-} from "@/lib/api/models";
 import { defaultTier } from "@/lib/catalog";
 import { integer, unitPrice } from "@/lib/format";
 import { UNIT_SHORT, VERSION_STATUS_DESCRIPTIONS, VERSION_STATUS_LABELS } from "@/lib/labels";

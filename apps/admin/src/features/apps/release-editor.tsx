@@ -4,18 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, LoaderCircle, Plus, Rocket, X } from "lucide-react";
 import { toast } from "sonner";
+import { updateRelease, type App, type AppRelease, type AppStep } from "@modelvend/admin-api/apps";
+import { getModel, listModels } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Field } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { updateRelease, type App, type AppRelease, type AppStep } from "@/lib/api/apps";
-import { keys } from "@/lib/api/keys";
-import { getModel, listModels } from "@/lib/api/models";
 import { margin } from "@/lib/catalog";
 import { percent, unitPrice } from "@/lib/format";
 import { toastError } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 
 interface StepDraft {
   id: string;

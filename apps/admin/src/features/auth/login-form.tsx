@@ -4,12 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { login } from "@modelvend/admin-api/auth";
+import { errorMessage, isUnauthorized } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { login } from "@/lib/api/auth";
-import { errorMessage, isUnauthorized } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
+import { keys } from "@/lib/query-keys";
 
 /** Only same-site paths are followed after signing in. */
 function safeNext(next: string | undefined): string {

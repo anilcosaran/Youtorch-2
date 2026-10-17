@@ -1,5 +1,5 @@
-import type { BillingUnit } from "@/lib/api/models";
-import type { AttemptStatus, RequestDetail, RequestStatus } from "@/lib/api/requests";
+import type { BillingUnit } from "@modelvend/admin-api/models";
+import type { AttemptStatus, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
 import { compact, unitPrice, usd } from "@/lib/format";
 
 /** Still waiting for a result, so its status and numbers will change. */

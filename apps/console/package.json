@@ -24,6 +24,8 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@modelvend/config-eslint": "*",
+    "@modelvend/config-typescript": "*",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -35,8 +35,11 @@ modelvend/
 │  │  └─ bootstrap/             Wiring every process shares
 │  └─ migrations/               goose SQL
 ├─ api/                         OpenAPI contracts: public, admin, webhooks (placeholder)
-├─ packages/
+├─ packages/                    Shared JS packages (npm workspaces)
+│  ├─ admin-api/                @modelvend/admin-api: typed client and contract types for /admin/v1
 │  ├─ api-types/                TypeScript types generated from api/ (placeholder)
+│  ├─ config-eslint/            ESLint config shared by the apps and packages
+│  ├─ config-typescript/        Base tsconfig the apps and packages extend
 │  └─ sdk-js/                   @modelvend/sdk (placeholder)
 ├─ catalog/
 │  ├─ models/                   Model manifests, YAML (placeholder)
@@ -46,7 +49,7 @@ modelvend/
 │  └─ helm/                     Kubernetes chart (placeholder)
 ├─ docs/                        architecture.md, structure.md
 ├─ Makefile                     Common tasks (placeholder)
-└─ package.json                 npm workspaces: apps/*
+└─ package.json                 npm workspaces: apps/*, packages/*
 ```
 
 | Path           | Details                                                                                       |
@@ -56,8 +59,9 @@ modelvend/
 | `services`     | [README](services/README.md). Go 1.26: chi, pgx, goose, River, go-redis, minio-go, MCP go-sdk |
 | `docs`         | [Architecture](docs/architecture.md) and [platform structure](docs/structure.md)              |
 
-The apps are npm workspaces with one lockfile at the root. Each app keeps its own `package.json`, configs, Dockerfile and
-README; the root only installs dependencies and runs scripts across them.
+The apps and packages are npm workspaces with one lockfile at the root. Each app keeps its own `package.json`, Next.js
+config, Dockerfile and README, and takes its ESLint and TypeScript settings from `packages/config-*`; the root only
+installs dependencies and runs scripts across them.
 
 ## Getting started
 
@@ -75,10 +79,11 @@ Requires Node.js 20.9 or newer.
 | ----------------------------------- | ---------------------------------------------------------------------- |
 | `npm run dev:console` / `dev:admin` | Dev server for one app                                                 |
 | `npm run build`                     | Production build of every app (`build:console`, `build:admin` for one) |
-| `npm run check`                     | Each app's CI check (`check:console`, `check:admin` for one)           |
+| `npm run check`                     | Each workspace's CI check (`check:console`, `check:admin` for one app) |
 
-`check` runs typecheck, lint and Prettier for the console, and typecheck, lint and Vitest for the admin. To run any other script
-in one app, use `npm run <script> --workspace apps/<app>` or run it inside the app's folder.
+`check` runs typecheck, lint and Prettier for the console, and typecheck, lint and Vitest for the admin and `packages/admin-api`.
+To run any other script in one workspace, use `npm run <script> --workspace <path>` (e.g. `apps/admin`) or run it inside that
+folder.
 
 ## Docker
 

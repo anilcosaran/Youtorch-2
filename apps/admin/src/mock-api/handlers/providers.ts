@@ -1,4 +1,4 @@
-import { ADAPTERS, PROVIDER_KINDS } from "@/lib/api/providers";
+import { ADAPTERS, PROVIDER_KINDS } from "@modelvend/admin-api/providers";
 import { audit, changes } from "../audit";
 import { conflict, invalid, invalidState, notFound } from "../http";
 import { route, type Context, type RouteDef } from "../router";

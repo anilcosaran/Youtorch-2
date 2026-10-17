@@ -1,6 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { Range } from "@modelvend/admin-api/client";
+import { getOverview, type Overview } from "@modelvend/admin-api/overview";
 import { BarList } from "@/components/charts/bar-list";
 import { ChartCard, ChartEmpty, ChartSkeleton } from "@/components/charts/chart-card";
 import { TimeSeriesChart } from "@/components/charts/time-series";
@@ -9,11 +11,9 @@ import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { AccessLink } from "@/components/shared/access-link";
 import { RangeSwitch, useRange } from "@/components/shared/range-switch";
 import { StatTile } from "@/components/shared/stat-tile";
-import type { Range } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { modelHref } from "@/lib/api/models";
-import { getOverview, type Overview } from "@/lib/api/overview";
+import { modelHref } from "@/lib/catalog";
 import { compact, day, dayLong, percent, usdCompact } from "@/lib/format";
+import { keys } from "@/lib/query-keys";
 import { ProviderHealthTable } from "./provider-health";
 
 const RANGE_TEXT: Record<Range, string> = {

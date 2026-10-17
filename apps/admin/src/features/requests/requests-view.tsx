@@ -2,6 +2,8 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { listModels } from "@modelvend/admin-api/models";
+import { listRequests, REQUEST_STATUSES, type RequestRow } from "@modelvend/admin-api/requests";
 import { DataTable, rowsOf } from "@/components/data/data-table";
 import { ClearFilters, FilterBar, FilterSelect, SearchInput, type FilterOption } from "@/components/data/filters";
 import { ListPanel } from "@/components/data/list-panel";
@@ -10,10 +12,8 @@ import { EmptyState } from "@/components/data/states";
 import { PageFill, PageHeader } from "@/components/layout/page-header";
 import { usePanelList, usePanelOpen, usePanels } from "@/components/layout/panel-context";
 import { Button } from "@/components/ui/button";
-import { keys } from "@/lib/api/keys";
-import { listModels } from "@/lib/api/models";
-import { listRequests, REQUEST_STATUSES, type RequestRow } from "@/lib/api/requests";
 import { REQUEST_STATUS_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { pick, usePager, useUrlState } from "@/lib/use-url-state";
 import { requestColumns } from "./request-columns";

@@ -1,4 +1,4 @@
-import { TIERS, type Limits } from "@/lib/api/customers";
+import { TIERS, type Limits } from "@modelvend/admin-api/customers";
 import { matchesQuery } from "@/lib/search";
 import { audit, changes } from "../audit";
 import { conflict, invalid, notFound, paginate } from "../http";

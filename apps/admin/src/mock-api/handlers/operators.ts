@@ -1,5 +1,5 @@
-import type { Permission, Role } from "@/lib/api/auth";
-import type { PermissionCatalog } from "@/lib/api/operators";
+import type { Permission, Role } from "@modelvend/admin-api/auth";
+import type { PermissionCatalog } from "@modelvend/admin-api/operators";
 import { MIN_PASSWORD, generatePassword } from "@/lib/passwords";
 import { PERMISSIONS, samePermissions } from "@/lib/permissions";
 import { audit, changes } from "../audit";

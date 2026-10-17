@@ -1,4 +1,4 @@
-import { APP_CATEGORIES, type AppStep } from "@/lib/api/apps";
+import { APP_CATEGORIES, type AppStep } from "@modelvend/admin-api/apps";
 import { audit, changes } from "../audit";
 import { conflict, fail, invalid, invalidState, notFound } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";

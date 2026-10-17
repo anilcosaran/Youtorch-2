@@ -1,5 +1,5 @@
-import type { Operator, Permission, Role } from "./api/auth";
-import type { AccessPreset, PermissionInfo } from "./api/operators";
+import type { Operator, Permission, Role } from "@modelvend/admin-api/auth";
+import type { AccessPreset, PermissionInfo } from "@modelvend/admin-api/operators";
 
 /** Every permission, in the catalog's order. */
 export const PERMISSIONS: readonly Permission[] = [

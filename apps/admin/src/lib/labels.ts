@@ -1,9 +1,9 @@
-import type { KeyEnv, KeyStatus } from "./api/api-keys";
-import type { AppCategory, AppStatus, ReleaseStatus } from "./api/apps";
-import type { CustomerStatus, LedgerKind, Tier } from "./api/customers";
-import type { BillingUnit, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "./api/models";
-import type { Adapter, HealthState, ProviderKind, ProviderStatus } from "./api/providers";
-import type { RequestStatus } from "./api/requests";
+import type { KeyEnv, KeyStatus } from "@modelvend/admin-api/api-keys";
+import type { AppCategory, AppStatus, ReleaseStatus } from "@modelvend/admin-api/apps";
+import type { CustomerStatus, LedgerKind, Tier } from "@modelvend/admin-api/customers";
+import type { BillingUnit, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "@modelvend/admin-api/models";
+import type { Adapter, HealthState, ProviderKind, ProviderStatus } from "@modelvend/admin-api/providers";
+import type { RequestStatus } from "@modelvend/admin-api/requests";
 
 export const MODALITY_LABELS: Record<Modality, string> = {
   image: "Image",

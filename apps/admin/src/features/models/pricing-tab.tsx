@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LoaderCircle, Lock, Plus, X } from "lucide-react";
+import { BILLING_UNITS, updateVersion, type BillingUnit, type Model, type ModelVersion, type PriceTier, type Pricing } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Field } from "@/components/shared/field";
 import { InfoTip } from "@/components/shared/info-tip";
@@ -9,7 +10,6 @@ import { Pill } from "@/components/shared/pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BILLING_UNITS, updateVersion, type BillingUnit, type Model, type ModelVersion, type PriceTier, type Pricing } from "@/lib/api/models";
 import { isEditable, margin, marginTone, slugify } from "@/lib/catalog";
 import { percent, unitPrice } from "@/lib/format";
 import { UNIT_LABELS } from "@/lib/labels";

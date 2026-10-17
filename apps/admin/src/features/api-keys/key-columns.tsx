@@ -1,5 +1,6 @@
 "use client";
 
+import type { ApiKeyRow, KeyEnv } from "@modelvend/admin-api/api-keys";
 import type { Column } from "@/components/data/data-table";
 import { AccessLink } from "@/components/shared/access-link";
 import { CopyButton } from "@/components/shared/copy-field";
@@ -7,7 +8,6 @@ import { Pill, type Tone } from "@/components/shared/pill";
 import { KeyStatusPill } from "@/components/shared/status";
 import { DateTime, RelativeTime } from "@/components/shared/time";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ApiKeyRow, KeyEnv } from "@/lib/api/api-keys";
 import { dateTime, integer, plural, usd } from "@/lib/format";
 import { KEY_ENV_LABELS } from "@/lib/labels";
 

@@ -2,8 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { keys } from "@/lib/api/keys";
-import { listProviders } from "@/lib/api/providers";
+import { listProviders } from "@modelvend/admin-api/providers";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 
 /**

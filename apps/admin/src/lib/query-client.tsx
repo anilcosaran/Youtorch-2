@@ -2,7 +2,7 @@
 
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { ApiError } from "./api/client";
+import { ApiError } from "@modelvend/admin-api/client";
 import { toastError } from "./notify";
 
 function makeClient() {

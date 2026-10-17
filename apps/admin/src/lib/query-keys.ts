@@ -1,9 +1,9 @@
-import type { ApiKeyFilters } from "./api-keys";
-import type { AuditFilters } from "./audit";
-import type { Range } from "./client";
-import type { CustomerFilters } from "./customers";
-import type { ModelFilters } from "./models";
-import type { RequestFilters } from "./requests";
+import type { ApiKeyFilters } from "@modelvend/admin-api/api-keys";
+import type { AuditFilters } from "@modelvend/admin-api/audit";
+import type { Range } from "@modelvend/admin-api/client";
+import type { CustomerFilters } from "@modelvend/admin-api/customers";
+import type { ModelFilters } from "@modelvend/admin-api/models";
+import type { RequestFilters } from "@modelvend/admin-api/requests";
 
 type Paged<T> = T & { cursor?: string };
 

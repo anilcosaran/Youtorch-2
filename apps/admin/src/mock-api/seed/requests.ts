@@ -1,5 +1,5 @@
-import type { BillingUnit, JsonSchema, Modality, ModelVersion, PriceTier, Route } from "@/lib/api/models";
-import type { Attempt, RequestDetail, RequestStatus } from "@/lib/api/requests";
+import type { BillingUnit, JsonSchema, Modality, ModelVersion, PriceTier, Route } from "@modelvend/admin-api/models";
+import type { Attempt, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
 import { byPriority, defaultTier } from "../catalog";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord, ProviderRecord } from "../types";

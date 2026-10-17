@@ -1,4 +1,4 @@
-import type { Permission } from "./api/auth";
+import type { Permission } from "@modelvend/admin-api/auth";
 
 /** The query parameter of the item open in the side panel: `?panel=request:<id>`. */
 export const PANEL_PARAM = "panel";

@@ -1,4 +1,4 @@
-import type { AUDIT_ACTIONS, AuditEntry } from "@/lib/api/audit";
+import type { AUDIT_ACTIONS, AuditEntry } from "@modelvend/admin-api/audit";
 import type { Random } from "../random";
 import type { AppRecord, ModelRecord, OperatorRecord, ProviderRecord } from "../types";
 import { DAY, HOUR, MINUTE, iso } from "../util";
