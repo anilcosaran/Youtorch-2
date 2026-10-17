@@ -1,6 +1,6 @@
+import { keys } from "@/lib/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
-import type { Customer } from "@/lib/api/customers";
-import { keys } from "@/lib/api/keys";
+import type { Customer } from "@modelvend/admin-api/customers";
 
 /**
  * After a change to a customer: the detail shows the server's answer at once,

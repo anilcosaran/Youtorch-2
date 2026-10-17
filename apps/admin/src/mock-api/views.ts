@@ -1,10 +1,10 @@
-import type { ApiKeyRow } from "@/lib/api/api-keys";
-import type { App, AppRelease, AppSummary } from "@/lib/api/apps";
-import type { Operator } from "@/lib/api/auth";
-import { TIER_LIMITS, type Customer, type CustomerRow, type Limits } from "@/lib/api/customers";
-import type { Model, ModelSummary, ModelVersion } from "@/lib/api/models";
-import type { Provider } from "@/lib/api/providers";
-import type { RequestDetail, RequestRow } from "@/lib/api/requests";
+import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
+import type { App, AppRelease, AppSummary } from "@modelvend/admin-api/apps";
+import type { Operator } from "@modelvend/admin-api/auth";
+import { TIER_LIMITS, type Customer, type CustomerRow, type Limits } from "@modelvend/admin-api/customers";
+import type { Model, ModelSummary, ModelVersion } from "@modelvend/admin-api/models";
+import type { Provider } from "@modelvend/admin-api/providers";
+import type { RequestDetail, RequestRow } from "@modelvend/admin-api/requests";
 import { PERMISSIONS } from "@/lib/permissions";
 import { TYPICAL_UNITS, activeRoutes, byPriority, defaultTier, withTierCosts } from "./catalog";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord, OperatorRecord, ProviderRecord, ReleaseRecord, Store } from "./types";

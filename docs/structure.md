@@ -98,8 +98,8 @@ modelvend/
 │  ├─ console/                          MÜŞTERİ UI: app.modelvend.ai
 │  │  └─ src/                           app/ (rotalar), features/, components/, lib/, config/, mocks/
 │  ├─ admin/                            YÖNETİM UI: admin.modelvend.ai (yalnız iç ağ veya SSO arkasında)
-│  │  └─ src/                           app/ (+ api/[...path] proxy'si), features/, components/,
-│  │                                    lib/api/ (admin API sözleşmesi ve istemci), mock-api/ (geliştirme)
+│  │  └─ src/                           app/ (+ api/[...path] proxy'si), features/, components/, lib/,
+│  │                                    mock-api/ (geliştirme; packages/admin-api sözleşmesini uygular)
 │  └─ docs/                             (sonra) docs.modelvend.ai, model sayfaları katalogdan üretilir
 │
 ├─ services/                            Go backend: tek modül, birden çok binary (ayrıntı: services/README.md)
@@ -116,7 +116,7 @@ modelvend/
 │  │  │  │  ├─ openaicompat/            /v1/chat/completions, /v1/images/generations
 │  │  │  │  ├─ mcpserver/               /mcp araçları (bölüm 6)
 │  │  │  │  └─ redact/                  Public DTO'lar ve hata eşleme: müşteriye giden her şeyin son kapısı
-│  │  │  └─ admin/                      /admin/v1 handler'ları (apps/admin/src/lib/api sözleşmesi)
+│  │  │  └─ admin/                      /admin/v1 handler'ları (packages/admin-api sözleşmesi)
 │  │  │
 │  │  ├─ catalog/                       Model, sürüm, route, fiyat, görünürlük; ID çözümleme
 │  │  │  ├─ schema/                     Model şemaları: JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
@@ -148,8 +148,11 @@ modelvend/
 │  ├─ admin.yaml                        İÇ: /admin/v1 → internal/api/admin
 │  └─ webhooks.yaml                     Müşteriye giden olay gövdeleri: task.succeeded, task.failed, …
 │
-├─ packages/                            Paylaşılan JS paketleri
+├─ packages/                            Paylaşılan JS paketleri (npm workspaces)
+│  ├─ admin-api/                        @modelvend/admin-api: /admin/v1 sözleşme tipleri ve tipli istemci (admin)
 │  ├─ api-types/                        api/*.yaml'dan üretilen TS tipleri (console, admin, sdk-js)
+│  ├─ config-eslint/                    Uygulamaların ve paketlerin ortak ESLint ayarı
+│  ├─ config-typescript/                Uygulamaların ve paketlerin extend ettiği temel tsconfig
 │  └─ sdk-js/                           @modelvend/sdk: tasks.create, tasks.wait, tasks.stream
 │
 ├─ runtimes/                            (sonra) Bizim model kodumuz: Python runtime'lar, revision olarak deploy edilir (bölüm 7)
@@ -166,7 +169,7 @@ modelvend/
 ├─ docs/
 ├─ scripts/                             gen-types, seed, …
 ├─ Makefile                             make dev | gen | test | lint | migrate | images
-└─ package.json                         npm workspaces: apps/*
+└─ package.json                         npm workspaces: apps/*, packages/*
 ```
 
 Frontend'de `packages/ui` yok, çünkü müşteri konsolu ile admin konsolu iki ayrı tasarım sistemi kullanıyor. Konsolda kendi token'ları ve bileşenleri var, admin'de postpane'den gelen shadcn kiti. Ortak bir UI paketi taşıma değil yeniden tasarım olurdu.

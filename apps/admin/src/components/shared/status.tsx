@@ -1,9 +1,9 @@
-import type { KeyStatus } from "@/lib/api/api-keys";
-import type { AppStatus, ReleaseStatus } from "@/lib/api/apps";
-import type { CustomerStatus } from "@/lib/api/customers";
-import type { ModelState, RouteStatus, VersionStatus, Visibility } from "@/lib/api/models";
-import type { HealthState, ProviderStatus } from "@/lib/api/providers";
-import type { RequestStatus } from "@/lib/api/requests";
+import type { KeyStatus } from "@modelvend/admin-api/api-keys";
+import type { AppStatus, ReleaseStatus } from "@modelvend/admin-api/apps";
+import type { CustomerStatus } from "@modelvend/admin-api/customers";
+import type { ModelState, RouteStatus, VersionStatus, Visibility } from "@modelvend/admin-api/models";
+import type { HealthState, ProviderStatus } from "@modelvend/admin-api/providers";
+import type { RequestStatus } from "@modelvend/admin-api/requests";
 import {
   APP_STATUS_LABELS,
   CUSTOMER_STATUS_LABELS,

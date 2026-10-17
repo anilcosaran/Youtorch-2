@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { Activity, Ban, Ellipsis, History, Play, SlidersHorizontal, TriangleAlert, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import { ApiError, errorMessage } from "@modelvend/admin-api/client";
+import { getCustomer, resumeCustomer, suspendCustomer, type Customer } from "@modelvend/admin-api/customers";
 import { EmptyState, ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConfirm } from "@/components/shared/confirm";
@@ -20,12 +22,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError, errorMessage } from "@/lib/api/client";
-import { getCustomer, resumeCustomer, suspendCustomer, type Customer } from "@/lib/api/customers";
-import { keys } from "@/lib/api/keys";
 import { integer, percent, usd } from "@/lib/format";
 import { TIER_LABELS } from "@/lib/labels";
 import { toastError } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { Balance, LOW_BALANCE } from "./balance";
 import { storeCustomer } from "./cache";

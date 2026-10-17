@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { LoaderCircle, Pencil } from "lucide-react";
+import { errorMessage } from "@modelvend/admin-api/client";
+import { updateVersion, type JsonSchema, type Model, type ModelVersion } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { FormError } from "@/components/shared/field";
 import { JsonView } from "@/components/shared/json-view";
@@ -9,8 +11,6 @@ import { Segmented } from "@/components/shared/segmented";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage } from "@/lib/api/client";
-import { updateVersion, type JsonSchema, type Model, type ModelVersion } from "@/lib/api/models";
 import { exampleInput, isEditable, parseSchema, schemaFields } from "@/lib/catalog";
 import { usePermissions } from "@/lib/session";
 import { useApplyModel } from "./use-model-action";

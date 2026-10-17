@@ -2,13 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { listApiKeys } from "@modelvend/admin-api/api-keys";
 import { DataTable } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/states";
 import { KeyActionDialogs, KeyActionsMenu, useKeyActions } from "@/features/api-keys/key-actions";
 import { keyColumns } from "@/features/api-keys/key-columns";
-import { listApiKeys } from "@/lib/api/api-keys";
-import { keys } from "@/lib/api/keys";
 import { integer } from "@/lib/format";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 
 /** The workspace's API keys, with the same actions as the API keys page. Hidden without access to keys. */

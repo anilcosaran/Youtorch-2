@@ -1,5 +1,5 @@
 // Package admin serves /admin/v1 for the operator console (apps/admin).
-// Its contract is apps/admin/src/lib/api/*.ts, written up in api/admin.yaml;
+// Its contract is packages/admin-api/src/*.ts, written up in api/admin.yaml;
 // the console's mock API implements it today. The handlers land screen by
 // screen, starting with the catalog; until then every route answers 501 so
 // the console can point ADMIN_API_URL here and fail clearly.

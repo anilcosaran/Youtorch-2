@@ -11,7 +11,7 @@ import type {
   UnitPrice,
   VersionStatus,
   Visibility,
-} from "@/lib/api/models";
+} from "@modelvend/admin-api/models";
 import { TYPICAL_UNITS, defaultRouting, defaultTier, withTierCosts } from "../catalog";
 import type { Random } from "../random";
 import type { ModelRecord, ProviderRecord } from "../types";

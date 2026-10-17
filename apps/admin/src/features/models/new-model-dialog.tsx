@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
+import { createModel, MODALITIES, VISIBILITIES, type Modality, type Visibility } from "@modelvend/admin-api/models";
 import { Field, FormError } from "@/components/shared/field";
 import { TagInput } from "@/components/shared/tag-input";
 import { Button } from "@/components/ui/button";
@@ -11,9 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { createModel, MODALITIES, modelHref, VISIBILITIES, type Modality, type Visibility } from "@/lib/api/models";
-import { ID_PART, slugify } from "@/lib/catalog";
+import { ID_PART, modelHref, slugify } from "@/lib/catalog";
 import { MODALITY_LABELS, VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
 import { useApplyModel } from "./use-model-action";
 

@@ -10,7 +10,7 @@ import {
   type Route,
   type RoutingPolicy,
   type UnitPrice,
-} from "@/lib/api/models";
+} from "@modelvend/admin-api/models";
 import { matchesQuery } from "@/lib/search";
 import { audit, changes } from "../audit";
 import { UNIT_FOR, activeRoutes, answers, defaultRouting, withTierCosts } from "../catalog";

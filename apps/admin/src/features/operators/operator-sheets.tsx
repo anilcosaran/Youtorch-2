@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { Eye, EyeOff, LoaderCircle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import type { Operator } from "@modelvend/admin-api/auth";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
+import { createOperator, getPermissionCatalog, updateOperator, type PermissionCatalog } from "@modelvend/admin-api/operators";
 import { ErrorState } from "@/components/data/states";
 import { CopyButton } from "@/components/shared/copy-field";
 import { Field, FormError } from "@/components/shared/field";
@@ -11,10 +14,6 @@ import { SidePanel } from "@/components/shared/side-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Operator } from "@/lib/api/auth";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { createOperator, getPermissionCatalog, updateOperator, type PermissionCatalog } from "@/lib/api/operators";
 import { generatePassword, passwordProblem } from "@/lib/passwords";
 import {
   accessRequest,
@@ -25,6 +24,7 @@ import {
   isComplete,
   type AccessDraft,
 } from "@/lib/permissions";
+import { keys } from "@/lib/query-keys";
 import { AccessEditor } from "./access-editor";
 
 export function usePermissionCatalog() {

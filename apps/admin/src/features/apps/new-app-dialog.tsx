@@ -5,16 +5,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
+import { APP_CATEGORIES, createApp, type AppCategory } from "@modelvend/admin-api/apps";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { APP_CATEGORIES, createApp, type AppCategory } from "@/lib/api/apps";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
 import { ID_PART, slugify } from "@/lib/catalog";
 import { APP_CATEGORY_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 
 function NewAppForm({ onDone }: { onDone: () => void }) {
   const router = useRouter();

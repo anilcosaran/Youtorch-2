@@ -1,4 +1,4 @@
-import type { JsonSchema, Model, ModelVersion, PriceTier, Pricing, VersionStatus } from "./api/models";
+import type { JsonSchema, Model, ModelVersion, PriceTier, Pricing, VersionStatus } from "@modelvend/admin-api/models";
 
 /** Gross margin of a sale: (price − cost) ÷ price; null when either is unknown or the price is zero. */
 export function margin(price: number | null | undefined, cost: number | null | undefined): number | null {
@@ -23,6 +23,9 @@ export function defaultTier(pricing: Pricing): PriceTier | undefined {
 export const EDITABLE_STATUSES: readonly VersionStatus[] = ["draft", "staging"];
 
 export const isEditable = (version: Pick<ModelVersion, "status">) => EDITABLE_STATUSES.includes(version.status);
+
+/** Where a model's page lives in the console. */
+export const modelHref = (id: string, version?: string) => `/models/${id}${version ? `?version=${encodeURIComponent(version)}` : ""}`;
 
 /** The version a model's pages show unless the URL picks one: the default, else the newest. */
 export function pickVersion(model: Pick<Model, "defaultVersion" | "versionList">, wanted?: string): ModelVersion | undefined {

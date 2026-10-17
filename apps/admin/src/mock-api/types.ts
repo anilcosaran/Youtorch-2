@@ -1,11 +1,11 @@
-import type { ApiKeyRow } from "@/lib/api/api-keys";
-import type { App, AppRelease } from "@/lib/api/apps";
-import type { AuditEntry } from "@/lib/api/audit";
-import type { Operator } from "@/lib/api/auth";
-import type { Customer, Limits } from "@/lib/api/customers";
-import type { Model } from "@/lib/api/models";
-import type { Provider } from "@/lib/api/providers";
-import type { RequestDetail } from "@/lib/api/requests";
+import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
+import type { App, AppRelease } from "@modelvend/admin-api/apps";
+import type { AuditEntry } from "@modelvend/admin-api/audit";
+import type { Operator } from "@modelvend/admin-api/auth";
+import type { Customer, Limits } from "@modelvend/admin-api/customers";
+import type { Model } from "@modelvend/admin-api/models";
+import type { Provider } from "@modelvend/admin-api/providers";
+import type { RequestDetail } from "@modelvend/admin-api/requests";
 import type { Random } from "./random";
 
 /*

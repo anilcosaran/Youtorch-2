@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
+import { createVersion, deprecateVersion, type Model, type ModelVersion } from "@modelvend/admin-api/models";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { createVersion, deprecateVersion, type Model, type ModelVersion } from "@/lib/api/models";
 import { ID_PART, nextVersionId } from "@/lib/catalog";
 import { useApplyModel } from "./use-model-action";
 

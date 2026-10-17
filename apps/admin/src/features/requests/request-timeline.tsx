@@ -2,10 +2,10 @@
 
 import { format, parseISO } from "date-fns";
 import { ArrowRight } from "lucide-react";
+import type { Attempt, AttemptStatus, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
 import { CopyButton } from "@/components/shared/copy-field";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Pill, type Tone } from "@/components/shared/pill";
-import type { Attempt, AttemptStatus, RequestDetail, RequestStatus } from "@/lib/api/requests";
 import { milliseconds, plural, utc } from "@/lib/format";
 import { REQUEST_STATUS_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";

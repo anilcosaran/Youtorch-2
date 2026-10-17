@@ -272,6 +272,3 @@ export const deleteRoute = (modelId: string, version: string, routeId: string) =
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes/${routeId}`, {
     method: "DELETE",
   });
-
-/** Where a model's page lives in the console. */
-export const modelHref = (id: string, version?: string) => `/models/${id}${version ? `?version=${encodeURIComponent(version)}` : ""}`;

@@ -1,0 +1,5 @@
+{
+  "extends": "@modelvend/config-typescript/base.json",
+  "include": ["src/**/*.ts", "*.mts"],
+  "exclude": ["node_modules"]
+}

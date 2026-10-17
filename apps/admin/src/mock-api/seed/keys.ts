@@ -1,5 +1,5 @@
-import type { KeyEnv } from "@/lib/api/api-keys";
-import type { Tier } from "@/lib/api/customers";
+import type { KeyEnv } from "@modelvend/admin-api/api-keys";
+import type { Tier } from "@modelvend/admin-api/customers";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord } from "../types";
 import { DAY, HOUR, MINUTE, iso, money } from "../util";

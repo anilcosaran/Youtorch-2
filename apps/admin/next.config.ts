@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   cacheComponents: true,
   partialPrefetching: true,
+  // Workspace package shipped as TypeScript source (packages/admin-api).
+  transpilePackages: ["@modelvend/admin-api"],
   turbopack: {
     // npm workspace root: the shared lockfile and hoisted node_modules live two levels up.
     root: path.join(__dirname, "../.."),

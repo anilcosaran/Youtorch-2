@@ -1,4 +1,4 @@
-import type { JsonSchema, Modality } from "@/lib/api/models";
+import type { JsonSchema, Modality } from "@modelvend/admin-api/models";
 
 /*
  * Input and output schemas (JSON Schema draft 2020-12) for the seeded

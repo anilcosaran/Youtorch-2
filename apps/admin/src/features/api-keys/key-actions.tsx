@@ -4,6 +4,8 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Ban, Gauge, LoaderCircle, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { revokeApiKey, updateApiKey, type ApiKeyRow } from "@modelvend/admin-api/api-keys";
+import { errorMessage, fieldErrors, type Page } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { ReasonDialog } from "@/components/shared/reason-dialog";
 import { Button } from "@/components/ui/button";
@@ -23,10 +25,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoneyInput, parseDollars } from "@/features/customers/money-input";
-import { revokeApiKey, updateApiKey, type ApiKeyRow } from "@/lib/api/api-keys";
-import { errorMessage, fieldErrors, type Page } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
 import { usd } from "@/lib/format";
+import { keys } from "@/lib/query-keys";
 
 /**
  * After a change to a key: every list on screen shows it at once, then the

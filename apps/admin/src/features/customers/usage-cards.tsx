@@ -1,11 +1,11 @@
 "use client";
 
+import type { Customer } from "@modelvend/admin-api/customers";
 import { BarList } from "@/components/charts/bar-list";
 import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
 import { TimeSeriesChart } from "@/components/charts/time-series";
 import { AccessLink } from "@/components/shared/access-link";
-import type { Customer } from "@/lib/api/customers";
-import { modelHref } from "@/lib/api/models";
+import { modelHref } from "@/lib/catalog";
 import { day, dayLong, usd } from "@/lib/format";
 import { UNIT_LABELS } from "@/lib/labels";
 

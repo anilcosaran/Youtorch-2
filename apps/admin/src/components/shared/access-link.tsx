@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ComponentProps } from "react";
-import type { Permission } from "@/lib/api/auth";
+import type { Permission } from "@modelvend/admin-api/auth";
 import { useSession } from "@/lib/session";
 
 /**

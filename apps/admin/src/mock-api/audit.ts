@@ -1,4 +1,4 @@
-import type { AUDIT_ACTIONS } from "@/lib/api/audit";
+import type { AUDIT_ACTIONS } from "@modelvend/admin-api/audit";
 import type { Context } from "./router";
 import type { OperatorRecord } from "./types";
 import { sameJson } from "./util";

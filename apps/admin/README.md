@@ -41,14 +41,15 @@ src/
 │                      customers, api-keys, audit, operators, auth
 ├─ components/         ui/ (shadcn), data/ (table, filters, pager), layout/ (shell, sidebar,
 │                      command palette, side panel), shared/ (pills, dialogs, tiles), charts/
-├─ lib/api/            The admin API contract: types and typed client, one file per area
-├─ lib/                Formatters, labels, permissions, URL state, panel state, catalog helpers
+├─ lib/                Formatters, labels, permissions, URL state, panel state, catalog helpers,
+│                      React Query keys (query-keys.ts)
 └─ mock-api/           In-memory implementation of the contract for development
 ```
 
 Conventions:
 
-- The contract lives in `src/lib/api/*.ts`. Its doc comments state the rules the server enforces (which lifecycle
+- The contract lives in [`packages/admin-api`](../../packages/admin-api), imported as `@modelvend/admin-api/<area>`:
+  types and typed client, one file per area. Its doc comments state the rules the server enforces (which lifecycle
   moves are allowed, what returns 409 or 422). The Go admin API implements the same contract; keep the mock in step.
 - Filters, tabs and paging live in the query string, so every view can be shared and survives a reload.
 - Every change goes through the API, which writes the audit log; screens never keep their own copy of server state

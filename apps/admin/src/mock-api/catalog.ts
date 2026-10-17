@@ -1,4 +1,4 @@
-import type { BillingUnit, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@/lib/api/models";
+import type { BillingUnit, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@modelvend/admin-api/models";
 import { round } from "./util";
 
 /** Typical units one request bills, for estimates such as revenue and app costs. */

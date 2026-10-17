@@ -3,6 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Ellipsis, LoaderCircle, Pause, Pencil, Play, Plus, Trash } from "lucide-react";
+import {
+  deleteRoute,
+  ROUTING_STRATEGIES,
+  updateRoute,
+  updateVersion,
+  type Model,
+  type ModelVersion,
+  type Route,
+  type RoutingPolicy,
+  type RoutingStrategy,
+} from "@modelvend/admin-api/models";
+import { listProviders } from "@modelvend/admin-api/providers";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/states";
 import { useConfirm } from "@/components/shared/confirm";
@@ -21,22 +33,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { keys } from "@/lib/api/keys";
-import {
-  deleteRoute,
-  ROUTING_STRATEGIES,
-  updateRoute,
-  updateVersion,
-  type Model,
-  type ModelVersion,
-  type Route,
-  type RoutingPolicy,
-  type RoutingStrategy,
-} from "@/lib/api/models";
-import { listProviders } from "@/lib/api/providers";
 import { defaultTier, margin, marginTone } from "@/lib/catalog";
 import { integer, milliseconds, percent, unitPrice } from "@/lib/format";
 import { STRATEGY_DESCRIPTIONS, STRATEGY_LABELS, UNIT_SHORT } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { RouteDialog } from "./route-dialog";

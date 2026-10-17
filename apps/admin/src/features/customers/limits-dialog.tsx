@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
+import { TIER_LIMITS, TIERS, updateCustomer, type Customer, type Tier } from "@modelvend/admin-api/customers";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { TIER_LIMITS, TIERS, updateCustomer, type Customer, type Tier } from "@/lib/api/customers";
 import { TIER_LABELS } from "@/lib/labels";
 import { storeCustomer } from "./cache";
 import { formatLimit, LIMIT_KEYS, LIMIT_LABELS, type LimitKey } from "./limits";

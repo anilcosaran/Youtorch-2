@@ -5,6 +5,18 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, Ellipsis, GitBranchPlus, History, OctagonPause, Play, Undo2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  createRelease,
+  getApp,
+  pauseApp,
+  publishRelease,
+  resumeApp,
+  rollbackApp,
+  type App,
+  type AppRelease,
+  type AppStep,
+} from "@modelvend/admin-api/apps";
+import { errorMessage } from "@modelvend/admin-api/client";
 import { ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConfirm } from "@/components/shared/confirm";
@@ -21,24 +33,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  createRelease,
-  getApp,
-  pauseApp,
-  publishRelease,
-  resumeApp,
-  rollbackApp,
-  type App,
-  type AppRelease,
-  type AppStep,
-} from "@/lib/api/apps";
-import { errorMessage } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { modelHref } from "@/lib/api/models";
-import { margin } from "@/lib/catalog";
+import { margin, modelHref } from "@/lib/catalog";
 import { integer, percent, plural, unitPrice, usdCompact } from "@/lib/format";
 import { APP_CATEGORY_LABELS } from "@/lib/labels";
 import { toastError } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { ReleaseEditor } from "./release-editor";
 

@@ -4,14 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { Field, FormError } from "@/components/shared/field";
-import { TagInput } from "@/components/shared/tag-input";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 import {
   ADAPTERS,
   createProvider,
@@ -21,9 +14,16 @@ import {
   type Adapter,
   type Provider,
   type ProviderKind,
-} from "@/lib/api/providers";
+} from "@modelvend/admin-api/providers";
+import { Field, FormError } from "@/components/shared/field";
+import { TagInput } from "@/components/shared/tag-input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ID_PART } from "@/lib/catalog";
 import { ADAPTER_LABELS, PROVIDER_KIND_DESCRIPTIONS, PROVIDER_KIND_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 
 function useStoreProvider() {
   const queryClient = useQueryClient();

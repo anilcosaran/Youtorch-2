@@ -12,9 +12,16 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/
+# Workspace packages the app depends on: npm links them, so their manifests must be here before npm ci.
+COPY packages/admin-api/package.json packages/admin-api/
+COPY packages/config-eslint/package.json packages/config-eslint/
+COPY packages/config-typescript/package.json packages/config-typescript/
 RUN npm ci --workspace apps/admin
 
 FROM deps AS builder
+COPY packages/admin-api packages/admin-api
+COPY packages/config-eslint packages/config-eslint
+COPY packages/config-typescript packages/config-typescript
 COPY apps/admin apps/admin
 # NEXT_PUBLIC_* values are inlined at build time; ADMIN_API_URL is read at runtime.
 ARG NEXT_PUBLIC_CONSOLE_NAME

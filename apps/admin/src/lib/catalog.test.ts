@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Model, ModelVersion } from "./api/models";
+import type { Model, ModelVersion } from "@modelvend/admin-api/models";
 import { exampleInput, margin, marginTone, nextVersionId, parseSchema, pickVersion, schemaFields, slugify } from "./catalog";
 
 describe("margin", () => {

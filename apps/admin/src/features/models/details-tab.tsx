@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import { updateModel, VISIBILITIES, type Medium, type Model, type ModelUpdate, type Visibility } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Field } from "@/components/shared/field";
 import { TagInput } from "@/components/shared/tag-input";
@@ -10,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { updateModel, VISIBILITIES, type Medium, type Model, type ModelUpdate, type Visibility } from "@/lib/api/models";
 import { slugify } from "@/lib/catalog";
 import { VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
 import { usePermissions } from "@/lib/session";

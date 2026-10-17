@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import type { Permission } from "@/lib/api/auth";
+import type { Permission } from "@modelvend/admin-api/auth";
 import { fail } from "./http";
 import type { OperatorRecord, Store } from "./types";
 import type { Body } from "./validate";

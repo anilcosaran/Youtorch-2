@@ -4,6 +4,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { X } from "lucide-react";
+import { AUDIT_ACTIONS, listAudit, type AuditEntry } from "@modelvend/admin-api/audit";
+import { listOperators } from "@modelvend/admin-api/operators";
 import { DataTable, rowsOf, type Column } from "@/components/data/data-table";
 import { ClearFilters, FilterBar, FilterSelect } from "@/components/data/filters";
 import { ListPanel } from "@/components/data/list-panel";
@@ -21,11 +23,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { AUDIT_ACTIONS, listAudit, type AuditEntry } from "@/lib/api/audit";
-import { keys } from "@/lib/api/keys";
-import { modelHref } from "@/lib/api/models";
-import { listOperators } from "@/lib/api/operators";
+import { modelHref } from "@/lib/catalog";
 import type { Permissions } from "@/lib/permissions";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { pick, usePager, useUrlState } from "@/lib/use-url-state";
 

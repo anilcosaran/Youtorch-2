@@ -1,7 +1,7 @@
 "use client";
 
 import { ShieldCheck } from "lucide-react";
-import type { PermissionCatalog } from "@/lib/api/operators";
+import type { PermissionCatalog } from "@modelvend/admin-api/operators";
 import {
   chooseCustom,
   choosePreset,
