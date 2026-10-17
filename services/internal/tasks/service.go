@@ -156,6 +156,11 @@ func (s *Service) Get(ctx context.Context, workspaceID, id string) (Task, error)
 	return s.Store.GetFor(ctx, workspaceID, id)
 }
 
+// List returns the workspace's top-level tasks, newest first.
+func (s *Service) List(ctx context.Context, workspaceID string, f ListFilter) ([]Task, error) {
+	return s.Store.List(ctx, workspaceID, f)
+}
+
 // Wait returns the task once it finishes or wait runs out, whichever is first.
 func (s *Service) Wait(ctx context.Context, workspaceID, id string, wait time.Duration) (Task, error) {
 	deadline := time.Now().Add(wait)

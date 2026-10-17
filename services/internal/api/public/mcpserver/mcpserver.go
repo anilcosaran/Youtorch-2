@@ -225,7 +225,7 @@ func (s *Server) listTasks(ctx context.Context, req *mcp.CallToolRequest, in lis
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
-	list, err := s.Tasks.Store.List(ctx, principal(req).WorkspaceID, tasks.ListFilter{Status: tasks.Status(in.Status), Limit: limit})
+	list, err := s.Tasks.List(ctx, principal(req).WorkspaceID, tasks.ListFilter{Status: tasks.Status(in.Status), Limit: limit})
 	if err != nil {
 		return result(nil, err)
 	}
