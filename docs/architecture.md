@@ -387,15 +387,257 @@ Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme or
    - App çalıştırıcısı.
    - Kullanım analitiği.
    - Müşteri tarafı routing tercihleri (`provider{only, ignore, max_price}`).
+   - Alt hesaplar, son kullanıcı alanı ve hesap başı fiyat listeleri (bölüm 10, taslak).
 5. **Faz 4: Kendi GPU'larımız.**
    - `managed` sağlayıcının altında deployment'lar: imaj, makine tipi, min/max concurrency, keep-alive.
    - fal'daki gibi değişmez revision'lar ve rollback.
    - Router bu deployment'ları diğer route'larla aynı şekilde görür. Maliyeti GPU-saniye üzerinden hesaplanır.
 
-## 10. Açık kararlar
+## 10. Alt hesaplar ve hesap başı fiyat (taslak)
+
+> Durum: taslak, 25 Ekim 2026. Kodda karşılığı yok. Bugün workspace tek başına duran bir faturalanan hesap: hiyerarşisi, son kullanıcı kaydı ve kendine özel fiyatı yok. Tier yalnızca limitleri belirliyor, fiyatı değil.
+
+### Neyi çözüyor
+
+Üç ayrı ihtiyaç var. Her birinin çözümü tek başına yayınlanabilir:
+
+| İhtiyaç                                                                     | Örnek                                                                                                                            | Çözüm                        | Bölüm |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----- |
+| Geliştirici kendi kullanıcılarının harcamasını görmek ve sınırlamak istiyor | Bir SaaS son kullanıcılarına video ürettiriyor ve kimin ne kadar harcadığını görmek istiyor                                      | Task'ta `end_user` alanı     | 10.1  |
+| Geliştirici müşterilerine ayrı hesap açmak istiyor                          | Bir ajans her müşterisine ayrı anahtar, limit, kullanım raporu ve gerekirse ayrı kredi veriyor; hesapları API'den açıp kapatıyor | Alt hesaplar                 | 10.2  |
+| Bir müşteri liste fiyatından farklı bir fiyat alıyor                        | Kurumsal anlaşma: tüm modellerde %15 indirim, bir modelde sabit fiyat                                                            | Fiyat listeleri (price book) | 10.3  |
+
+Geliştiricinin kendi müşterisine koyacağı fiyat (reseller marjı) bunlardan ayrı bir soru. O konu 10.4'te.
+
+### Diğerleri nasıl yapıyor
+
+| Kim        | Hesap yapısı                                                                                                                                                                   | Limit ve bütçe                                                                                                                                                                                                                    | Fatura                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenAI     | Organization → Project. Anahtarlar projeye bağlı.                                                                                                                              | Proje başına bütçe ve rate limit. Override edilmezse organizasyonun limitleri geçerli.                                                                                                                                            | Organizasyonda. Kullanım proje bazında ayrılır.                                                                                                                                |
+| Anthropic  | Organization → Workspace                                                                                                                                                       | Workspace başına aylık harcama ve rate limit, organizasyonun değerini aşamaz. Her istekte hem workspace hem organizasyon limiti kontrol edilir. Workspace limitlerinin toplamı daha yüksek olsa bile organizasyon limiti geçerli. | Organizasyonda                                                                                                                                                                 |
+| Twilio     | Ana hesap API'den alt hesap açar (`POST /Accounts`). Alt hesabın kendi kimlik bilgisi var ve yalnızca açılışta bir kez gösterilir. Alt hesapların kaynakları birbirinden ayrı. | Ana hesabın izinleri geçerli                                                                                                                                                                                                      | Ana hesapta toplanır. Usage API alt hesap bazında rapor verir.                                                                                                                 |
+| OpenRouter | Tek hesap. Management (provisioning) key ile API'den anahtar açılır.                                                                                                           | Anahtar başına kredi limiti                                                                                                                                                                                                       | Hesapta. İstekteki `user` alanı son kullanıcıyı ayırır. Bu alan sağlayıcıya hash'lenerek gider, böylece bir son kullanıcının yol açtığı sağlayıcı engeli tüm hesabı etkilemez. |
+
+Kaynaklar:
+
+- OpenAI: [projects](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform)
+- Anthropic: [workspaces](https://platform.claude.com/docs/en/manage-claude/workspaces), [limitler](https://support.claude.com/en/articles/9796807)
+- Twilio: [subaccounts](https://www.twilio.com/docs/iam/api/subaccounts)
+- OpenRouter: [provisioning keys](https://openrouter.ai/docs/guides/overview/auth/provisioning-api-keys), [user tracking](https://openrouter.ai/docs/cookbook/administration/user-tracking)
+
+Modelvend için öneri üç parçadan oluşuyor:
+
+- OpenAI ve Anthropic gibi iki seviyeli bir hesap yapısı. Fatura ana hesapta toplanır.
+- Twilio ve OpenRouter gibi alt hesap ve anahtar açmak için bir API.
+- OpenRouter gibi bir son kullanıcı alanı.
+
+### 10.1 Son kullanıcı: `end_user`
+
+- `POST /v1/tasks` gövdesine isteğe bağlı bir `end_user` alanı eklenir. Değeri geliştiricinin kendi kullanıcı ID'si ya da onun hash'idir, en fazla 128 karakter olabilir. Dokümanda e-posta gibi kişisel veri gönderilmemesi istenir. OpenAI uyumlu uçlarda aynı alanın adı `user`'dır.
+- Alan task kaydında saklanır. `GET /v1/tasks?end_user=…` bu alana göre süzer, `GET /v1/usage?group_by=end_user` bu alana göre gruplar.
+- **Son kullanıcı tavanı (isteğe bağlı):** Workspace ayarında son kullanıcı başına bir aylık harcama tavanı tanımlanabilir (`limits.endUserMonthlySpendCap`). Tavan aşılırsa 402 `end_user_limit_reached` döner. Sayaç Redis'te tutulur (`ratelimit`).
+- **Sağlayıcıya ne gider:** Destekleyen sağlayıcılara `end_user` değerinin HMAC'i gönderilir. HMAC bizim anahtarımızla ve workspace'e özgü olarak alınır, ham değer asla gitmez. Böylece bir son kullanıcının yol açtığı içerik politikası engeli bütün Modelvend hesabını etkilemez. Hash'te ne bizim adımız ne de geliştiricinin adı geçtiği için white-label bozulmaz.
+- Faturada bir şey değişmez: bakiye de ledger da aynı kalır.
+
+### 10.2 Alt hesaplar
+
+**Model.**
+
+- Alt hesap tam bir workspace'tir: kendi anahtarları, task'ları, webhook'ları, limitleri ve kullanım raporu vardır. Bugünkü kodun hepsi `workspace_id` üzerinden çalıştığı için gateway, worker ve MCP alt hesaplar için değişmez.
+- Fark yalnızca `workspaces.parent_id` alanındadır. Hiyerarşi **iki seviyelidir**: ana hesap ve onun alt hesapları. Alt hesabın alt hesabı olmaz. Böylece limit, bakiye ve yetki kuralları tek adımda çözülür.
+- Ana hesabın üyeleri konsolda workspace değiştiriciden alt hesaplara geçebilir. Alt hesapların ilk aşamada kendi konsol kullanıcıları yoktur, yalnızca API anahtarlarıyla kullanılırlar.
+
+**Kim açar.**
+
+- Konsolda: Settings → Sub-accounts ekranından, ana hesabın owner ve admin rolündeki üyeleri.
+- API'de: **management key** ile. Biçimi `mv_mgmt_…` şeklindedir. Bu anahtar task çalıştıramaz, yalnızca alt hesapları ve onların anahtarlarını yönetir. Normal bir anahtar da alt hesap açamaz. OpenRouter'daki provisioning key'in karşılığıdır.
+- Alt hesap sayısı tier'a göre sınırlıdır. Örneğin `free` için 0, `standard` için 10, `scale` için 100; `enterprise` için operatör belirler. Sınır aşılırsa 403 `subaccount_limit_reached` döner.
+
+**API.**
+
+```
+POST   /v1/subaccounts                     {name, billing: "shared" | "prepaid", limits?, scopes?, metadata?}
+GET    /v1/subaccounts                     ?cursor=
+GET    /v1/subaccounts/{id}
+PATCH  /v1/subaccounts/{id}                Ad, limitler, scope'lar, metadata
+POST   /v1/subaccounts/{id}/suspend        (ve /resume)
+DELETE /v1/subaccounts/{id}                Kapatır: anahtarlar iptal edilir, prepaid bakiye ana hesaba döner, kayıtlar saklanır
+POST   /v1/subaccounts/{id}/keys           Secret yalnızca bu yanıtta, bir kez döner
+DELETE /v1/subaccounts/{id}/keys/{key_id}
+POST   /v1/subaccounts/{id}/transfers      {amount}: yalnızca prepaid; negatif tutar krediyi geri alır
+GET    /v1/subaccounts/{id}/usage          ?group_by=day|model|end_user
+GET    /v1/subaccounts/{id}/tasks
+```
+
+Bu uçlar yalnızca management key kabul eder. Alt hesabın kendi anahtarıyla gelen istekler normal `/v1` uçlarına gider ve ana hesabı hiç görmez.
+
+**İki faturalama modu.** Mod, alt hesap açılırken seçilir:
+
+| Mod                   | Bakiye                                                                                          | Ne zaman durur                                                                                                                                                    | Ne için                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `shared` (varsayılan) | Ana hesabın bakiyesi kullanılır. Ledger satırı ana hesaba yazılır ve alt hesabın ID'sini taşır. | Alt hesabın aylık harcama tavanı (`limits.monthlySpendCap`) dolunca 402 `spend_cap_reached` döner. Ana hesabın bakiyesi bitince 402 `insufficient_credits` döner. | Ekip, ortam ya da müşteri bazında ayrıştırma. OpenAI projeleri ve Anthropic workspace'leri gibi.           |
+| `prepaid`             | Alt hesabın kendi bakiyesi vardır. Krediyi ana hesap aktarır.                                   | Kendi bakiyesi bitince 402 `insufficient_credits` döner. Ana hesabın bakiyesine hiç dokunulmaz.                                                                   | Ajansın müşterisine belirli bir kredi vermesi. Bir müşterinin aşırı harcamasının diğerlerini etkilememesi. |
+
+- **Para yalnızca ana hesaptan girer.** Alt hesap kart ekleyemez ve Stripe ile bakiye yükleyemez. Fatura, kart ve vergi bilgisi tek yerde, ana hesapta durur. Böylece Modelvend'in geliştirici adına para toplaması ya da ona ödeme yapması (marketplace, KYC, payout) baştan kapsam dışında kalır.
+- **Aktarım** ledger'da iki satırdır: ana hesapta eksi, alt hesapta artı tutarlı birer `transfer` kaydı. İkisi aynı transaction'da yazılır.
+- **Bloke ve tahsilat,** task'ı ödeyen hesaptan yapılır. Ödeyen hesap task oluşturulurken bir kez belirlenir ve task kaydına yazılır: shared modda ana hesap, prepaid modda alt hesabın kendisi. Bu sayede mod sonradan değişse bile o anda çalışan task'lar doğru hesaptan kapanır.
+- **Yüksek hacim:** Shared moddaki bütün alt hesaplar, blokelerini ana hesabın bakiye satırına koyar. Bu satır darboğaz olursa bloke tutarı Redis'te atomik bir sayaçla tutulur ve ledger'a toplu yazılır.
+
+**Kalıtım ve tavanlar.** Anthropic'teki gibi her istekte hem alt hesabın hem ana hesabın limiti kontrol edilir.
+
+- **Tier** ana hesaptan gelir. Alt hesabın ayrı bir tier'ı yoktur.
+- **Rate limit ve eşzamanlılık:** Alt hesaba ayrı limit konabilir ama bu limit ana hesabınkini aşamaz. Ana hesabın limiti bütün ağaç için ortaktır: her istekte hem alt hesabın hem ana hesabın sayacı kontrol edilir. Aksi halde alt hesap açarak limitler çoğaltılabilirdi.
+- **Model erişimi:** Alt hesabın `scopes` listesi, ana hesabın erişebildiği modellerle sınırlıdır. Alt hesaptaki anahtarların scope'ları da alt hesabınkiyle sınırlıdır.
+- **Askı:** Ana hesap askıya alınırsa bütün alt hesapları 403 `account_suspended` alır. Bir alt hesap tek başına da askıya alınabilir; bunu hem ana hesap hem operatör yapabilir.
+- **İç hesaplar:** `INTERNAL_WORKSPACES` içindeki bir hesabın alt hesapları iç hesap sayılmaz, staging sürümlere ve private modellere erişemez.
+- **Fiyat:** Alt hesap ana hesabın fiyat listesini kullanır (bölüm 10.3). Faturayı ana hesaba kestiğimiz için alt hesaba ayrı bir fiyat listesi bağlanmaz.
+
+**Görünürlük.**
+
+- Ana hesabın normal anahtarları yalnızca ana hesabın kendi task'larını görür. Alt hesapların task'larına ve kullanımına management key ile ya da konsoldan bakılır.
+- Alt hesap ana hesabı ve diğer alt hesapları hiç görmez. Yanıtlarda ve hata mesajlarında ana hesaba dair bilgi olmaz.
+- Admin panelinin Customers ekranı, alt hesapları ana hesabın altında bir ağaç olarak gösterir. Kredi verme ve tier değişikliği ana hesapta yapılır.
+
+**Para akışı.**
+
+```mermaid
+flowchart LR
+  S[Stripe] -->|top_up| P[Ana hesap bakiyesi]
+  P -->|"usage (shared)"| A["Alt hesap A'nın task'ları"]
+  P -->|transfer| B[Alt hesap B bakiyesi]
+  B -->|usage| BT["Alt hesap B'nin task'ları"]
+```
+
+### 10.3 Hesap başı fiyat: fiyat listeleri
+
+Bugün fiyat yalnızca sürümün fiyat listesinden gelir ve herkes için aynıdır. Öneri şu: katalogdaki fiyat **liste fiyatı** olarak kalır, üstüne workspace'e bağlanan bir **fiyat listesi** (price book) gelir.
+
+Fiyat listesi kurallardan oluşur. Her kural bir eşleşme taşır; buna ek olarak ya bir indirim oranı ya da sabit bir fiyat:
+
+```json
+[
+  { "match": { "model": "google/veo-3.1@v2", "tier": "1080p" }, "price": 0.3 },
+  { "match": { "app": "product-shots" }, "price": 0.15 },
+  { "match": { "publisher": "google" }, "discount": 0.1 },
+  { "match": { "modality": "video" }, "discount": 0.2 },
+  { "match": {}, "discount": 0.05 }
+]
+```
+
+- **Yalnızca en özel kural uygulanır.** Öncelik sırası şöyledir: sürüm ve kademe (ya da app) > model > publisher > modalite > genel. Kurallar üst üste binmez. Böylece müşteri de operatör de fiyatın nereden geldiğini tek satırda görür.
+- **Promosyonla birlikte:** Sürümün promosyonlu fiyatıyla fiyat listesinin verdiği fiyattan müşteri için düşük olanı uygulanır. İkisi çarpılmaz.
+- **Canlı sürüm kuralı bozulmaz.** Sürümün liste fiyatı yine dondurulmuştur. Fiyat listesi bunun üstünde duran bir sözleşme katmanıdır ve kendi revizyonları vardır:
+  - Her değişiklik yeni bir revizyon açar. Revizyon, `effective_from` tarihinden sonra oluşturulan task'lara uygulanır.
+  - Fiyat, task oluşturulurken (bloke anında) belirlenir. Task kaydı hangi revizyonla fiyatlandığını taşır, örneğin `price_book: "pb_acme@3"`.
+  - Çalışmakta olan bir task'ın fiyatı değişmez.
+- **Maliyetin altında fiyat:** Admin paneli her kural için route maliyetine göre marjı gösterir. Negatif marjlı bir kural ayrı bir operatör izni ister (`pricing.below_cost`) ve audit'e yazılır.
+- **Kime bağlanır:** Bir fiyat listesi birden çok workspace'e bağlanabilir, örneğin "Ajans programı". Alt hesaplar ana hesabın fiyat listesini kullanır. Bir tier'ın varsayılan fiyat listesi olup olamayacağı açık bir karar (bölüm 11).
+- **Müşteri ne görür:**
+  - `/v1/models` ve `/v1/apps`, oturumdaki workspace'in net fiyatını `price`, liste fiyatını `list_price` olarak döndürür.
+  - Task'taki `usage.cost` net fiyattır.
+  - Konsolun model sayfaları ve Pricing sekmesi, giriş yapmış müşteriye kendi fiyatını gösterir.
+- **Nerede hesaplanır:** `billing` paketinde. Bugünkü `billing.Charge(pricing, tier, units)` fonksiyonu, fiyat listesini de hesaba katan bir fiyat teklifine (`Quote`) dönüşür. Aynı teklif hem blokede hem tahsilatta kullanılır. Gateway fiyat listelerini katalog gibi bellekte tutar ve Postgres `NOTIFY` ile yeniler. `catalog` paketi değişmez: liste fiyatı katalogun, sözleşme fiyatı faturalamanın işidir.
+
+Taahhütlü anlaşmalar (aylık asgari harcama, yıllık kontrat) bu taslağa dahil değil. Bugünkü tek hacim teşviki, konsoldaki yükleme bonusu olarak kalır: 200 $ ve üstüne %10, 1000 $ ve üstüne %20.
+
+### 10.4 Geliştiricinin kendi müşterisine fiyatı
+
+Bir ajans ya da SaaS, alt hesaplarına veya son kullanıcılarına kendi fiyatını koymak isteyebilir. Öneri: **Modelvend bu fiyatı uygulamaz.**
+
+- Ana hesaba kendi fiyatıyla (liste fiyatı ya da fiyat listesi) biz fatura keseriz. Geliştirici de kendi müşterisine kendi faturasını keser.
+- Bunun için gereken veriyi biz veririz: alt hesap ve `end_user` bazında kullanım, task başına `usage.cost`, `metadata` alanı ve CSV dışa aktarma.
+- Neden: Modelvend içinde bir kâr marjı (markup) uygulamanın iki anlamı olabilir:
+  - Geliştiricinin müşterisinden parayı bizim toplamamız ve geliştiriciye ödememiz. Bu, vergi, KYC ve payout yükümlülükleri olan ayrı bir iş (marketplace).
+  - Yalnızca alt hesabın kredisinin daha hızlı erimesi. Geliştirici aynı sonucu kendi tarafında daha basit alır: müşterisine daha az kredi aktarır.
+- Alt hesaplar ileride kendi konsol kullanıcılarına kavuşursa (white-label müşteri konsolu), fiyatları marjlı göstermek o zaman ele alınır.
+
+### Veritabanı değişiklikleri (taslak)
+
+```sql
+create table price_books (
+  id          text primary key, -- pb_…
+  name        text not null,
+  notes       text not null default '',
+  created_by  text,
+  created_at  timestamptz not null default now()
+);
+
+create table price_book_revisions (
+  price_book_id   text not null references price_books (id),
+  number          integer not null,
+  rules           jsonb not null,
+  effective_from  timestamptz not null,
+  created_by      text,
+  created_at      timestamptz not null default now(),
+  primary key (price_book_id, number)
+);
+
+alter table workspaces
+  -- Null: ana hesap. İki seviye kuralı accounts.Service'te ve bir trigger'da zorlanır.
+  add column parent_id      uuid references workspaces (id),
+  add column billing        text not null default 'own' check (billing in ('own', 'shared', 'prepaid')),
+  -- Alt hesabın çağırabileceği modeller; boşsa ana hesabın erişebildiği her şey.
+  add column scopes         text[] not null default '{}',
+  -- Yalnızca ana hesapta.
+  add column price_book_id  text references price_books (id),
+  add column metadata       jsonb not null default '{}',
+  add column closed_at      timestamptz,
+  add check ((parent_id is null) = (billing = 'own'));
+
+-- Management anahtarları mv_mgmt_ ile başlar; task çalıştıramaz.
+alter table api_keys
+  add column kind text not null default 'inference' check (kind in ('inference', 'management'));
+
+alter table tasks
+  add column end_user    text,
+  -- Bloke ve tahsilatın yapıldığı hesap.
+  add column billed_to   uuid references workspaces (id),
+  -- "pb_acme@3"; liste fiyatıyla fiyatlandıysa null.
+  add column price_book  text;
+create index tasks_end_user on tasks (workspace_id, end_user, created_at desc) where end_user is not null;
+
+-- ledger_entries.kind'a 'transfer' eklenir.
+alter table ledger_entries
+  -- Shared modda usage satırında harcayan alt hesap, transfer satırında karşı taraf.
+  add column related_workspace_id uuid references workspaces (id);
+```
+
+### Paketlere etkisi
+
+| Paket                     | Değişiklik                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `identity/accounts`       | Alt hesap açma, kapatma ve askıya alma. İki seviye kuralı. Tier, askı ve scope kalıtımı. Tier başına alt hesap sayısı. |
+| `identity/keys`           | `management` anahtar türü ve `mv_mgmt_` biçimi. `Principal` ayrıca ödeyen hesabı, ana hesabı ve anahtar türünü taşır.  |
+| `billing`                 | Fiyat listesi çözümleme (`Quote`), aktarım, ödeyen hesaba göre bloke ve tahsilat                                       |
+| `ratelimit`               | Alt hesap ve ana hesap sayaçları birlikte kontrol edilir. Son kullanıcı tavanı.                                        |
+| `tasks`                   | `end_user`, `billed_to` ve `price_book` alanları                                                                       |
+| `api/public/rest`         | `/v1/subaccounts` uçları, `end_user` alanı, kullanımda `group_by`                                                      |
+| `api/public/openaicompat` | OpenAI'daki `user` alanı `end_user`'a eşlenir                                                                          |
+| `api/public/redact`       | Modellerde net `price` ve `list_price`                                                                                 |
+| `providers`               | Destekleyen adapter'lara son kullanıcı hash'i gönderilir                                                               |
+| `api/admin`, `apps/admin` | Customers ekranında hesap ağacı ve alt hesap kartı. Yeni Price books ekranı. `pricing.below_cost` izni.                |
+| `apps/console`            | Settings → Sub-accounts ve management key'ler. Gerçek workspace değiştirici. Usage ekranında son kullanıcı filtresi.   |
+| `catalog`                 | Değişmez                                                                                                               |
+
+### Geçiş sırası
+
+Her adım ayrı bir PR olur:
+
+1. **Ön koşul: ledger, bloke ve tahsilat.** Bu iş Faz 2'de zaten var. Bugün fiyat task kaydına yazılıyor ama bakiyeden düşülmüyor. Bu adım olmadan ne shared mod ne de fiyat listeleri bir anlam taşır.
+2. **`end_user`:** Yalnızca veri düzlemini etkiler. Bağımsız ve küçük bir iş.
+3. **Fiyat listeleri:** Önce yalnızca admin'den, kurumsal anlaşmalar için. Public API'de değişen tek şey modellerdeki `price` ve `list_price` alanları.
+4. **Alt hesaplar, shared mod:** Önce veritabanı, `accounts` servisi ve konsol. Ardından management key ve `/v1/subaccounts`.
+5. **Prepaid mod ve aktarım.**
+
+## 11. Açık kararlar
 
 - **Sürüm ID'si:** `v1, v2, …` mi, tarih mi (`2026-10-01`)? Admin ikisini de kabul ediyor. Öneri: `vN`, insanlar için ayrıca `label` alanı.
 - **Promosyon:** Sürüm seviyesinde mi kalsın, yoksa zaman aralıklı override olarak mı tanımlansın (OpenRouter'daki `pricing.overrides` gibi)?
 - **Staging erişimi:** Yalnızca dahili anahtarlar mı, yoksa allowlist'teki müşteri workspace'leri de mi?
-- **Kurumsal fiyat:** Workspace başına indirim veya özel fiyat listesi gerekecek mi?
+- **Kurumsal fiyat:** Workspace başına indirim veya özel fiyat listesi gerekecek mi? Taslak öneri bölüm 10.3'te: workspace'e bağlanan, revizyonlu fiyat listeleri.
+- **Alt hesap kimlere açık:** Hangi tier'larda ve kaç tane? Öneri: `standard` ve üstü, sayısı tier'a göre sınırlı.
+- **Ana hesabın limitleri bütün ağaç için ortak mı?** Öneri: evet (bölüm 10.2). Aksi halde alt hesap açarak limitler çoğaltılabilir.
+- **Alt hesaba konsol kullanıcısı:** Ajansın müşterisi konsola girebilsin mi? Öneri: ilk aşamada hayır, alt hesaplar yalnızca API anahtarlarıyla kullanılır.
+- **Reseller marjı:** Modelvend geliştiricinin kendi müşterisine fiyatını uygulasın mı? Öneri: hayır (bölüm 10.4).
+- **Fiyat listesi ve promosyon:** İkisinden düşük olan mı uygulanacak (öneri), yoksa ikisi çarpılacak mı? Bir tier'ın varsayılan fiyat listesi olabilsin mi?
 - **İçerik moderasyonu:** Girdi ve çıktı kontrolü model başına mı yapılsın? Upstream'in `has_nsfw_concepts` gibi sinyalleri request kaydına taşınacak mı?
