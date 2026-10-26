@@ -21,12 +21,34 @@ import (
 	"github.com/brieeflabs/modelvend/services/internal/platform/database"
 )
 
-// New creates a migrated database, dropped when the test ends.
+// open bounds how many test databases a test binary uses at once, and
+// maxConns the pool of each: parallel tests that each run a River client
+// would otherwise exhaust the server's connections (100 by default).
+var open = make(chan struct{}, 6)
+
+const maxConns = "10"
+
+// New creates a migrated database, dropped when the test ends. It waits
+// while too many other tests of the binary have one.
 func New(t testing.TB) *pgxpool.Pool {
 	t.Helper()
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	open <- struct{}{}
+	// Registered first, so it runs last: after the test's own cleanups have
+	// stopped what uses the pool, and the database is dropped.
+	t.Cleanup(func() { <-open })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pool, err := database.Open(ctx, URL(t))
+	u, err := url.Parse(URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("pool_max_conns", maxConns)
+	u.RawQuery = q.Encode()
+	pool, err := database.Open(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}

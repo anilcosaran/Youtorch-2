@@ -64,11 +64,13 @@ type Task struct {
 	Unit         string
 	PriceMicros  int64
 	CostMicros   int64
-	WebhookURL   string
-	Metadata     json.RawMessage
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
+	// HoldMicros is what the task set aside from the balance when it was created.
+	HoldMicros int64
+	WebhookURL string
+	Metadata   json.RawMessage
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
 }
 
 // Attempt is one try on one route. Admin and worker only.
@@ -90,4 +92,9 @@ var (
 	ErrNotFound = errors.New("tasks: not found")
 	// ErrFinal means the task already finished and can't change.
 	ErrFinal = errors.New("tasks: already finished")
+	// ErrKeyScope means the key's scopes don't list the model or app it called.
+	ErrKeyScope = errors.New("tasks: outside the key's scopes")
+	// ErrIdempotencyKeyReused means a live idempotency key came with a
+	// different request than the one that created its task.
+	ErrIdempotencyKeyReused = errors.New("tasks: idempotency key reused for a different request")
 )

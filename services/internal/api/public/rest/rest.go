@@ -16,6 +16,7 @@ import (
 	"github.com/brieeflabs/modelvend/services/internal/api/public/openaicompat"
 	"github.com/brieeflabs/modelvend/services/internal/api/public/redact"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
+	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/platform/ids"
@@ -75,15 +76,17 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := a.Tasks.Create(r.Context(), tasks.CreateParams{
-		WorkspaceID:    p.WorkspaceID,
-		KeyID:          p.KeyID,
-		Internal:       p.Internal,
-		Model:          body.Model,
-		App:            body.App,
-		Input:          body.Input,
-		WebhookURL:     body.WebhookURL,
-		Metadata:       body.Metadata,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		WorkspaceID:      p.WorkspaceID,
+		KeyID:            p.KeyID,
+		Internal:         p.Internal,
+		Scopes:           p.Scopes,
+		SpendLimitMicros: p.SpendLimitMicros,
+		Model:            body.Model,
+		App:              body.App,
+		Input:            body.Input,
+		WebhookURL:       body.WebhookURL,
+		Metadata:         body.Metadata,
+		IdempotencyKey:   r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		a.fail(w, r, err)
@@ -117,11 +120,16 @@ func validateCreate(b *createBody, idempotencyKey string) error {
 	}
 	if b.WebhookURL != "" && !strings.HasPrefix(b.WebhookURL, "https://") {
 		fields["webhook_url"] = "Webhooks must use https://."
+	} else if strings.ContainsRune(b.WebhookURL, 0) {
+		fields["webhook_url"] = "Webhook URLs can't contain the null character (U+0000)."
 	}
-	if len(b.Metadata) > 0 && b.Metadata[0] != '{' {
+	switch {
+	case len(b.Metadata) > 0 && b.Metadata[0] != '{':
 		fields["metadata"] = "Metadata must be a JSON object."
-	} else if len(b.Metadata) > 4096 {
+	case len(b.Metadata) > 4096:
 		fields["metadata"] = "Metadata can be up to 4 KB."
+	case schema.HasNUL(b.Metadata):
+		fields["metadata"] = "Metadata can't contain the null character (U+0000)."
 	}
 	if len(idempotencyKey) > 255 {
 		fields["Idempotency-Key"] = "Idempotency keys can be up to 255 characters."

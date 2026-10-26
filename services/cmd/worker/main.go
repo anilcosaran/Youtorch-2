@@ -20,6 +20,7 @@ import (
 
 	"github.com/brieeflabs/modelvend/services/internal/bootstrap"
 	"github.com/brieeflabs/modelvend/services/internal/delivery/media"
+	"github.com/brieeflabs/modelvend/services/internal/platform/egress"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/providers"
 	"github.com/brieeflabs/modelvend/services/internal/providers/fake"
@@ -48,7 +49,8 @@ func run(ctx context.Context) error {
 	if d.Config.Development() {
 		registry.Register(fake.Adapter, fake.New())
 	}
-	rehoster := &media.Rehoster{HTTP: &http.Client{Timeout: 5 * time.Minute}}
+	// Output URLs come from providers: only public addresses, a few redirects, no proxy.
+	rehoster := &media.Rehoster{HTTP: egress.Client(5 * time.Minute)}
 	if d.Config.Storage.Configured() {
 		store, err := media.NewS3(d.Config.Storage)
 		if err != nil {

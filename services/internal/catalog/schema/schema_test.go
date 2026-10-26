@@ -76,3 +76,67 @@ func TestCacheCompilesOnce(t *testing.T) {
 		t.Fatal("non-object schema should fail")
 	}
 }
+
+func TestValidateAssertsFormats(t *testing.T) {
+	v, err := Compile(json.RawMessage(videoSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = v.Validate(json.RawMessage(`{"prompt": "a boat", "image_url": "not a url"}`))
+	var fields FieldErrors
+	if !errors.As(err, &fields) || fields["image_url"] == "" {
+		t.Fatalf("a malformed uri should be refused on its field, got %v", err)
+	}
+	if _, err := v.Validate(json.RawMessage(`{"prompt": "a boat", "image_url": "https://example.com/a.png"}`)); err != nil {
+		t.Fatalf("a valid uri was refused: %v", err)
+	}
+}
+
+func TestValidateRefusesTheNullCharacter(t *testing.T) {
+	v, err := Compile(json.RawMessage(`{"type": "object", "additionalProperties": true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for in, field := range map[string]string{
+		`{"prompt": "a\u0000b"}`:             "prompt",
+		`{"images": ["ok", "\u0000"]}`:       "images/1",
+		`{"ref": {"name\u0000": 1}}`:         "ref",
+		`{"deep": [{"caption": "x\u0000"}]}`: "deep/0/caption",
+	} {
+		_, err := v.Validate(json.RawMessage(in))
+		var fields FieldErrors
+		if !errors.As(err, &fields) || fields[field] == "" {
+			t.Errorf("%s: want an error on %q, got %v", in, field, err)
+		}
+	}
+	if !HasNUL(json.RawMessage(`{"a": "\u0000"}`)) || HasNUL(json.RawMessage(`{"a": "\\u0000 is an escaped backslash"}`)) {
+		t.Error("HasNUL")
+	}
+}
+
+func TestValidateDropsUndeclaredProperties(t *testing.T) {
+	for _, c := range []struct {
+		name, schema, input, want string
+	}{
+		{"undeclared", `{"type": "object", "properties": {"prompt": {"type": "string"}}}`,
+			`{"prompt": "a", "webhook": "x", "num_inference_steps": 999}`, `{"prompt":"a"}`},
+		{"no properties", `{}`, `{"prompt": "a"}`, `{}`},
+		{"pattern", `{"properties": {"prompt": {}}, "patternProperties": {"^lora_": {}}}`,
+			`{"prompt": "a", "lora_1": 1, "other": 2}`, `{"lora_1":1,"prompt":"a"}`},
+		{"composed", `{"allOf": [{"properties": {"a": {}}}, {"$ref": "#/$defs/b"}], "$defs": {"b": {"properties": {"b": {}}}}}`,
+			`{"a": 1, "b": 2, "c": 3}`, `{"a":1,"b":2}`},
+		{"allowed", `{"properties": {"prompt": {}}, "additionalProperties": true}`,
+			`{"prompt": "a", "extra": 1}`, `{"extra":1,"prompt":"a"}`},
+		{"allowed with a schema", `{"properties": {"prompt": {}}, "additionalProperties": {"type": "integer"}}`,
+			`{"prompt": "a", "extra": 1}`, `{"extra":1,"prompt":"a"}`},
+	} {
+		v, err := Compile(json.RawMessage(c.schema))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		out, err := v.Validate(json.RawMessage(c.input))
+		if err != nil || string(out) != c.want {
+			t.Errorf("%s: got %s %v, want %s", c.name, out, err, c.want)
+		}
+	}
+}

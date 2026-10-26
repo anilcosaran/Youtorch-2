@@ -18,6 +18,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
+	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/delivery/media"
 	"github.com/brieeflabs/modelvend/services/internal/platform/database/dbtest"
 	"github.com/brieeflabs/modelvend/services/internal/platform/ids"
@@ -88,6 +89,7 @@ func refused(kind providers.Kind) func() (providers.Result, error) {
 type env struct {
 	db            *pgxpool.Pool
 	store         *tasks.Store
+	service       *tasks.Service
 	client        *river.Client[pgx.Tx]
 	first, second *script
 	workspace     string
@@ -155,6 +157,7 @@ func setup(t *testing.T, routing catalog.Routing) *env {
 		_ = client.StopAndCancel(stopCtx)
 	})
 	e.client = client
+	e.service = &tasks.Service{DB: db, Store: e.store, Catalog: &catalog.Store{DB: db}, Schemas: &schema.Cache{}, Jobs: client}
 	return e
 }
 
@@ -170,7 +173,7 @@ func (e *env) task(t *testing.T, dispatch bool) string {
 	saved, _, err := e.store.Insert(ctx, tx, tasks.Task{
 		ID: ids.New("task"), WorkspaceID: e.workspace, Target: tasks.Target{Type: "model", ID: model},
 		ModelID: model, VersionID: version, Status: tasks.Queued, Input: json.RawMessage(`{"prompt":"x"}`),
-	}, "")
+	}, tasks.Idempotency{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,5 +404,52 @@ func TestSweepFailsTasksUnfinishedAfterADay(t *testing.T) {
 	task, _ := e.finish(t, id)
 	if task.Status != tasks.Failed || task.ErrorCode != tasks.CodeTimeout {
 		t.Errorf("task is %s (%s), want failed (timeout)", task.Status, task.ErrorCode)
+	}
+}
+
+func TestRouteWithAnUnimplementedTransformFallsBack(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	if _, err := e.db.Exec(context.Background(), `update routes set transform = 'kling_v3' where provider_id = 'first'`); err != nil {
+		t.Fatal(err)
+	}
+	task, attempts := e.finish(t, e.task(t, true))
+	expect(t, task, attempts, tasks.Succeeded, "first:failed", "second:succeeded")
+	if submits, _ := e.first.counts(); submits != 0 {
+		t.Errorf("the route with a transform got %d submits of untransformed input", submits)
+	}
+}
+
+func TestListPagesNewestFirst(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	ctx := context.Background()
+	var want []string
+	for range 3 {
+		want = append([]string{e.task(t, false)}, want...)
+		time.Sleep(2 * time.Millisecond) // IDs order by the millisecond
+	}
+	if err := e.store.Cancel(ctx, want[0], time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	cursor := ""
+	for {
+		page, err := e.store.List(ctx, e.workspace, tasks.ListFilter{Before: cursor, Limit: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, task := range page {
+			got = append(got, task.ID)
+		}
+		cursor = page[len(page)-1].ID
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("listed %v, want %v", got, want)
+	}
+	canceled, err := e.store.List(ctx, e.workspace, tasks.ListFilter{Status: tasks.Canceled, Target: model, Limit: 101})
+	if err != nil || len(canceled) != 1 || canceled[0].ID != want[0] {
+		t.Errorf("filtered list: %v %v", canceled, err)
 	}
 }

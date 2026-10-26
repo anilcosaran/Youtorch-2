@@ -9,10 +9,12 @@
 // max attempts, when the version allows fallbacks. Once a provider has
 // accepted the task, it is polled until it finishes or times out, and never
 // handed to another route: the job would be made, and paid for, twice. On
-// success the output is copied to our storage and the task is priced.
+// success the output is copied to our storage and the task is priced and
+// charged; however it finishes, the hold it took at creation is released
+// (tasks.Store settles in the same transaction as the final status).
 // App runs join this package next. Jobs of other contexts live with them
-// (webhook delivery in delivery/webhooks, settlement in billing); cmd/worker
-// registers them all.
+// (webhook delivery in delivery/webhooks, later Stripe jobs in billing);
+// cmd/worker registers them all.
 package jobs
 
 import (
@@ -258,6 +260,12 @@ func (d *Deps) submit(ctx context.Context, r *run, rt catalog.Route, number int)
 	p, err := d.Providers.Get(rt.Adapter)
 	if err != nil {
 		return fail(providers.Internal, err.Error())
+	}
+	if rt.Transform != "" {
+		// No named transform is implemented yet. Without it the provider would
+		// get our input as it is, so the route counts as failed before submit
+		// and the task may fall back to another one.
+		return fail(providers.Internal, fmt.Sprintf("transform %q isn't implemented", rt.Transform))
 	}
 	spec, err := mapping.Parse(rt.Mapping)
 	if err != nil {

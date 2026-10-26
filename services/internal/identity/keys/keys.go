@@ -64,6 +64,10 @@ type Principal struct {
 	Env         string
 	// Internal keys reach private models and staging versions.
 	Internal bool
+	// Scopes are the model IDs and app slugs the key may run; empty for everything.
+	Scopes []string
+	// SpendLimitMicros caps what the key spends in a calendar month (UTC); nil for no limit.
+	SpendLimitMicros *int64
 }
 
 var ErrInvalid = errors.New("keys: invalid or revoked key")
@@ -75,7 +79,8 @@ type Store struct {
 	InternalWorkspaces map[string]bool
 }
 
-// Authenticate finds the active key and its active workspace.
+// Authenticate finds the active key and its active workspace. Test keys
+// (mv_test_) are billed and limited like live ones.
 func (s *Store) Authenticate(ctx context.Context, secret string) (Principal, error) {
 	if !WellFormed(secret) {
 		return Principal{}, ErrInvalid
@@ -83,10 +88,10 @@ func (s *Store) Authenticate(ctx context.Context, secret string) (Principal, err
 	var p Principal
 	var workspaceStatus string
 	err := s.DB.QueryRow(ctx, `
-		select k.id, k.workspace_id, k.env, w.status
+		select k.id, k.workspace_id, k.env, k.scopes, k.spend_limit_micros, w.status
 		from api_keys k join workspaces w on w.id = k.workspace_id
 		where k.secret_hash = $1 and k.status = 'active'`, Hash(secret)).
-		Scan(&p.KeyID, &p.WorkspaceID, &p.Env, &workspaceStatus)
+		Scan(&p.KeyID, &p.WorkspaceID, &p.Env, &p.Scopes, &p.SpendLimitMicros, &workspaceStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalid
 	}
