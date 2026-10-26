@@ -19,6 +19,8 @@ export function fail(status: number, code: string, message: string, fields?: Rec
 
 export const badRequest = (message: string, code = "bad_request"): never => fail(400, code, message);
 
+export const forbidden = (message: string): never => fail(403, "forbidden", message);
+
 export const notFound = (what: string): never => fail(404, "not_found", `No ${what} with this ID.`);
 
 export const conflict = (message: string, fields?: Record<string, string>): never => fail(409, "conflict", message, fields);

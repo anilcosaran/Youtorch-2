@@ -1,9 +1,9 @@
 import type { Permission, Role } from "@modelvend/admin-api/auth";
 import type { PermissionCatalog } from "@modelvend/admin-api/operators";
 import { MIN_PASSWORD, generatePassword } from "@/lib/passwords";
-import { PERMISSIONS, samePermissions } from "@/lib/permissions";
+import { PERMISSIONS, samePermissions, within } from "@/lib/permissions";
 import { audit, changes } from "../audit";
-import { conflict, invalid, invalidState, notFound } from "../http";
+import { conflict, forbidden, invalid, invalidState, notFound } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";
 import { ACCESS_PRESETS, PERMISSION_CATALOG, withRequired } from "../seed/operators";
 import type { OperatorRecord, Store } from "../types";
@@ -52,13 +52,27 @@ function findOperator(store: Store, id: string): OperatorRecord {
   return store.operators.find((o) => o.id === id) ?? notFound("operator");
 }
 
+/** 403 unless `me` holds everything `access` grants. */
+function mayGrant(me: OperatorRecord, access: Pick<OperatorRecord, "role" | "permissions">) {
+  if (!within(access, me)) {
+    forbidden(access.role === "admin" ? "Only admins can make someone an admin." : "You can't give access you don't have.");
+  }
+}
+
+/** 403 unless `me` holds everything `target` has, so nobody takes over an operator above them. */
+function mayManage(me: OperatorRecord, target: OperatorRecord) {
+  if (!within(target, me)) forbidden("Only an operator with at least the same access can change this one.");
+}
+
 function createOperator(ctx: Context) {
   const { store, body } = ctx;
+  const me = actor(ctx);
   const email = text(body, "email", { max: 254, required: "Enter an email address." }).toLowerCase();
   if (!EMAIL.test(email)) invalid("email", "Enter a valid email address.");
   const name = text(body, "name", { max: 100, required: "Enter a name." });
   const password = chosenPassword(body);
   const access = readAccess(body);
+  mayGrant(me, access);
   if (store.operators.some((o) => o.email === email)) {
     conflict("An operator with this email already exists.", { email: "An operator with this email already exists." });
   }
@@ -82,10 +96,12 @@ function updateOperator(ctx: Context) {
   const { store, body } = ctx;
   const me = actor(ctx);
   const target = findOperator(store, ctx.params.id);
+  mayManage(me, target);
   const before = operatorView(target);
   const name = text(body, "name", { max: 100 });
   if (name === "") invalid("name", "Enter a name.");
   const access = has(body, "role") || has(body, "permissions") ? readAccess(body, target) : null;
+  if (access) mayGrant(me, access);
   const disabled = bool(body, "disabled");
   const accessChanges = access !== null && (access.role !== target.role || !samePermissions(access.permissions, before.permissions));
 
@@ -108,7 +124,11 @@ function updateOperator(ctx: Context) {
 }
 
 function resetPassword(ctx: Context) {
+  const me = actor(ctx);
   const target = findOperator(ctx.store, ctx.params.id);
+  // Your own goes through /me/password, which asks for the current one.
+  if (target.id === me.id) invalidState("Change your own password from your profile.", "own_password");
+  mayManage(me, target);
   const chosen = chosenPassword(ctx.body);
   const generated = chosen === undefined ? newPassword(ctx.store) : null;
   target.password = chosen ?? generated ?? "";

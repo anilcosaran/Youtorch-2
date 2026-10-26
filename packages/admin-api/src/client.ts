@@ -2,6 +2,13 @@
  * Typed fetch for the admin API. The browser calls `/api/admin/v1/...` on the
  * console's own origin; Next.js forwards it to the admin server, so the session
  * cookie just works.
+ *
+ * Every request that changes state must be `Content-Type: application/json`,
+ * or the server answers 415 `unsupported_media_type`: a form on another site
+ * can't send that type without a CORS preflight, which nothing answers. The
+ * console's proxy also refuses changes that don't come from its own pages (403
+ * `cross_origin`), and sends the operator's address as a single
+ * X-Forwarded-For entry, the only one the server should trust.
  */
 
 const BASE = "/api/admin/v1";
@@ -54,6 +61,7 @@ const FALLBACK: Record<number, string> = {
   404: "That no longer exists.",
   409: "That conflicts with a change made elsewhere. Reload and try again.",
   413: "That request is too large.",
+  415: "The server only accepts JSON.",
   422: "Some fields need another look.",
   500: "Something went wrong on the server. Try again in a moment.",
   502: "The admin server can't be reached right now.",
@@ -108,7 +116,7 @@ async function toError(response: Response): Promise<ApiError> {
 export async function request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, query, signal, redirectOnUnauthorized = true } = options;
   const headers: Record<string, string> = { Accept: "application/json" };
-  // The API requires a JSON content type on every request that changes state.
+  // The API requires a JSON content type on every request that changes state (see above).
   if (method !== "GET") headers["Content-Type"] = "application/json";
 
   let response: Response;

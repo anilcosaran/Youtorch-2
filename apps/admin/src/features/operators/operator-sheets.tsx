@@ -6,7 +6,13 @@ import { Eye, EyeOff, LoaderCircle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { Operator } from "@modelvend/admin-api/auth";
 import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
-import { createOperator, getPermissionCatalog, updateOperator, type PermissionCatalog } from "@modelvend/admin-api/operators";
+import {
+  createOperator,
+  getPermissionCatalog,
+  updateOperator,
+  type AccessPreset,
+  type PermissionCatalog,
+} from "@modelvend/admin-api/operators";
 import { ErrorState } from "@/components/data/states";
 import { CopyButton } from "@/components/shared/copy-field";
 import { Field, FormError } from "@/components/shared/field";
@@ -22,9 +28,12 @@ import {
   CUSTOM,
   draftFor,
   isComplete,
+  within,
+  type Access,
   type AccessDraft,
 } from "@/lib/permissions";
 import { keys } from "@/lib/query-keys";
+import { useSession } from "@/lib/session";
 import { AccessEditor } from "./access-editor";
 
 export function usePermissionCatalog() {
@@ -57,10 +66,22 @@ function WithCatalog({ children }: { children: (catalog: PermissionCatalog) => R
 /** A refusal of the role or permissions, for the editor; other fields have their own place. */
 const accessError = (fields: Record<string, string>) => fields.permissions ?? fields.role;
 
-/** The access a new operator starts with: the narrowest preset, else nothing ticked. */
-function startingDraft(catalog: PermissionCatalog): AccessDraft {
-  const viewer = catalog.presets.find((p) => p.id === "viewer") ?? catalog.presets.find((p) => p.role === "custom");
-  return viewer ? choosePreset(viewer, catalog.permissions) : { choice: CUSTOM, role: "custom", permissions: [] };
+/** How many of a preset's permissions change something rather than only show it. */
+const changing = (preset: AccessPreset) => preset.permissions.filter((p) => !p.endsWith(".view")).length;
+
+/**
+ * The access a new operator starts with: of the presets `holder` may give, the
+ * one that changes least (read only, when there is one), else nothing ticked.
+ */
+function startingDraft(catalog: PermissionCatalog, holder: Access | null): AccessDraft {
+  const narrowest = catalog.presets
+    .filter((p) => p.role === "custom" && within(p, holder))
+    .reduce<AccessPreset | null>((best, p) => {
+      if (!best) return p;
+      const [a, b] = [changing(p), changing(best)];
+      return a < b || (a === b && p.permissions.length < best.permissions.length) ? p : best;
+    }, null);
+  return narrowest ? choosePreset(narrowest, catalog.permissions) : { choice: CUSTOM, role: "custom", permissions: [] };
 }
 
 function PasswordInput({
@@ -132,10 +153,11 @@ function CreateForm({
   onCreated: (operator: Operator, password: string | null) => void;
 }) {
   const queryClient = useQueryClient();
+  const { operator: me } = useSession();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [draft, setDraft] = useState(() => startingDraft(catalog));
+  const [draft, setDraft] = useState(() => startingDraft(catalog, me));
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
 
@@ -195,7 +217,7 @@ function CreateForm({
         </Field>
       </div>
       <PasswordInput value={password} onChange={setPassword} error={fields.password} />
-      <AccessEditor catalog={catalog} value={draft} onChange={setDraft} error={accessError(fields)} />
+      <AccessEditor catalog={catalog} holder={me} value={draft} onChange={setDraft} error={accessError(fields)} />
     </form>
   );
 }
@@ -241,10 +263,14 @@ export function CreateOperatorSheet({
   );
 }
 
+/** Why an operator's access is read-only here: it's your own, or it goes beyond yours. */
+type Lock = "self" | "above" | null;
+
 function EditForm({
   formId,
   operator,
-  self,
+  lock,
+  holder,
   catalog,
   onBusy,
   onChanged,
@@ -252,7 +278,8 @@ function EditForm({
 }: {
   formId: string;
   operator: Operator;
-  self: boolean;
+  lock: Lock;
+  holder: Access | null;
   catalog: PermissionCatalog;
   onBusy: (busy: boolean) => void;
   onChanged: (changed: boolean) => void;
@@ -295,19 +322,31 @@ function EditForm({
 
   return (
     <form id={formId} onSubmit={submit} noValidate className="grid gap-5">
-      {self && (
+      {lock === "self" && (
         <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
           You can&apos;t change your own access, so nobody locks themselves out by mistake. Another admin can change it
           for you.
         </p>
       )}
+      {lock === "above" && (
+        <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+          {operator.name} has access you don&apos;t, so only an operator with at least the same access can change it.
+        </p>
+      )}
       <FormError message={error} />
-      <AccessEditor catalog={catalog} value={draft} onChange={change} disabled={self} error={accessError(fields)} />
+      <AccessEditor
+        catalog={catalog}
+        holder={holder}
+        value={draft}
+        onChange={change}
+        disabled={lock !== null}
+        error={accessError(fields)}
+      />
     </form>
   );
 }
 
-/** Changes what an operator may do; their own access is read-only. */
+/** Changes what an operator may do; their own access, and access beyond yours, is read-only. */
 export function EditAccessSheet({
   operator,
   self,
@@ -317,6 +356,8 @@ export function EditAccessSheet({
   self: boolean;
   onClose: () => void;
 }) {
+  const { operator: me } = useSession();
+  const lock: Lock = self ? "self" : operator && !within(operator, me) ? "above" : null;
   const formId = useId();
   const [busy, setBusy] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -331,7 +372,7 @@ export function EditAccessSheet({
       title={operator ? `${operator.name}'s access` : "Access"}
       description={operator?.email}
       footer={
-        self ? (
+        lock ? (
           <div className="flex justify-end">
             <Button type="button" variant="outline" onClick={close}>
               Close
@@ -357,7 +398,8 @@ export function EditAccessSheet({
               key={operator.id}
               formId={formId}
               operator={operator}
-              self={self}
+              lock={lock}
+              holder={me}
               catalog={catalog}
               onBusy={setBusy}
               onChanged={setChanged}

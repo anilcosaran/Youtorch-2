@@ -191,6 +191,52 @@ describe("mock admin API", () => {
     expect(taken.body.error.fields?.email).toBeTruthy();
   });
 
+  it("keeps operators.manage from making admins or taking over other operators", async () => {
+    const manager = await call<{ operator: Operator }>("POST", "/operators", {
+      email: "kit@modelvend.ai",
+      name: "Kit",
+      role: "custom",
+      permissions: ["operators.manage"],
+    });
+    await call("POST", "/auth/logout");
+    expect((await call("POST", "/auth/login", { email: "kit@modelvend.ai", password: MOCK_PASSWORD })).status).toBe(200);
+    const kit = manager.body.operator.id;
+
+    const admin = await call("POST", "/operators", { email: "eve@modelvend.ai", name: "Eve", role: "admin" });
+    expect(admin.status).toBe(403);
+    const wider = await call("POST", "/operators", { email: "eve@modelvend.ai", name: "Eve", role: "custom", permissions: ["catalog.view"] });
+    expect(wider.status).toBe(403);
+    const peer = await call<{ operator: Operator }>("POST", "/operators", {
+      email: "lee@modelvend.ai",
+      name: "Lee",
+      role: "custom",
+      permissions: ["operators.manage"],
+    });
+    expect(peer.status).toBe(200);
+    expect((await call("PATCH", `/operators/${peer.body.operator.id}`, { role: "admin" })).status).toBe(403);
+    expect((await call("PATCH", `/operators/${peer.body.operator.id}`, { name: "Lee Park" })).status).toBe(200);
+
+    // Admins and wider operators are out of reach: no disabling, no password reset.
+    expect((await call("PATCH", "/operators/op_anil", { disabled: true })).status).toBe(403);
+    expect((await call("POST", "/operators/op_anil/reset-password", { password: "takeover-1234" })).status).toBe(403);
+    expect((await call("POST", "/operators/op_mara/reset-password", {})).status).toBe(403);
+    // Your own password needs the current one, through /me/password.
+    const own = await call("POST", `/operators/${kit}/reset-password`, { password: "takeover-1234" });
+    expect(own.status).toBe(422);
+    expect(own.body.error.code).toBe("own_password");
+  });
+
+  it("refuses changes that aren't JSON", async () => {
+    const request = new NextRequest("http://localhost/api/admin/v1/operators", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ email: "eve@modelvend.ai", name: "Eve", role: "admin" }),
+    });
+    const response = await handleMock(request, "/admin/v1/operators");
+    expect(response.status).toBe(415);
+    expect((await call<Operator[]>("GET", "/operators")).body.some((o) => o.email === "eve@modelvend.ai")).toBe(false);
+  });
+
   it("answers 404 for unknown routes and IDs", async () => {
     expect((await call("GET", "/nope")).body.error.code).toBe("not_found");
     expect((await call("GET", "/models/google/nope")).status).toBe(404);
