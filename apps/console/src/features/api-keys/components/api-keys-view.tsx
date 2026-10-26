@@ -32,7 +32,7 @@ export function ApiKeysView() {
       <PageHeader
         eyebrow="Build"
         title="API keys"
-        description={`Keys authenticate requests to the ${site.name} API. Test keys hit the same models but are never billed.`}
+        description={`Keys authenticate requests to the ${site.name} API. Test keys keep test traffic apart from production and are billed the same as live keys.`}
         actions={
           <Button variant="primary" onClick={() => setOpen(true)}>
             <Plus /> New key

@@ -1,20 +1,4 @@
-import type { Region, Status } from "@/types/model";
-
-export const regionLabel: Record<Region, string> = {
-  global: "GL",
-  eu: "EU",
-  us: "US",
-  apac: "AP",
-  sa: "SA",
-};
-
-export const regionOptions: { value: "all" | Exclude<Region, "global">; label: string }[] = [
-  { value: "all", label: "All regions" },
-  { value: "eu", label: "Europe" },
-  { value: "us", label: "North America" },
-  { value: "apac", label: "Asia Pacific" },
-  { value: "sa", label: "South America" },
-];
+import type { Status } from "@/types/model";
 
 export const statusTone: Record<Status, string> = {
   ok: "bg-ok",

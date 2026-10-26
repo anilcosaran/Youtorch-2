@@ -1,8 +1,11 @@
 import { modalityOrder } from "@/lib/modality";
+import { modelId } from "@/lib/model";
+import { costOf } from "@/lib/pricing";
 import { seeded } from "@/lib/random";
 import type { Modality } from "@/types/model";
 import type { DailyUsage, RequestLog } from "@/types/usage";
-import { models } from "./models";
+import { sampleNow } from "./clock";
+import { findModels, models } from "./models";
 
 const base: Record<Modality, number> = { video: 14, image: 4.2, audio: 1.6, "3d": 0.9 };
 
@@ -10,17 +13,17 @@ const base: Record<Modality, number> = { video: 14, image: 4.2, audio: 1.6, "3d"
 const modelWeight: Record<string, number> = {
   "lumen-1": 3.2,
   "kling-3": 2.2,
-  "seedance-2-5": 1.8,
-  "veo-3-1": 1.5,
+  "seedance-2.5": 1.8,
+  "veo-3.1": 1.5,
   "hailuo-03": 0.7,
-  "wan-2-6": 0.5,
+  "wan-2.6": 0.5,
   "flux-2-pro": 2.4,
   "nano-banana-pro": 2,
-  "seedream-4-5": 1,
+  "seedream-4.5": 1,
   "eleven-v3": 2.6,
   "lyria-2": 1,
 };
-const anchor = Date.UTC(2026, 9, 7);
+const anchor = sampleNow;
 const monthFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", timeZone: "UTC" });
 const fullFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
@@ -63,9 +66,11 @@ function buildSeries(days: number): DailyUsage[] {
       modalityOrder.map((m) => [m, +(base[m] * growth * weekend * (0.7 + rand() * 0.6)).toFixed(2)]),
     ) as Record<Modality, number>;
     const requests = Math.round((280 + rand() * 160) * growth * weekend);
+    const at = anchor - (days - 1 - i) * 864e5;
     return {
-      label: monthFmt.format(anchor - (days - 1 - i) * 864e5),
-      date: `${fullFmt.format(anchor - (days - 1 - i) * 864e5)} UTC`,
+      day: new Date(at).toISOString().slice(0, 10),
+      label: monthFmt.format(at),
+      date: `${fullFmt.format(at)} UTC`,
       spend,
       models: splitByModel(spend, requests, splitRand),
       requests,
@@ -83,26 +88,29 @@ export function totalSpend(day: DailyUsage) {
   return modalityOrder.reduce((sum, m) => sum + day.spend[m], 0);
 }
 
+const monthName = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" });
+
+/** The days of the latest month in `series` (month to date) and that month's name. */
+export function monthToDate(series: DailyUsage[] = usageSeries) {
+  const last = series.at(-1);
+  if (!last) return { month: "", days: [] };
+  const month = last.day.slice(0, 7);
+  return { month: monthName.format(Date.parse(last.day)), days: series.filter((d) => d.day.startsWith(month)) };
+}
+
 export const recentRequests: RequestLog[] = (() => {
   const rand = seeded(19);
-  const entries: [string, string, number][] = [
-    ["lumen-1", "/v1/video/generations", 0.152],
-    ["flux-2-pro", "/v1/images/generations", 0.045],
-    ["kling-3", "/v1/video/generations", 0.084],
-    ["eleven-v3", "/v1/audio/speech", 0.18],
-    ["nano-banana-pro", "/v1/images/edits", 0.039],
-    ["seedance-2-5", "/v1/video/generations", 0.206],
-  ];
-  return entries.map(([model, endpoint, unit], i) => {
+  const slugs = ["lumen-1", "flux-2-pro", "kling-3", "eleven-v3", "nano-banana-pro", "seedance-2.5"];
+  return findModels(slugs).map((model, i) => {
     const failed = i === 3;
-    const seconds = model.includes("pro") || model.includes("v3") ? 1 : Math.round(5 + rand() * 10);
+    const units = model.modality === "video" ? Math.round(5 + rand() * 10) : 1;
     return {
-      id: `req_${(0x9f2a3 + i * 7919).toString(36)}${(0x51c + i * 131).toString(36)}`,
-      model,
-      endpoint,
-      status: failed ? 429 : 200,
+      id: `task_${(0x9f2a3 + i * 7919).toString(36)}${(0x51c + i * 131).toString(36)}`,
+      model: modelId(model),
+      endpoint: "POST /v1/tasks",
+      status: failed ? 402 : model.modality === "video" ? 202 : 200,
       duration: failed ? 0.4 : +(2 + rand() * 50).toFixed(1),
-      cost: failed ? 0 : +(unit * seconds).toFixed(3),
+      cost: failed ? 0 : costOf(model, units),
       ago: `${2 + i * 7}m ago`,
     };
   });

@@ -5,6 +5,7 @@ import { ChevronDown, Dices, RotateCcw, SlidersHorizontal, Sparkles } from "luci
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 import { formatPrice, formatUsd } from "@/lib/format";
+import { madeBy } from "@/lib/model";
 import type { Model } from "@/types/model";
 import { ModelArt } from "../model-art";
 import {
@@ -82,7 +83,7 @@ export function PlaygroundForm({
         <ModelArt model={model} className="size-8 shrink-0 rounded-lg ring-1 ring-white/10" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-semibold text-fg">{model.name}</p>
-          <p className="truncate text-[12px] text-muted capitalize">{model.provider}</p>
+          <p className="truncate text-[12px] text-muted">{madeBy(model)}</p>
         </div>
         {modes.length > 1 && mode ? (
           <SettingChip control={modeControl(modes, mode)} value={mode} onChange={onMode} align="end" className="flex-none" />

@@ -5,7 +5,7 @@ import { checkerboard } from "@/components/media/compare-slider";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import type { App } from "@/mocks/apps";
-import { appHref, appModel, runPrice } from "../lib/apps";
+import { appHref } from "../lib/apps";
 
 const badgeTone: Record<NonNullable<App["badge"]>, string> = {
   Top: "bg-[#ff5e2b] text-[#fff]",
@@ -16,7 +16,6 @@ const sizes = "(min-width: 1280px) 560px, (min-width: 640px) 50vw, 100vw";
 
 /** Cover shows the input; hovering a before/after app reveals its result. `eager` for covers above the fold. */
 export function AppCard({ app, eager }: { app: App; eager?: boolean }) {
-  const model = appModel(app);
   const s = app.showcase;
   const reveal = s.kind === "compare" ? s : undefined;
 
@@ -64,7 +63,7 @@ export function AppCard({ app, eager }: { app: App; eager?: boolean }) {
         </div>
         <p className="mt-1 truncate text-[13.5px] text-muted">{app.tagline}</p>
         <p className="mt-3 truncate text-[12.5px] text-subtle tabular">
-          {model.name} · from <span className="text-fg">{formatPrice(runPrice(app))}</span> per run
+          <span className="text-fg">{formatPrice(app.price)}</span> per run
         </p>
       </div>
     </Link>

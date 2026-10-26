@@ -76,13 +76,13 @@ export const flowTemplates: FlowTemplate[] = [
     description: "Turn a script into a narrated, captioned vertical video.",
     image: "/gallery/singer.jpg",
     position: "70% 40%",
-    slugs: ["eleven-v3", "veo-3-1"],
+    slugs: ["eleven-v3", "veo-3.1"],
   },
   {
     title: "Music visualizer",
     description: "Generate a track, then cut motion to its beat.",
     image: "/gallery/wave.jpg",
-    slugs: ["lyria-2", "seedance-2-5"],
+    slugs: ["lyria-2", "seedance-2.5"],
   },
   {
     title: "Game asset pack",

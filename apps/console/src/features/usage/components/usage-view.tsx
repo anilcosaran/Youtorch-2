@@ -8,8 +8,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Select } from "@/components/ui/select";
+import { downloadCsv } from "@/lib/csv";
 import { modalityLabel, modalityOrder } from "@/lib/modality";
-import { monthlyBudget, requestShare, totalSpend, usageSeries } from "@/mocks/usage";
+import { monthlyBudget, monthToDate, requestShare, totalSpend, usageSeries } from "@/mocks/usage";
 import { useConsole } from "@/providers/console-provider";
 import type { Modality } from "@/types/model";
 import type { DailyUsage } from "@/types/usage";
@@ -51,8 +52,9 @@ export function UsageView() {
   const spendOf = (d: DailyUsage) => scoped.reduce((s, m) => s + spendFor(d, m), 0);
   const requestsOf = (d: DailyUsage) => scoped.reduce((s, m) => s + requestsFor(d, m), 0);
 
-  // The budget is workspace-wide, so it ignores the modality scope.
-  const monthToDate = live(usageSeries.slice(-7).reduce((s, d) => s + totalSpend(d), 0));
+  // The budget is workspace-wide, so it ignores the modality scope and the period.
+  const month = monthToDate();
+  const spentThisMonth = live(month.days.reduce((s, d) => s + totalSpend(d), 0));
   const keyShares = keys.length ? keys.map((k, i) => ({ name: k.name, share: 0.6 / (i + 1) })) : sampleKeyShare;
 
   return (
@@ -62,7 +64,12 @@ export function UsageView() {
         title="Usage & logs"
         description={
           sampleMode ? (
-            "Spend, requests and reliability across every key and model."
+            <>
+              Showing sample data, not your workspace&apos;s usage.{" "}
+              <button onClick={() => setSampleMode(false)} className="font-medium text-fg underline-offset-4 hover:underline">
+                Hide it
+              </button>
+            </>
           ) : (
             <>
               No usage in this period yet.{" "}
@@ -84,7 +91,20 @@ export function UsageView() {
             >
               {sampleMode ? <EyeOff /> : <Database />}
             </Button>
-            <Button variant="ghost" size="icon" aria-label="Export CSV">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Export CSV"
+              title="Export the days shown as CSV"
+              disabled={!sampleMode}
+              onClick={() =>
+                downloadCsv(
+                  `usage-last-${period}-days.csv`,
+                  ["date", ...scoped.map((m) => `${m}_spend_usd`), "spend_usd", "requests"],
+                  series.map((d) => [d.day, ...scoped.map((m) => spendFor(d, m).toFixed(2)), spendOf(d).toFixed(2), requestsOf(d)]),
+                )
+              }
+            >
               <Download />
             </Button>
           </>
@@ -97,7 +117,7 @@ export function UsageView() {
         spendOf={spendOf}
         requestsOf={requestsOf}
         caption={`Last ${period} days`}
-        budget={{ label: "October budget", spent: monthToDate, limit: monthlyBudget }}
+        budget={{ label: `${month.month} budget`, spent: spentThisMonth, limit: monthlyBudget }}
         replayKey={`${period}-${scope}-${sampleMode}`}
       />
 
@@ -120,13 +140,11 @@ export function UsageView() {
             <span className="inline-flex items-center gap-2.5">
               Request log
               {sampleMode && (
-                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ok">
-                  <span className="size-1.5 animate-pulse-soft rounded-full bg-ok" /> Live
-                </span>
+                <span className="rounded-md border border-line px-1.5 py-0.5 text-[12px] font-medium text-muted">Sample data</span>
               )}
             </span>
           }
-          description="Live tail of every call made with your keys, most recent first. Retained for 30 days."
+          description="Calls made with your keys, most recent first. Retained for 30 days."
         />
         {sampleMode ? (
           <RequestTable />

@@ -1,10 +1,10 @@
 import { Check } from "lucide-react";
 import { formatPrice } from "@/lib/format";
 import { mediumMeta, modalityLabel } from "@/lib/modality";
-import { discounted } from "@/lib/pricing";
+import { costOf, discounted, promoLabel, promoRate } from "@/lib/pricing";
 import type { Model } from "@/types/model";
 
-const perks = ["Failed generations are free", "Bonus credits from $200 top-ups", "Same price in test and live keys"];
+const perks = ["Failed tasks are never charged", "Bonus credits from $200 top-ups", "Test keys are billed the same as live keys"];
 
 function exampleFor(model: Model) {
   if (model.modality === "video") return { units: 8, label: `8s clip at ${model.unitDetail}` };
@@ -40,7 +40,7 @@ function rowsFor(model: Model) {
 }
 
 export function PricingTable({ model }: { model: Model }) {
-  const promo = model.promo ?? 0;
+  const promo = promoRate(model);
   const example = exampleFor(model);
 
   return (
@@ -84,10 +84,10 @@ export function PricingTable({ model }: { model: Model }) {
       <div className="flex flex-col rounded-[var(--radius-card)] border border-line p-4">
         <div className="flex items-center justify-between">
           <p className="eyebrow">Typical request</p>
-          {promo > 0 && <span className="text-[12px] text-deal">{Math.round(promo * 100)}% off</span>}
+          {promo > 0 && <span className="text-[12px] text-deal">{promoLabel(model)}</span>}
         </div>
         <p className="mt-2 text-[28px] leading-none font-semibold tracking-tight text-fg tabular">
-          {formatPrice(discounted(model) * example.units)}
+          {formatPrice(costOf(model, example.units))}
           {promo > 0 && <s className="ml-2 text-[14px] font-normal text-subtle">{formatPrice(model.price * example.units)}</s>}
         </p>
         <p className="mt-1.5 text-[13px] text-muted">{example.label}</p>

@@ -5,13 +5,21 @@ import { Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Segmented } from "@/components/ui/segmented";
 import { modalityIcon, modalityLabel } from "@/lib/modality";
+import { madeBy, modelId } from "@/lib/model";
+import { discounted } from "@/lib/pricing";
 import { models } from "@/mocks/models";
-import type { Modality } from "@/types/model";
+import type { Model, Modality } from "@/types/model";
 import { ModelCard } from "./model-card";
 
 type Sort = "featured" | "price" | "speed";
 
 const latencySeconds = (latency: string) => Number(latency.replace(/\D/g, ""));
+
+/** Billing units in catalog order. Prices are only comparable within a unit, so the price sort groups by unit first. */
+const unitOrder = [...new Set(models.map((m) => m.unit))];
+
+const byNetPrice = (a: Model, b: Model) =>
+  a.unit === b.unit ? discounted(a) - discounted(b) : unitOrder.indexOf(a.unit) - unitOrder.indexOf(b.unit);
 
 export function ModelCatalog() {
   const [query, setQuery] = useState("");
@@ -29,9 +37,9 @@ export function ModelCatalog() {
     const list = models.filter(
       (m) =>
         (modality === "all" || m.modality === modality) &&
-        (!q || `${m.name} ${m.provider} ${m.description} ${m.capabilities.join(" ")}`.toLowerCase().includes(q)),
+        (!q || `${m.name} ${modelId(m)} ${madeBy(m)} ${m.description} ${m.capabilities.join(" ")}`.toLowerCase().includes(q)),
     );
-    if (sort === "price") return [...list].sort((a, b) => a.price - b.price);
+    if (sort === "price") return [...list].sort(byNetPrice);
     if (sort === "speed") return [...list].sort((a, b) => latencySeconds(a.latency) - latencySeconds(b.latency));
     return list;
   }, [query, modality, sort]);
@@ -105,7 +113,7 @@ export function ModelCatalog() {
           <EmptyState
             icon={<SearchX />}
             title="No models match"
-            description={`Nothing found for “${query}”. Try a provider or capability.`}
+            description={`Nothing found for “${query}”. Try a model name, maker or capability.`}
           />
         )}
       </div>

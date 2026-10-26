@@ -13,7 +13,7 @@ export default function QuickstartPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Quickstart"
-        description="Start from the API, or connect Claude, ChatGPT, Codex, Gemini or Cursor over MCP."
+        description="Start from the API, or connect Claude Code, Codex, Gemini or Cursor over MCP with the same API key."
       />
       <QuickstartGuide api={<QuickstartSteps />} />
       <Link

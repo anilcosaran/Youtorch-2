@@ -25,7 +25,7 @@ export function BuildBanner() {
             <span className="text-muted">Every model in the library.</span>
           </h2>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted">
-            Swap the model name, keep the code. {site.name} routes, retries and bills every call on a single balance.
+            Swap the model ID, keep the code. {site.name} runs every call as a task and bills it to a single balance.
           </p>
           <ul className="mt-5 space-y-2">
             {buildPoints.map((p) => (
@@ -49,7 +49,7 @@ export function BuildBanner() {
             </a>
           </div>
         </div>
-        <CodeBlock snippets={snippetsFor()} title="POST /v1/video/generations" className="shadow-2xl shadow-black/40" />
+        <CodeBlock snippets={snippetsFor()} title="POST /v1/tasks" className="shadow-2xl shadow-black/40" />
       </div>
     </section>
   );

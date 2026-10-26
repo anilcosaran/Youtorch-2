@@ -2,14 +2,15 @@ import Link from "next/link";
 import { Wand2 } from "lucide-react";
 import { AudioPreview } from "@/components/media/audio-preview";
 import { playgroundHref } from "@/features/models/lib/links";
-import { getModel } from "@/mocks/models";
+import { findModel } from "@/mocks/models";
 import { elevenSpotlight, type SpotlightVoice } from "@/mocks/spotlights";
 import { SpotlightHeader } from "./spotlight-header";
 
 /** A few voices with their script and a playable sample; "Use this voice" carries the script into the playground. */
 export function ElevenSpotlight() {
   const { slug, tagline, accent, items } = elevenSpotlight;
-  const model = getModel(slug);
+  const model = findModel(slug);
+  if (!model) return null;
 
   return (
     <section>

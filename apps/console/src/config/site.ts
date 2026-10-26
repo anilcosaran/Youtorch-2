@@ -10,15 +10,6 @@ export const site = {
   docsUrl: env(process.env.NEXT_PUBLIC_DOCS_URL, "https://docs.modelvend.ai"),
   /** Prefix of secret keys, e.g. mv_live_… */
   keyPrefix: "mv",
-  user: {
-    firstName: "Anıl",
-    fullName: "Anıl Asistant",
-    email: "anil@modelvend.ai",
-  },
-  workspace: {
-    name: "Modelvend Studio",
-    plan: "Pay as you go",
-  },
 } as const;
 
 export const themeStorageKey = "modelvend-theme";

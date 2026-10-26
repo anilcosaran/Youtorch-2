@@ -3,14 +3,14 @@ import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import { mediumMeta } from "@/lib/modality";
-import { discounted } from "@/lib/pricing";
+import { discounted, promoLabel } from "@/lib/pricing";
 import type { Medium, Model, ModelStats as Stats } from "@/types/model";
 import { uptimeTone } from "../../lib/endpoints";
 
 export function ModelStats({ model, stats }: { model: Model; stats: Stats }) {
   return (
     <dl className="mt-6 grid grid-cols-2 gap-2.5 @2xl:grid-cols-3 @4xl:grid-cols-5">
-      <Stat label={model.inputPrice ? "In / out price" : "Price"} aside={model.promo ? `${Math.round(model.promo * 100)}% off` : undefined}>
+      <Stat label={model.inputPrice ? "In / out price" : "Price"} aside={promoLabel(model) ?? undefined}>
         <PriceLine model={model} />
       </Stat>
       <Stat label="Max output">{model.maxOutput}</Stat>

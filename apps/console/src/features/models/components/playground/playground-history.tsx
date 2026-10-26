@@ -13,7 +13,8 @@ export function PlaygroundHistory({
   onSelect,
   onClear,
 }: {
-  model: Model;
+  /** Absent for app runs, which never name the model behind them. */
+  model?: Model;
   runs: PlaygroundRun[];
   selectedId?: number;
   onSelect: (id: number) => void;

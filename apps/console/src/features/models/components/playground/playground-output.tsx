@@ -43,13 +43,14 @@ export function PlaygroundOutput({ model, run }: { model: Model; run: Playground
   );
 }
 
-export function OutputThumb({ model, run, className }: { model: Model; run: PlaygroundRun; className?: string }) {
+/** `model` gives audio runs the model's art; app runs, which never name a model, get a plain tile. */
+export function OutputThumb({ model, run, className }: { model?: Model; run: PlaygroundRun; className?: string }) {
   const src = run.media[0];
   if (!src) {
     return (
-      <div className={cn("relative", className)}>
-        <ModelArt model={model} className="absolute inset-0" />
-        <AudioLines className="absolute inset-0 m-auto size-5 text-[#fff]" />
+      <div className={cn("relative bg-white/[0.06]", className)}>
+        {model && <ModelArt model={model} className="absolute inset-0" />}
+        <AudioLines className={cn("absolute inset-0 m-auto size-5", model ? "text-[#fff]" : "text-fg/80")} />
       </div>
     );
   }

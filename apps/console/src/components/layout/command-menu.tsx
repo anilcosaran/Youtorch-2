@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CornerDownLeft, CreditCard, Database, KeyRound, Search, Sparkles, type LucideIcon } from "lucide-react";
 import { models } from "@/mocks/models";
 import { cn } from "@/lib/cn";
+import { modelId } from "@/lib/model";
 import { useConsole } from "@/providers/console-provider";
 import { flatNav } from "./nav-config";
 
@@ -53,7 +54,7 @@ export function CommandMenu() {
         id: m.slug,
         group: "Models" as const,
         label: m.name,
-        hint: m.provider,
+        hint: modelId(m),
         icon: Sparkles,
         run: go(`/models/${m.slug}`),
       })),

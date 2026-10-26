@@ -1,14 +1,18 @@
 import { site } from "@/config/site";
-import type { ApiKey, AutoReload, PaymentMethod, TopUpPreset, Transaction } from "@/types/workspace";
+import type { ApiKey, AutoReload, PaymentMethod, TopUpPreset, Transaction, User, Workspace } from "@/types/workspace";
 
-/** Sample workspace so the console previews with data until it is wired to the API. */
+/** Sample workspace so the console previews with data until it is wired to the API. Names are placeholders. */
 export const workspacePreview: {
+  workspace: Workspace;
+  user: User;
   balance: number;
   autoReload: AutoReload;
   keys: ApiKey[];
   paymentMethods: PaymentMethod[];
   transactions: Transaction[];
 } = {
+  workspace: { id: "ws_preview", name: "Your workspace", plan: "Pay as you go" },
+  user: { name: "Workspace owner", email: "owner@example.com" },
   balance: 248.6,
   autoReload: { enabled: true, threshold: 25, amount: 100 },
   keys: [
@@ -22,7 +26,7 @@ export const workspacePreview: {
     },
     {
       id: "k2stag",
-      name: "Staging",
+      name: "CI tests",
       prefix: `${site.keyPrefix}_test_Pm4k…2LcQ`,
       env: "test",
       created: "Sep 3, 2026",
@@ -37,6 +41,7 @@ export const workspacePreview: {
   ],
 };
 
+/** Preset amounts, which double as the bonus ladder: 10% extra from $200, 20% from $1,000. */
 export const topUpPresets: TopUpPreset[] = [
   { amount: 10, bonus: 0 },
   { amount: 50, bonus: 0 },
@@ -44,6 +49,8 @@ export const topUpPresets: TopUpPreset[] = [
   { amount: 1000, bonus: 0.2 },
 ];
 
+/** Bonus credits for a top-up of `amount` dollars, in whole cents. */
 export function bonusFor(amount: number) {
-  return [...topUpPresets].reverse().find((p) => amount >= p.amount)?.bonus ?? 0;
+  const rate = [...topUpPresets].reverse().find((p) => amount >= p.amount)?.bonus ?? 0;
+  return Math.round(amount * rate * 100) / 100;
 }
