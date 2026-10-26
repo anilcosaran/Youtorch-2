@@ -1,11 +1,11 @@
-import { TIERS, type Limits } from "@modelvend/admin-api/customers";
+import { TIERS, limitsFor, loweredLimits, type Limits } from "@modelvend/admin-api/customers";
 import { matchesQuery } from "@/lib/search";
 import { audit, changes } from "../audit";
 import { conflict, invalid, notFound, paginate } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";
 import type { CustomerRecord, Store } from "../types";
 import { clone, dollars, money } from "../util";
-import { checkNumber, has, nested, oneOf, reason, within } from "../validate";
+import { checkNumber, has, nested, oneOf, reason, text, within } from "../validate";
 import { customerRow, customerView } from "../views";
 
 const LIMIT_RULES: Record<keyof Limits, Parameters<typeof checkNumber>[2]> = {
@@ -29,7 +29,10 @@ function listCustomers({ store, query }: Context) {
   return { ...page, items: page.items.map((c) => customerRow(store, c)) };
 }
 
-/** `limits` replaces the overrides: a number sets one, null or leaving it out goes back to the tier's default. */
+/**
+ * `limits` replaces the overrides: a number sets one, null or leaving it out goes back to the tier's default.
+ * A change that lowers the tier or a limit in force needs a reason, which goes into the audit entry.
+ */
 function updateCustomer(ctx: Context) {
   const customer = findCustomer(ctx.store, ctx.params.id);
   const { body } = ctx;
@@ -47,11 +50,22 @@ function updateCustomer(ctx: Context) {
       return out;
     });
   }
+  const why = text(body, "reason", { max: 500 }) || null;
+  const nextTier = tier ?? customer.tier;
+  const nextOverrides = overrides ?? customer.limitOverrides;
+  // Lowering anything takes effect on the next request, so it needs a reason on record.
+  const lowered = loweredLimits(
+    { tier: customer.tier, limits: limitsFor(customer.tier, customer.limitOverrides) },
+    { tier: nextTier, limits: limitsFor(nextTier, nextOverrides) },
+  );
+  if (lowered.length > 0 && !why) invalid("reason", "Give a reason: this lowers the workspace's tier or limits.");
   const before = { tier: customer.tier, limits: clone(customer.limitOverrides) };
-  if (tier) customer.tier = tier;
-  if (overrides) customer.limitOverrides = overrides;
+  customer.tier = nextTier;
+  customer.limitOverrides = nextOverrides;
   const changed = changes(before, { tier: customer.tier, limits: customer.limitOverrides }, ["tier", "limits"]);
-  if (Object.keys(changed).length > 0) audit(ctx, "customer.update", "customer", customer.id, changed);
+  if (Object.keys(changed).length > 0) {
+    audit(ctx, "customer.update", "customer", customer.id, { ...changed, ...(lowered.length > 0 && { lowered }), ...(why && { reason: why }) });
+  }
   return customerView(ctx.store, customer);
 }
 

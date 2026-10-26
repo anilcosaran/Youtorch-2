@@ -2,7 +2,7 @@ import Image from "next/image";
 import { ChevronRight } from "lucide-react";
 import { ModelArt } from "@/features/models/components/model-art";
 import { flowTemplates } from "@/mocks/canvas";
-import { getModel } from "@/mocks/models";
+import { findModels } from "@/mocks/models";
 
 /** Starter flows. They open on the board once Canvas is out of early access. */
 export function TemplateGrid() {
@@ -26,18 +26,15 @@ export function TemplateGrid() {
             <h3 className="text-[14.5px] font-semibold text-fg">{template.title}</h3>
             <p className="mt-0.5 text-[13px] leading-snug text-muted">{template.description}</p>
             <ol className="mt-3 flex flex-wrap items-center gap-1 text-[12px] text-muted">
-              {template.slugs.map((slug, i) => {
-                const model = getModel(slug);
-                return (
-                  <li key={slug} className="flex items-center gap-1">
-                    {i > 0 && <ChevronRight className="size-3 text-subtle" />}
-                    <span className="inline-flex items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5">
-                      <ModelArt model={model} className="size-3.5 rounded" />
-                      {model.name}
-                    </span>
-                  </li>
-                );
-              })}
+              {findModels(template.slugs).map((model, i) => (
+                <li key={model.slug} className="flex items-center gap-1">
+                  {i > 0 && <ChevronRight className="size-3 text-subtle" />}
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5">
+                    <ModelArt model={model} className="size-3.5 rounded" />
+                    {model.name}
+                  </span>
+                </li>
+              ))}
             </ol>
           </div>
         </article>

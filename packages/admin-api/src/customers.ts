@@ -73,23 +73,58 @@ export const TIER_LIMITS: Record<Tier, Limits> = {
   enterprise: { requestsPerMinute: 3000, concurrency: 200, monthlySpendCap: null },
 };
 
+/** The limits in force for a tier and a workspace's overrides (a missing or null override follows the tier). */
+export function limitsFor(tier: Tier, overrides: Partial<Record<keyof Limits, number | null>>): Limits {
+  const limits = { ...TIER_LIMITS[tier] };
+  for (const key of Object.keys(limits) as (keyof Limits)[]) {
+    const value = overrides[key];
+    if (value !== undefined && value !== null) limits[key] = value;
+  }
+  return limits;
+}
+
+/** What a change of tier or limits takes away; empty when it only raises or keeps them. */
+export function loweredLimits(from: { tier: Tier; limits: Limits }, to: { tier: Tier; limits: Limits }): ("tier" | keyof Limits)[] {
+  const lowered: ("tier" | keyof Limits)[] = [];
+  if (TIERS.indexOf(to.tier) < TIERS.indexOf(from.tier)) lowered.push("tier");
+  if (to.limits.requestsPerMinute < from.limits.requestsPerMinute) lowered.push("requestsPerMinute");
+  if (to.limits.concurrency < from.limits.concurrency) lowered.push("concurrency");
+  const cap = to.limits.monthlySpendCap;
+  const was = from.limits.monthlySpendCap;
+  // A cap where there was none counts: requests start being refused once it's reached.
+  if (cap !== null && (was === null || cap < was)) lowered.push("monthlySpendCap");
+  return lowered;
+}
+
+const path = encodeURIComponent;
+
 export const listCustomers = (params: CustomerFilters & PageParams) =>
   request<Page<CustomerRow>>("/customers", { query: { ...params } });
 
-export const getCustomer = (id: string) => request<Customer>(`/customers/${id}`);
+export const getCustomer = (id: string) => request<Customer>(`/customers/${path(id)}`);
 
-/** `limits` replaces the overrides; a null limit goes back to the tier's default. */
-export const updateCustomer = (
-  id: string,
-  body: { tier?: Tier; limits?: Partial<Record<keyof Limits, number | null>> },
-) => request<Customer>(`/customers/${id}`, { method: "PATCH", body });
+export interface CustomerUpdate {
+  tier?: Tier;
+  /** Replaces the overrides; a null limit goes back to the tier's default. */
+  limits?: Partial<Record<keyof Limits, number | null>>;
+  /** Why; required when the change lowers anything (see `loweredLimits`), and written to the audit log. */
+  reason?: string;
+}
+
+/**
+ * `limits` replaces the overrides; a null limit goes back to the tier's default. A change that lowers the
+ * tier or a limit in force, including a spend cap where there was none (moving to `free` adds a $10 cap), takes
+ * effect on the next request, so it needs a `reason`: 422 `fields.reason` without one.
+ */
+export const updateCustomer = (id: string, body: CustomerUpdate) =>
+  request<Customer>(`/customers/${path(id)}`, { method: "PATCH", body });
 
 /** Requests from every key of the workspace fail with 403 `account_suspended`. */
 export const suspendCustomer = (id: string, reason: string) =>
-  request<Customer>(`/customers/${id}/suspend`, { method: "POST", body: { reason } });
+  request<Customer>(`/customers/${path(id)}/suspend`, { method: "POST", body: { reason } });
 
-export const resumeCustomer = (id: string) => request<Customer>(`/customers/${id}/resume`, { method: "POST" });
+export const resumeCustomer = (id: string) => request<Customer>(`/customers/${path(id)}/resume`, { method: "POST" });
 
 /** Grants (positive) or takes back (negative) credits; written to the ledger with the reason. */
 export const adjustCredits = (id: string, body: { amount: number; reason: string }) =>
-  request<Customer>(`/customers/${id}/credits`, { method: "POST", body });
+  request<Customer>(`/customers/${path(id)}/credits`, { method: "POST", body });

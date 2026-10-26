@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, LoaderCircle, Plus, Rocket, X } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { margin } from "@/lib/catalog";
 import { percent, unitPrice } from "@/lib/format";
 import { toastError } from "@/lib/notify";
 import { keys } from "@/lib/query-keys";
+import { useApplyApp } from "./use-apply-app";
 
 interface StepDraft {
   id: string;
@@ -71,7 +72,7 @@ function VersionSelect({ modelId, value, onChange }: { modelId: string; value: s
 
 /** Edits the steps, price and notes of an app's draft release, and deploys it. */
 export function ReleaseEditor({ app, release, onDeploy }: { app: App; release: AppRelease; onDeploy: () => void }) {
-  const queryClient = useQueryClient();
+  const apply = useApplyApp();
   const models = useQuery({ queryKey: keys.modelOptions, queryFn: () => listModels({ limit: 200 }) });
   const [steps, setSteps] = useState<StepDraft[]>(release.steps.map(toDraft));
   const [price, setPrice] = useState(String(release.price));
@@ -106,9 +107,7 @@ export function ReleaseEditor({ app, release, onDeploy }: { app: App; release: A
   const save = async () => {
     setSaving(true);
     try {
-      const updated = await updateRelease(app.slug, release.number, body());
-      queryClient.setQueryData(keys.app(app.slug), updated);
-      void queryClient.invalidateQueries({ queryKey: keys.appList });
+      apply(await updateRelease(app.slug, release.number, body()));
       toast.success(`Release #${release.number} saved`);
     } catch (error) {
       toastError(error, "Couldn't save the release");

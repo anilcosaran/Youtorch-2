@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, AudioLines, ChevronRight, Download, ImagePlus, Sparkles, Upload, X } from "lucide-react";
+import { AudioLines, ChevronRight, ImagePlus, Sparkles, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { ModelArt } from "@/features/models/components/model-art";
 import { PlaygroundHistory } from "@/features/models/components/playground/playground-history";
 import { RenderProgress } from "@/features/models/components/playground/playground-output";
 import { useRunHistory } from "@/features/models/components/playground/use-run-history";
@@ -15,7 +14,7 @@ import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import { useConsole } from "@/providers/console-provider";
 import type { App } from "@/mocks/apps";
-import { appModel, defaultValues, inputCopy, poweredByHref, runPrice, thumbnail } from "../lib/apps";
+import { defaultValues, inputCopy, thumbnail } from "../lib/apps";
 import { AppHero, type DropProps } from "./app-hero";
 import { AppResult } from "./app-media";
 
@@ -33,9 +32,9 @@ const runId = () => Date.now();
 /**
  * One job, one button. Until there's input the page is a showcase with a big upload target;
  * after that it becomes a compact workspace with the result beside the inputs.
+ * Apps are black boxes: nothing here names the models that run them.
  */
 export function AppStudio({ app }: { app: App }) {
-  const model = appModel(app);
   const copy = inputCopy(app);
   const toast = useToast();
   const { balance, openDialog } = useConsole();
@@ -48,7 +47,16 @@ export function AppStudio({ app }: { app: App }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const render = useSimulatedRender();
 
-  const cost = runPrice(app, values);
+  useEffect(
+    () => () => {
+      // Render timers stop on unmount, so unfinished runs would never complete.
+      setRuns((list) => list.filter((r) => r.status === "done"));
+    },
+    [setRuns],
+  );
+
+  // Every run of the app's live release costs the same, whatever the options.
+  const cost = app.price;
   const ready = app.input === "text" ? script.trim().length > 0 : !!source;
   const blocked = balance < cost;
   const selected = runs.find((r) => r.id === selectedId) ?? runs[0];
@@ -92,7 +100,7 @@ export function AppStudio({ app }: { app: App }) {
         : s.kind === "video"
           ? [source?.url ?? s.image]
           : s.kind === "gallery"
-            ? Array.from({ length: Number(values.count) || 1 }, (_, i) => s.images[i % s.images.length])
+            ? Array.from({ length: app.results ?? 1 }, (_, i) => s.images[i % s.images.length])
             : [];
     setRuns((list) => [
       {
@@ -148,16 +156,6 @@ export function AppStudio({ app }: { app: App }) {
         </Link>
         <ChevronRight className="size-3.5 text-subtle" />
         <span className="truncate text-fg">{app.name}</span>
-        <span className="flex-1" />
-        <Link
-          href={poweredByHref(app)}
-          className="hidden items-center gap-2 rounded-lg border border-line px-2.5 py-1 transition hover:border-line-strong hover:text-fg sm:inline-flex"
-        >
-          Powered by
-          <ModelArt model={model} className="size-4 rounded" />
-          <span className="text-fg">{model.name}</span>
-          <ArrowUpRight className="size-3" />
-        </Link>
       </nav>
 
       {!started ? (
@@ -238,7 +236,7 @@ export function AppStudio({ app }: { app: App }) {
                 </span>
               </button>
             )}
-            <p className="pb-1 text-center text-[12px] text-subtle">Runs on {model.name} · billed to your balance</p>
+            <p className="pb-1 text-center text-[12px] text-subtle">Fixed price per run · billed to your balance</p>
           </form>
 
           <div className="min-w-0">
@@ -254,9 +252,8 @@ export function AppStudio({ app }: { app: App }) {
                         done in {selected.seconds.toFixed(1)}s
                       </span>
                     )}
-                    <Button variant="ghost" size="sm" onClick={() => toast("Download started")}>
-                      <Download /> Download
-                    </Button>
+                    {/* Runs are simulated until the console calls the API, so there is no file to download yet. */}
+                    <span className="text-[12.5px] text-subtle">Sample output</span>
                   </>
                 )}
               </div>
@@ -281,7 +278,6 @@ export function AppStudio({ app }: { app: App }) {
             </div>
             {runs.length > 0 && (
               <PlaygroundHistory
-                model={model}
                 runs={runs}
                 selectedId={selected?.id}
                 onSelect={setSelectedId}

@@ -26,9 +26,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { defaultTier } from "@/lib/catalog";
-import { integer, unitPrice } from "@/lib/format";
+import { dateOnly, integer, unitPrice } from "@/lib/format";
 import { UNIT_SHORT, VERSION_STATUS_DESCRIPTIONS, VERSION_STATUS_LABELS } from "@/lib/labels";
 import { usePermissions } from "@/lib/session";
+import { useNow } from "@/lib/use-now";
 import { DeprecateDialog, NewVersionDialog } from "./version-dialogs";
 import type { ModelTab } from "./model-detail";
 import { useModelAction } from "./use-model-action";
@@ -65,8 +66,17 @@ function RowActions({
   const can = usePermissions();
   const confirm = useConfirm();
   const run = useModelAction();
+  const now = useNow();
   const isDefault = version.id === model.defaultVersion;
   const activeRoutes = version.routes.filter((r) => r.status === "active").length;
+  // Retiring waits for the sunset date callers were given, and for versions that forward to this one.
+  const beforeSunset = version.sunsetAt !== null && Date.parse(version.sunsetAt) > now.getTime();
+  const forwarding = model.versionList.filter((v) => v.id !== version.id && v.status === "deprecated" && v.replacement === version.id);
+  const retireBlocked = beforeSunset
+    ? `It keeps answering until its sunset date, ${dateOnly(version.sunsetAt ?? "")}; retire it after that.`
+    : forwarding.length > 0
+      ? `${forwarding.map((v) => v.id).join(", ")} ${forwarding.length === 1 ? "sends its" : "send their"} callers here once retired. Retire ${forwarding.length === 1 ? "it" : "them"} first.`
+      : null;
 
   const promote = async (to: "staging" | "live") => {
     if (to === "live") {
@@ -99,9 +109,11 @@ function RowActions({
   const retire = async () => {
     const ok = await confirm({
       title: `Retire ${version.id}?`,
-      description: version.replacement
-        ? `Requests pinned to it go to ${version.replacement} from now on. This can't be undone.`
-        : "Requests pinned to it fail with 410 Gone from now on. This can't be undone.",
+      description: `${
+        version.replacement
+          ? `Requests pinned to it go to ${version.replacement} from now on.`
+          : "Requests pinned to it fail with 410 Gone from now on."
+      } It can't be retired while a live app release pins it. This can't be undone.`,
       action: "Retire",
       destructive: true,
     });
@@ -136,10 +148,17 @@ function RowActions({
     }
     if (version.status === "deprecated") {
       lifecycle.push(
-        <DropdownMenuItem key="retire" variant="destructive" onSelect={() => void retire()}>
-          Retire…
+        <DropdownMenuItem key="retire" variant="destructive" onSelect={() => void retire()} disabled={retireBlocked !== null}>
+          {beforeSunset && version.sunsetAt ? `Retire (after ${dateOnly(version.sunsetAt)})` : "Retire…"}
         </DropdownMenuItem>,
       );
+      if (retireBlocked) {
+        lifecycle.push(
+          <p key="retire-why" className="px-2 py-1.5 text-xs text-muted-foreground">
+            {retireBlocked}
+          </p>,
+        );
+      }
     }
   }
 

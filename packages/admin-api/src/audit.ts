@@ -62,6 +62,11 @@ export interface AuditFilters {
   /** What was changed, e.g. "model" or "customer"; used with `targetId`. */
   targetType?: string;
   targetId?: string;
+  /**
+   * Everything about one customer: changes to the customer itself, to its API keys (`api_key`) and refunds of its
+   * requests (`request`). Entries about keys and requests carry the customer in `detail.customerId`.
+   */
+  customerId?: string;
 }
 
 export const listAudit = (params: AuditFilters & PageParams) =>

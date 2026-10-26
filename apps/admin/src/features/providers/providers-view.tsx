@@ -44,12 +44,13 @@ const ACCENT: Record<HealthState, string> = {
   outage: "var(--status-critical)",
 };
 
-/** Puts a provider a change returned in the cache; model pages show its status, so they load again. */
+/** Puts a provider a change returned in the cache; model pages show its status and the audit log the change, so they load again. */
 function useApplyProvider() {
   const queryClient = useQueryClient();
   return (provider: Provider) => {
     queryClient.setQueryData<Provider[]>(keys.providers, (list) => list?.map((p) => (p.id === provider.id ? provider : p)));
     void queryClient.invalidateQueries({ queryKey: keys.models });
+    void queryClient.invalidateQueries({ queryKey: keys.audit });
   };
 }
 

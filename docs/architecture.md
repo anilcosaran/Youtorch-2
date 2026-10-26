@@ -21,7 +21,7 @@ Modelvend, OpenRouter ve fal.ai'nin arasında duruyor:
 2. **Sürüm yaşam döngüsü:** `draft → staging → live → deprecated → retired`. Bunun üstünde model seviyesinde bir acil durdurma (pause) var. App'ler numaralı release'lerle deploy ve rollback edilir.
 3. **İki dış API yüzeyi var, arkada tek motor çalışır:**
    - OpenAI uyumlu yüzey: `/v1/chat/completions`, `/v1/images/generations`, `/v1/models`. postpane Modelvend'i bugün zaten böyle çağırıyor.
-   - Yerel medya yüzeyi: `POST /v1/generations`, durum sorgulama, webhook. Müşteri konsolundaki kod örnekleri bunu gösteriyor.
+   - Yerel yüzey: `POST /v1/tasks`, durum sorgulama (`GET /v1/tasks/{id}`), webhook. Müşteri konsolundaki kod örnekleri bunu gösteriyor.
 4. **Backend Go ile, postpane'deki yapıyla aynı:** Postgres, River kuyruğu, worker pool'ları ve Helm. Admin paneli postpane'deki gibi ayrı bir uygulama. Tarayıcı `/api/*` isteklerini admin API'ye iletir.
 5. **Para mikro-dolar olarak saklanır** (integer, 1e-6 USD). Ön ödemeli kredi, istek başında bloke edilen tutar, gerçek kullanım üzerinden tahsilat ve append-only bir ledger.
 
@@ -33,7 +33,7 @@ Modelvend, OpenRouter ve fal.ai'nin arasında duruyor:
 | Katalog              | `/api/v1/models` modalite, fiyat, desteklenen parametreler ve `expiration_date` döndürür.                                                                                                                                 | `/v1/models` kategori ve `status: active\|deprecated` döndürür. Her endpoint için bir OpenAPI şeması var.                                                           | `/v1/models` ve sürüm başına JSON Schema. Dokümanlar, playground formu ve SDK tipleri şemadan üretilir.                                                                                    |
 | Sağlayıcı ↔ model    | Bir modelin N endpoint'i var. Her endpoint'in kendi fiyatı, kuantizasyonu, uptime değerleri (5 dk / 30 dk / 1 gün) ve p50–p99 gecikmesi var.                                                                              | Kendi altyapısında çalıştırıyor.                                                                                                                                    | Sürüm başına N route. Her route'un maliyeti, önceliği, ağırlığı ve sağlık penceresi var.                                                                                                   |
 | Routing              | `provider{order, only, ignore, allow_fallbacks, sort, max_price}`. Varsayılanda son 30 saniyede hata veren sağlayıcılar dışarıda kalır ve kalanlar 1/fiyat² ağırlığıyla seçilir. `models[]` ile model yedeği verilebilir. | Yok.                                                                                                                                                                | Sürüm başına bir politika: `priority`, `cheapest`, `fastest` veya `weighted`. Fallback ve deneme sayısı da politikada. Müşteri tarafı `provider{only, ignore, max_price}` ileride eklenir. |
-| Async                | Video için `POST /videos` 202 ve `polling_url` döner. Durumlar `pending`, `in_progress`, `completed`, `failed`. Webhook'lar HMAC ile imzalı.                                                                              | `queue.fal.run` isteği alınca `request_id`, `status_url` ve `cancel_url` döner. Durumlar `IN_QUEUE`, `IN_PROGRESS`, `COMPLETED`. SSE ve Ed25519 imzalı webhook var. | `req_…` ID'si ve durumlar `queued`, `running`, `succeeded`, `failed`, `canceled`. İmzalı webhook ve idempotency anahtarı.                                                                  |
+| Async                | Video için `POST /videos` 202 ve `polling_url` döner. Durumlar `pending`, `in_progress`, `completed`, `failed`. Webhook'lar HMAC ile imzalı.                                                                              | `queue.fal.run` isteği alınca `request_id`, `status_url` ve `cancel_url` döner. Durumlar `IN_QUEUE`, `IN_PROGRESS`, `COMPLETED`. SSE ve Ed25519 imzalı webhook var. | `task_…` ID'si ve durumlar `queued`, `running`, `succeeded`, `failed`, `canceled`. İmzalı webhook ve idempotency anahtarı.                                                                 |
 | Çıktılar             | İmzalı URL'ler süreli.                                                                                                                                                                                                    | `fal.media` CDN'inde, süresi ayarlanabilir. Replicate çıktıları 1 saatte siler.                                                                                     | Upstream çıktısı her zaman **bizim** depolamamıza kopyalanır. Müşteriye upstream URL'si asla verilmez.                                                                                     |
 | Sürümler             | `expiration_date` ile "gidiyor" rozeti, sonra katalogdan çıkarma.                                                                                                                                                         | Her deploy değişmez bir revision oluşturur. App adı aktif revision'a işaret eder ve `set-rev` ile rollback yapılır.                                                 | Modellerde yaşam döngüsü, `Deprecation` / `Sunset` header'ları ve bir yerine geçen sürüm. App'lerde numaralı release ve rollback.                                                          |
 | Kendi GPU'muz        | Yok.                                                                                                                                                                                                                      | `fal.App`: `machine_type`, `keep_alive`, `min_concurrency` / `max_concurrency`. Fiyatlandırma GPU-saniye başına.                                                    | Sonraya bırakıldı. Gelince `managed` türünde bir sağlayıcı olur; deploy, revision ve ölçekleme ayarları onun altında tutulur.                                                              |
@@ -91,8 +91,8 @@ Kavramlar:
   - Durum: `active`, `paused` veya `draining`. Ayrıca bölge, eşzamanlılık limiti ve sağlık bilgisi.
 - **App / AppRelease / AppStep:** App, adımları olan bir iş akışıdır. Her adım `model@version` şeklinde **sabitlenir**. Model yeni bir sürüm çıkardığında canlı app etkilenmez; yeni sürümü kullanmak için app'in yeni bir release'i gerekir. Release başına sabit bir çalıştırma fiyatı vardır. Deploy ve rollback, fal'daki revision ve takma ad mantığıyla çalışır.
 - **Workspace:** Faturalanan hesap. Bakiyesi, tier'ı (`free`, `standard`, `scale`, `enterprise`), limit override'ları ve askıya alma durumu burada tutulur. Kullanıcılar workspace'in üyesidir.
-- **ApiKey:** `mv_live_…` veya `mv_test_…` biçiminde. Secret yalnızca bir kez gösterilir; veritabanında hash'i ve prefix'i saklanır. Her anahtarın scope'ları (model veya app ID'leri), aylık harcama limiti ve iptal durumu vardır.
-- **Request / Attempt:** Her API çağrısı bir `req_…` kaydı oluşturur. Router her denemeyi bir **attempt** olarak kaydeder: sağlayıcı, route, upstream ID, sonuç ve gecikme. Bu, OpenRouter'daki `provider_responses[]` alanının karşılığı. Yalnızca başarılı attempt faturalanır.
+- **ApiKey:** `mv_live_…` veya `mv_test_…` biçiminde. Secret yalnızca bir kez gösterilir; veritabanında hash'i ve prefix'i saklanır. Her anahtarın scope'ları (`publisher/slug`, `publisher/slug@version` ya da app slug'ı), aylık harcama limiti ve iptal durumu vardır. Scope dışı bir çağrı 403 `key_scope` alır. Aylık limit UTC takvim ayına göre, task oluşturma tarihiyle sayılır (başarılı task'ların fiyatı ve bitmemiş task'ların blokesi) ve task oluşturulurken kontrol edilir. Test anahtarları canlı anahtarlarla aynı fiyattan faturalanır ve aynı limitlere tabidir; yalnızca test trafiğini ayrı tutmaya yarar.
+- **Task / Attempt:** Her API çağrısı bir `task_…` kaydı oluşturur. Router her denemeyi bir **attempt** olarak kaydeder: sağlayıcı, route, upstream ID, sonuç ve gecikme. Bu, OpenRouter'daki `provider_responses[]` alanının karşılığı. Yalnızca başarılı attempt faturalanır.
 - **LedgerEntry:** Bakiyeyi oluşturan append-only kayıt: `top_up`, `grant`, `usage`, `refund`, `adjustment`. Bakiye bu kayıtların toplamıdır. Hızlı okumak için ayrıca önbelleğe alınır.
 - **Operator / AuditEntry:** Admin paneli müşteri hesaplarından tamamen ayrıdır. Her değişiklik audit log'a yazılır.
 
@@ -119,7 +119,7 @@ stateDiagram-v2
 ```
 
 - **draft:** Kimse çağıramaz. Şema, fiyat ve route'lar serbestçe düzenlenir.
-- **staging:** Yalnızca dahili ve test anahtarları çağırabilir. Gerçek sağlayıcıyla uçtan uca test için kullanılır.
+- **staging:** Yalnızca dahili workspace'lerin (`INTERNAL_WORKSPACES`) anahtarları çağırabilir; müşterilerin test anahtarları çağıramaz. Gerçek sağlayıcıyla uçtan uca test için kullanılır.
 - **live:**
   - Şema ve fiyat **dondurulur**. Değiştirmek için yeni sürüm açılır.
   - Route'lar, routing politikası ve changelog yine değiştirilebilir.
@@ -140,33 +140,33 @@ sequenceDiagram
   participant W as Worker
   participant P as Provider (fal, Replicate, ...)
   participant S as Depolama + CDN
-  C->>G: POST /v1/generations {model, ...input}
+  C->>G: POST /v1/tasks {model, input}
   G->>G: Anahtar, scope, tier limiti, askı kontrolü
   G->>G: model@version çöz, şemaya göre doğrula
   G->>G: Fiyatı hesapla, bakiyeden bloke et (hold)
-  G->>Q: request kaydı + iş
+  G->>Q: task kaydı + iş
   G-->>C: 202 {id, status: queued, urls}
   Q->>W: iş
   W->>W: Router: politikaya ve sağlığa göre route seç
   W->>P: Adapter ile gönder (attempt 1)
-  P-->>W: hata veya zaman aşımı → attempt 2 başka route
+  P-->>W: işi reddederse → attempt 2 başka route (kabul ettiyse fallback yok)
   P-->>W: sonuç (webhook veya polling)
   W->>S: Çıktıyı kopyala (upstream URL'si dışarı çıkmaz)
-  W->>W: Gerçek birimle tahsil et, fazla blokeyi iade et, ledger
-  W-->>C: İmzalı webhook (request.succeeded)
-  C->>G: GET /v1/generations/{id}
+  W->>W: Gerçek fiyatı tahsil et, blokeyi kaldır, ledger
+  W-->>C: İmzalı webhook (task.succeeded)
+  C->>G: GET /v1/tasks/{id}
 ```
 
 Ayrıntılar:
 
-- **Senkron ve kuyruklu.** Görsel, TTS ve LLM gibi kısa işler varsayılan olarak senkron yanıt verir. Senkron mod `Prefer: wait=60` gibi bir header ile en fazla 60 saniye bekler, sonra 202 döner. Video ve 3D her zaman kuyruğa girer. İki durumda da aynı `req_…` kaydı kullanılır.
+- **Senkron ve kuyruklu.** Görsel, TTS ve LLM gibi kısa işler varsayılan olarak senkron yanıt verir. Senkron mod `Prefer: wait=60` gibi bir header ile en fazla 60 saniye bekler, sonra 202 döner. Video ve 3D her zaman kuyruğa girer. İki durumda da aynı `task_…` kaydı kullanılır.
 - **OpenAI uyumlu yüzey.** `/v1/chat/completions` ve `/v1/images/generations` aynı motorun ince bir çevirisidir. `model` alanı `publisher/slug[@version]` biçimindedir. postpane'in `internal/modelvend` istemcisi bu yüzeyi zaten kullanıyor.
 - **Durumlar:** `queued → running → succeeded | failed | canceled`. fal'dakinin aksine hata ayrı bir durumdur, `COMPLETED` içinde bir alt durum değildir.
 - **Webhook.** Gövde `t=<unix>,v1=<hmac-sha256>` ile imzalanır, header'da `Modelvend-Signature` olarak gönderilir. Idempotency anahtarı `<id>-<status>` biçimindedir. Başarısız teslimat 24 saat boyunca üstel bekleme ile yeniden denenir. Özel IP'lere ve yönlendirmelere teslim yapılmaz.
-- **İstek idempotency'si.** Müşteri `Idempotency-Key` gönderirse aynı anahtar 24 saat boyunca aynı `req_…` kaydını döndürür.
+- **İstek idempotency'si.** Müşteri `Idempotency-Key` header'ı (MCP'de `create_task`'ın `idempotency_key` parametresi) gönderirse aynı anahtar 24 saat boyunca aynı `task_…` kaydını döndürür; bu süre içindeki bir tekrar, bakiye ya da limitler değişmiş olsa bile task'ı geri alır. İstek parmak iziyle saklanır (model, app, girdi, webhook URL'si ve metadata'nın SHA-256'sı); aynı anahtar farklı bir istekle gelirse 422 `idempotency_key_reused` döner. 24 saat sonra anahtar yeni bir task için kullanılabilir.
 - **Çıktı saklama.** Varsayılan süre workspace başına 30 gündür ve değiştirilebilir. URL'ler imzalıdır veya CDN üzerinden herkese açıktır.
 - **Faturalanmayanlar:** Başarısız istekler, kuyrukta geçen süre ve yalnızca 5xx dönen attempt'ler.
-- **İptal.** `POST /v1/generations/{id}/cancel` iptal eder. Upstream işi başladıysa sağlayıcı kurallarına göre ücret oluşabilir; bu durum attempt kaydında görünür.
+- **İptal.** `POST /v1/tasks/{id}/cancel` iptal eder. Upstream işi başladıysa worker bir sonraki poll'da sağlayıcıdan işi durdurmasını ister ve attempt `canceled` olur. Sağlayıcı kurallarına göre yine de ücret oluşabilir; bu durum attempt kaydında görünür.
 
 ### Routing
 
@@ -179,7 +179,7 @@ Router her attempt öncesinde şu adımları uygular:
    - `cheapest`: maliyete göre sırala.
    - `fastest`: p50 gecikmesine göre sırala.
    - `weighted`: aynı priority içinde weight oranında rastgele seç.
-4. **Gerekirse sonraki adaya geç.** Fallback açıksa ve sağlayıcı henüz çıktı üretmediyse, `maxAttempts` sınırına kadar sıradaki adayla denenir.
+4. **Gerekirse sonraki adaya geç.** Fallback açıksa ve sağlayıcı işi kabul etmeden reddettiyse, `maxAttempts` sınırına kadar sıradaki adayla denenir. Sağlayıcı işi kabul ettikten sonra başka route'a geçilmez: iş poll edilir; hata ya da zaman aşımında upstream iş iptal edilir ve görev başarısız olur. Gönderimin sonucu belli değilse (istek gitti ama yanıt gelmedi) de başka route denenmez, görev başarısız olur.
 
 Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşılığı ileride eklenebilir. Model düzeyinde yedek de (`models: [...]`) daha sonra eklenebilir.
 
@@ -188,12 +188,13 @@ Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşı
 - Para birimi USD'dir ve veritabanında `BIGINT` mikro-dolar olarak tutulur. API'de ondalıklı sayı olarak görünür.
 - Fiyat sürümün fiyat listesinden gelir: `birim × kademe fiyatı × (1 − promo)`, varsa girdi fiyatı eklenir. Maliyet, kullanılan route'un `cost` değeridir. Marj `(fiyat − maliyet) ÷ fiyat` formülüyle hesaplanır. Admin paneli negatif marjı kırmızıyla gösterir.
 - Bakiye işlemleri:
-  - İstek başında tahmini tutar bloke edilir (hold).
-  - İş bitince gerçek birim üzerinden tahsil edilir, örneğin üretilen video saniyesi.
-  - Fazla bloke iade edilir.
-  - Bakiye yetmezse 402 `insufficient_credits` döner.
-  - Otomatik yükleme (auto-reload) müşteri konsolunda zaten var.
-- Anahtar limiti aşılırsa 402 `key_limit_reached`, workspace aylık tavanı aşılırsa 402 `spend_cap_reached` döner.
+  - Task oluşturulurken, aynı transaction'da tahmini tutar bloke edilir (hold) ve `workspaces.held_micros`'a eklenir. Bugün tahmin, varsayılan kademede bir birimin fiyatıdır; birim ve kademe girdiden seçilmeye başlayınca tahmin de girdiden hesaplanacak.
+  - Kullanılabilir bakiye (`balance_micros − held_micros`) blokeye yetmezse task yazılmaz ve 402 `insufficient_credits` döner.
+  - Task başarıyla biterse, durum değişikliğiyle aynı transaction'da gerçek fiyat bir `usage` ledger satırıyla bakiyeden düşülür ve bloke kaldırılır. Gerçek fiyat blokeyi aşarsa bakiye eksiye düşebilir; tahmin girdiden hesaplanana kadar bu kabul ediliyor.
+  - Task başarısız olur, iptal edilir ya da süresi dolarsa yalnızca bloke kaldırılır.
+  - `ledger_entries (task_id, kind)` tekildir, bu yüzden bir task iki kez tahsil edilemez.
+  - Otomatik yükleme (auto-reload) müşteri konsolunda var; Stripe bağlantısı henüz yok.
+- Anahtarın aylık harcama limiti aşılırsa 402 `spend_limit_reached` döner. Workspace düzeyindeki aylık tavan (`spend_cap_reached`) henüz uygulanmıyor.
 
 ## 5. Önerilen repo yapısı
 
@@ -234,25 +235,25 @@ apps/console/src/
 │  │  ├─ apps/page.tsx
 │  │  ├─ apps/[slug]/page.tsx
 │  │  ├─ canvas/
-│  │  ├─ requests/page.tsx              (yeni) İstek geçmişi; detay yan panelde (?panel=request:req_…)
-│  │  ├─ usage/page.tsx                 Harcama grafikleri (log tablosu requests'e taşınır)
+│  │  ├─ tasks/page.tsx                 (yeni) Task geçmişi; detay yan panelde (?panel=task:task_…)
+│  │  ├─ usage/page.tsx                 Harcama grafikleri (log tablosu tasks'a taşınır)
 │  │  ├─ api-keys/page.tsx
 │  │  ├─ billing/page.tsx
 │  │  ├─ settings/                      (yeni) Workspace, üyeler, webhook'lar, limitler
 │  │  └─ quickstart/
 │  ├─ (auth)/                           (yeni) sign-in, sign-up, invite/[token]
 │  └─ api/                              BFF: tarayıcı API anahtarı görmez
-│     ├─ generations/route.ts           Playground ve app çalıştırma: POST, GET /:id, SSE durum akışı
+│     ├─ tasks/route.ts                 Playground ve app çalıştırma: POST, GET /:id, SSE durum akışı
 │     └─ uploads/route.ts               Referans medya için imzalı yükleme URL'si
 ├─ features/                            Ürün alanı başına bir klasör; içinde components/, hooks/, lib/
 │  ├─ catalog/                          Model kartı, liste, filtreler (bugünkü models/'in katalog kısmı)
 │  ├─ model-page/                       Model sayfası sekmeleri
 │  ├─ playground/                       Şemadan form, çalıştırma, çıktı, geçmiş
-│  ├─ requests/                         İstek listesi ve detay paneli
+│  ├─ tasks/                            Task listesi ve detay paneli
 │  └─ apps/ canvas/ dashboard/ usage/ billing/ api-keys/ settings/ quickstart/
 ├─ data/                                (yeni) Veri katmanı: feature'lar veriye yalnızca buradan ulaşır
 │  ├─ catalog.ts                        listModels, getModel, getVersion, listApps, getApp
-│  ├─ requests.ts                       listRequests, getRequest
+│  ├─ tasks.ts                          listTasks, getTask
 │  ├─ workspace.ts                      Bakiye, anahtarlar, kartlar, ledger, kullanım
 │  ├─ actions/                          Server Action'lar: createKey, revokeKey, addFunds, setAutoReload, inviteMember
 │  └─ source/                           Verinin nereden geldiği, tek bir yerde seçilir
@@ -274,7 +275,7 @@ packages/api-types/                     /v1 OpenAPI'den üretilen tipler; bugün
 2. **Tipler `packages/api-types`'tan gelir.** Bu tipler public API'nin OpenAPI tanımından üretilir. Model kartının renkleri gibi yalnızca konsolda gereken görünüm tipleri ilgili feature'ın `lib/`'inde kalır.
 3. **Katalog önbelleğe alınır, değişince yenilenir.** Server Component'ler katalogu `data/catalog.ts` ile okur; bu fonksiyonlar `"use cache"` ve `cacheTag("model:google/veo-3.1")` kullanır. Admin bir sürümü yayınladığında admin API konsola bir revalidate çağrısı yapar ve sayfa saniyeler içinde güncellenir.
 4. **Değişiklikler Server Action ile yapılır.** Anahtar oluşturma, bakiye yükleme, üye davet etme gibi işlemler `data/actions` üzerinden gider ve ilgili veriyi yeniden doğrular. `ConsoleProvider`'da tutulan sahte state kalkar.
-5. **Playground ve app çalıştırma BFF'den geçer.** İstekler `app/api/generations` üzerinden gateway'e gider. BFF, oturumdaki workspace için sunucu tarafında tutulan bir konsol anahtarı kullanır; tarayıcı anahtarı hiç görmez.
+5. **Playground ve app çalıştırma BFF'den geçer.** İstekler `app/api/tasks` üzerinden gateway'e gider. BFF, oturumdaki workspace için sunucu tarafında tutulan bir konsol anahtarı kullanır; tarayıcı anahtarı hiç görmez.
 6. **Playground formu sürümün input şemasından üretilir.** Yerleşim ipuçları şemanın içinde, `x-ui` anahtarıyla taşınır:
    - `group`: `quick` (prompt altındaki çipler), `toggle` (prompt kartındaki anahtarlar) veya `advanced`.
    - `widget`: `aspect-ratio`, `duration`, `seed` veya `image-upload`.
@@ -298,7 +299,7 @@ packages/api-types/                     /v1 OpenAPI'den üretilen tipler; bugün
 | `features/models/components/playground/*`                                         | `features/playground/`                                                                           |
 | `features/models/lib/playground.ts` (modalite başına sabit kontroller)            | `lib/schema-form/` ve şemadaki `x-ui` ipuçları                                                   |
 | `features/models/lib/endpoints.ts`, `mocks/model-stats.ts`                        | `features/model-page/` içindeki Providers sekmesi; veri `/v1/models/{id}/endpoints`'ten          |
-| `features/usage/components/request-table.tsx`                                     | `features/requests/` (detay paneliyle)                                                           |
+| `features/usage/components/request-table.tsx`                                     | `features/tasks/` (detay paneliyle)                                                              |
 | `app/(console)/models/[slug]/`                                                    | `app/(console)/models/[publisher]/[slug]/`                                                       |
 
 ### Geçiş sırası
@@ -310,7 +311,7 @@ Her adım ayrı bir PR olur ve ekranlar adımlar boyunca aynı görünür:
 3. Tipleri katalog modeline geçir: `publisher/slug`, sürümler, sürüm başına fiyat. URL'leri `[publisher]/[slug]` yapısına taşı ve eski linkler için redirect ekle.
 4. `ConsoleProvider`'ı UI provider ve Server Action'lar olarak ikiye böl.
 5. Playground'u şemadan üret (`lib/schema-form`) ve Versions sekmesini ekle.
-6. Gateway hazır olduğunda `data/source/gateway.ts`'i bağla ve `/api/generations` BFF'ini aç.
+6. Gateway hazır olduğunda `data/source/gateway.ts`'i bağla ve `/api/tasks` BFF'ini aç.
 
 ## 7. Veritabanı taslağı (Postgres)
 
@@ -330,24 +331,27 @@ apps             (slug pk, name, tagline, description, category, status, paused_
 app_releases     (app_slug fk, number int, status, steps jsonb, price_micros bigint, notes, created_by,
                   created_at, published_at, primary key (app_slug, number))
 workspaces       (id uuid pk, name, tier, status, suspended_reason, limits jsonb /* override */,
-                  balance_micros bigint /* ledger toplamının önbelleği */, auto_reload jsonb, created_at)
+                  balance_micros bigint /* ledger toplamının önbelleği */, held_micros bigint /* bitmemiş task'ların blokesi */,
+                  auto_reload jsonb, created_at)
 users, workspace_members
 api_keys         (id uuid pk, workspace_id fk, name, prefix, secret_hash, env, scopes text[],
                   spend_limit_micros, status, created_at, last_used_at, revoked_at, revoked_reason)
-ledger_entries   (id uuid pk, workspace_id fk, kind, amount_micros bigint, request_id, note, operator_id, at)
-requests         (id text pk /* req_… */, workspace_id, key_id, model_id, version_id, app_slug, mode, status,
+ledger_entries   (id uuid pk, workspace_id fk, kind, amount_micros bigint, task_id, note, operator_id, at,
+                  unique (task_id, kind))
+tasks            (id text pk /* task_… */, workspace_id, key_id, model_id, version_id, app_slug, mode, status,
                   input jsonb, output jsonb, error_code, error_message, units numeric, unit,
-                  price_micros, cost_micros, webhook_url, idempotency_key, created_at, finished_at, refunded_at)
-attempts         (request_id fk, number, route_id, provider_id, upstream_model, upstream_id, status,
+                  price_micros, cost_micros, hold_micros, webhook_url, idempotency_key, idempotency_fingerprint,
+                  created_at, finished_at, refunded_at)
+attempts         (task_id fk, number, route_id, provider_id, upstream_model, upstream_id, status,
                   latency_ms, error, started_at, finished_at)
 operators, operator_sessions, audit_entries   (postpane'deki şemayla aynı)
 ```
 
 Notlar:
 
-- `requests` ve `attempts` tabloları hızla büyür. Bunlar aylık partition'a bölünür.
+- `tasks` ve `attempts` tabloları hızla büyür; ileride aylık partition'a bölünecekler. Postgres'te bunun için birincil anahtarların ve onlara bakan yabancı anahtarların `created_at` içermesi gerekir. Bugünkü şema (`services/migrations/00001_init.sql`) böyle değil, bu yüzden partition'a geçiş ayrı bir migration ister.
 - Raporlar ve sağlık pencereleri ileride ClickHouse gibi bir analitik depoya akıtılabilir. İlk aşamada Postgres'teki materialized view'lar ve Redis sayaçları yeterli.
-- Katalog okumaları gateway'de bellekte önbelleğe alınır. Admin'de bir değişiklik olduğunda Postgres `NOTIFY` ile önbellek geçersiz kılınır.
+- Katalog okumaları ileride gateway'de bellekte önbelleğe alınacak ve admin'de bir değişiklik olduğunda Postgres `NOTIFY` ile geçersiz kılınacak. Bugün gateway kataloğu her istekte Postgres'ten okuyor.
 
 ## 8. Admin paneli (bu değişiklik)
 
@@ -366,17 +370,17 @@ Ekranlar:
 | API keys             | Tüm anahtarlar, harcama limiti, iptal                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Audit log, Operators | postpane'deki gibi                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme ortamında `src/mock-api` aynı sözleşmeyi bellekte uygular. Sözleşmenin kendisi `apps/admin/src/lib/api/*.ts` dosyalarındaki tipler ve yorumlardır. Go admin API yazılırken bu dosyalar `docs/admin-api.md`'ye dökülür ve mock ile karşılaştırılarak test edilir.
+Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme ortamında `src/mock-api` aynı sözleşmeyi bellekte uygular. Sözleşmenin kendisi `packages/admin-api/src/*.ts` dosyalarındaki tipler ve yorumlardır (`@modelvend/admin-api`). Go admin API bu sözleşmeyi uygular ve mock ile karşılaştırılarak test edilir.
 
 ## 9. Yol haritası
 
 1. **Faz 0 (bitti): Admin arayüzü ve sözleşme.** Bu değişiklik.
 2. **Faz 1: Katalog backend'i.**
-   - Postgres şeması ve Go admin API. Sözleşme `apps/admin/src/lib/api` dosyalarında.
+   - Postgres şeması ve Go admin API. Sözleşme `packages/admin-api` paketinde.
    - Müşteri konsolunun `src/mocks` verisi `/v1/models` ve `/v1/models/{id}` ile değiştirilir.
    - Konsol `apps/console` altına taşındı ve npm workspaces kuruldu (bitti).
 3. **Faz 2: Gateway ve ilk iki adapter.**
-   - `/v1/generations` (senkron ve kuyruklu) ve OpenAI uyumlu yüzey.
+   - `/v1/tasks` (senkron ve kuyruklu) ve OpenAI uyumlu yüzey.
    - Anahtarlar, rate limit ve bakiye bloke/tahsil.
    - fal ve Replicate adapter'ları.
    - Çıktıların depolamaya kopyalanması ve imzalı webhook.
@@ -387,15 +391,261 @@ Backend henüz yok. Bu yüzden `ADMIN_API_URL` tanımlı değilse geliştirme or
    - App çalıştırıcısı.
    - Kullanım analitiği.
    - Müşteri tarafı routing tercihleri (`provider{only, ignore, max_price}`).
+   - Alt hesaplar, son kullanıcı alanı ve hesap başı fiyat listeleri (bölüm 10, taslak).
 5. **Faz 4: Kendi GPU'larımız.**
    - `managed` sağlayıcının altında deployment'lar: imaj, makine tipi, min/max concurrency, keep-alive.
    - fal'daki gibi değişmez revision'lar ve rollback.
    - Router bu deployment'ları diğer route'larla aynı şekilde görür. Maliyeti GPU-saniye üzerinden hesaplanır.
 
-## 10. Açık kararlar
+## 10. Alt hesaplar ve hesap başı fiyat (taslak)
+
+> Durum: taslak, 25 Ekim 2026. Kodda karşılığı yok. Bugün workspace tek başına duran bir faturalanan hesap: hiyerarşisi, son kullanıcı kaydı ve kendine özel fiyatı yok. Tier yalnızca limitleri belirliyor, fiyatı değil.
+
+### Neyi çözüyor
+
+Üç ayrı ihtiyaç var. Her birinin çözümü tek başına yayınlanabilir:
+
+| İhtiyaç                                                                     | Örnek                                                                                                                            | Çözüm                        | Bölüm |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----- |
+| Geliştirici kendi kullanıcılarının harcamasını görmek ve sınırlamak istiyor | Bir SaaS son kullanıcılarına video ürettiriyor ve kimin ne kadar harcadığını görmek istiyor                                      | Task'ta `end_user` alanı     | 10.1  |
+| Geliştirici müşterilerine ayrı hesap açmak istiyor                          | Bir ajans her müşterisine ayrı anahtar, limit, kullanım raporu ve gerekirse ayrı kredi veriyor; hesapları API'den açıp kapatıyor | Alt hesaplar                 | 10.2  |
+| Bir müşteri liste fiyatından farklı bir fiyat alıyor                        | Kurumsal anlaşma: tüm modellerde %15 indirim, bir modelde sabit fiyat                                                            | Fiyat listeleri (price book) | 10.3  |
+
+Geliştiricinin kendi müşterisine koyacağı fiyat (reseller marjı) bunlardan ayrı bir soru. O konu 10.4'te.
+
+### Diğerleri nasıl yapıyor
+
+| Kim        | Hesap yapısı                                                                                                                                                                   | Limit ve bütçe                                                                                                                                                                                                                    | Fatura                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenAI     | Organization → Project. Anahtarlar projeye bağlı.                                                                                                                              | Proje başına bütçe ve rate limit. Override edilmezse organizasyonun limitleri geçerli.                                                                                                                                            | Organizasyonda. Kullanım proje bazında ayrılır.                                                                                                                                |
+| Anthropic  | Organization → Workspace                                                                                                                                                       | Workspace başına aylık harcama ve rate limit, organizasyonun değerini aşamaz. Her istekte hem workspace hem organizasyon limiti kontrol edilir. Workspace limitlerinin toplamı daha yüksek olsa bile organizasyon limiti geçerli. | Organizasyonda                                                                                                                                                                 |
+| Twilio     | Ana hesap API'den alt hesap açar (`POST /Accounts`). Alt hesabın kendi kimlik bilgisi var ve yalnızca açılışta bir kez gösterilir. Alt hesapların kaynakları birbirinden ayrı. | Ana hesabın izinleri geçerli                                                                                                                                                                                                      | Ana hesapta toplanır. Usage API alt hesap bazında rapor verir.                                                                                                                 |
+| OpenRouter | Tek hesap. Management (provisioning) key ile API'den anahtar açılır.                                                                                                           | Anahtar başına kredi limiti                                                                                                                                                                                                       | Hesapta. İstekteki `user` alanı son kullanıcıyı ayırır. Bu alan sağlayıcıya hash'lenerek gider, böylece bir son kullanıcının yol açtığı sağlayıcı engeli tüm hesabı etkilemez. |
+
+Kaynaklar:
+
+- OpenAI: [projects](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform)
+- Anthropic: [workspaces](https://platform.claude.com/docs/en/manage-claude/workspaces), [limitler](https://support.claude.com/en/articles/9796807)
+- Twilio: [subaccounts](https://www.twilio.com/docs/iam/api/subaccounts)
+- OpenRouter: [provisioning keys](https://openrouter.ai/docs/guides/overview/auth/provisioning-api-keys), [user tracking](https://openrouter.ai/docs/cookbook/administration/user-tracking)
+
+Modelvend için öneri üç parçadan oluşuyor:
+
+- OpenAI ve Anthropic gibi iki seviyeli bir hesap yapısı. Fatura ana hesapta toplanır.
+- Twilio ve OpenRouter gibi alt hesap ve anahtar açmak için bir API.
+- OpenRouter gibi bir son kullanıcı alanı.
+
+### 10.1 Son kullanıcı: `end_user`
+
+- `POST /v1/tasks` gövdesine isteğe bağlı bir `end_user` alanı eklenir. Değeri geliştiricinin kendi kullanıcı ID'si ya da onun hash'idir, en fazla 128 karakter olabilir. Dokümanda e-posta gibi kişisel veri gönderilmemesi istenir. OpenAI uyumlu uçlarda aynı alanın adı `user`'dır.
+- Alan task kaydında saklanır. `GET /v1/tasks?end_user=…` bu alana göre süzer, `GET /v1/usage?group_by=end_user` bu alana göre gruplar.
+- **Son kullanıcı tavanı (isteğe bağlı):** Workspace ayarında son kullanıcı başına bir aylık harcama tavanı tanımlanabilir (`limits.endUserMonthlySpendCap`). Tavan aşılırsa 402 `end_user_limit_reached` döner. Sayaç Redis'te tutulur (`ratelimit`).
+- **Sağlayıcıya ne gider:** Destekleyen sağlayıcılara `end_user` değerinin HMAC'i gönderilir. HMAC bizim anahtarımızla ve workspace'e özgü olarak alınır, ham değer asla gitmez. Böylece bir son kullanıcının yol açtığı içerik politikası engeli bütün Modelvend hesabını etkilemez. Hash'te ne bizim adımız ne de geliştiricinin adı geçtiği için white-label bozulmaz.
+- Faturada bir şey değişmez: bakiye de ledger da aynı kalır.
+
+### 10.2 Alt hesaplar
+
+**Model.**
+
+- Alt hesap tam bir workspace'tir: kendi anahtarları, task'ları, webhook'ları, limitleri ve kullanım raporu vardır. Bugünkü kodun çoğu `workspace_id` üzerinden çalıştığı için gateway, worker ve MCP alt hesaplarla büyük ölçüde aynı kalır. Değişen yerler şunlar: `keys.Authenticate` ana hesabın askısını da kontrol eder; ödeyen hesap (`billed_to`) ve `end_user` alanları `tasks`, `rest`, `mcpserver` ve worker'dan geçer (aşağıdaki paket tablosu).
+- Fark yalnızca `workspaces.parent_id` alanındadır. Hiyerarşi **iki seviyelidir**: ana hesap ve onun alt hesapları. Alt hesabın alt hesabı olmaz. Böylece limit, bakiye ve yetki kuralları tek adımda çözülür.
+- Ana hesabın üyeleri konsolda workspace değiştiriciden alt hesaplara geçebilir. Alt hesapların ilk aşamada kendi konsol kullanıcıları yoktur, yalnızca API anahtarlarıyla kullanılırlar.
+
+**Kim açar.**
+
+- Konsolda: Settings → Sub-accounts ekranından, ana hesabın owner ve admin rolündeki üyeleri.
+- API'de: **management key** ile. Biçimi `mv_mgmt_…` şeklindedir. Bu anahtar task çalıştıramaz, yalnızca alt hesapları ve onların anahtarlarını yönetir. Normal bir anahtar da alt hesap açamaz. OpenRouter'daki provisioning key'in karşılığıdır.
+- Alt hesap sayısı tier'a göre sınırlıdır. Örneğin `free` için 0, `standard` için 10, `scale` için 100; `enterprise` için operatör belirler. Sınır aşılırsa 403 `subaccount_limit_reached` döner.
+
+**API.**
+
+```
+POST   /v1/subaccounts                     {name, billing: "shared" | "prepaid", limits?, scopes?, metadata?}
+GET    /v1/subaccounts                     ?cursor=
+GET    /v1/subaccounts/{id}
+PATCH  /v1/subaccounts/{id}                Ad, limitler, scope'lar, metadata
+POST   /v1/subaccounts/{id}/suspend        (ve /resume)
+DELETE /v1/subaccounts/{id}                Kapatır: anahtarlar iptal edilir, prepaid bakiye ana hesaba döner, kayıtlar saklanır
+POST   /v1/subaccounts/{id}/keys           Secret yalnızca bu yanıtta, bir kez döner
+DELETE /v1/subaccounts/{id}/keys/{key_id}
+POST   /v1/subaccounts/{id}/transfers      {amount}: yalnızca prepaid; negatif tutar krediyi geri alır
+GET    /v1/subaccounts/{id}/usage          ?group_by=day|model|end_user
+GET    /v1/subaccounts/{id}/tasks
+```
+
+Bu uçlar yalnızca management key kabul eder. Alt hesabın kendi anahtarıyla gelen istekler normal `/v1` uçlarına gider ve ana hesabı hiç görmez.
+
+**İki faturalama modu.** Mod, alt hesap açılırken seçilir:
+
+| Mod                   | Bakiye                                                                                          | Ne zaman durur                                                                                                                                                    | Ne için                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `shared` (varsayılan) | Ana hesabın bakiyesi kullanılır. Ledger satırı ana hesaba yazılır ve alt hesabın ID'sini taşır. | Alt hesabın aylık harcama tavanı (`limits.monthlySpendCap`) dolunca 402 `spend_cap_reached` döner. Ana hesabın bakiyesi bitince 402 `insufficient_credits` döner. | Ekip, ortam ya da müşteri bazında ayrıştırma. OpenAI projeleri ve Anthropic workspace'leri gibi.           |
+| `prepaid`             | Alt hesabın kendi bakiyesi vardır. Krediyi ana hesap aktarır.                                   | Kendi bakiyesi bitince 402 `insufficient_credits` döner. Ana hesabın bakiyesine hiç dokunulmaz.                                                                   | Ajansın müşterisine belirli bir kredi vermesi. Bir müşterinin aşırı harcamasının diğerlerini etkilememesi. |
+
+- **Para yalnızca ana hesaptan girer.** Alt hesap kart ekleyemez ve Stripe ile bakiye yükleyemez. Fatura, kart ve vergi bilgisi tek yerde, ana hesapta durur. Böylece Modelvend'in geliştirici adına para toplaması ya da ona ödeme yapması (marketplace, KYC, payout) baştan kapsam dışında kalır.
+- **Aktarım** ledger'da iki satırdır: ana hesapta eksi, alt hesapta artı tutarlı birer `transfer` kaydı. İkisi aynı transaction'da yazılır.
+- **Bloke ve tahsilat,** task'ı ödeyen hesaptan yapılır. Ödeyen hesap task oluşturulurken bir kez belirlenir ve task kaydına yazılır: shared modda ana hesap, prepaid modda alt hesabın kendisi. Bu sayede mod sonradan değişse bile o anda çalışan task'lar doğru hesaptan kapanır.
+- **Yüksek hacim:** Shared moddaki bütün alt hesaplar, blokelerini ana hesabın bakiye satırına koyar. Bu satır darboğaz olursa bloke tutarı Redis'te atomik bir sayaçla tutulur ve ledger'a toplu yazılır.
+
+**Kalıtım ve tavanlar.** Anthropic'teki gibi her istekte hem alt hesabın hem ana hesabın limiti kontrol edilir.
+
+- **Tier** ana hesaptan gelir. Alt hesabın ayrı bir tier'ı yoktur.
+- **Rate limit ve eşzamanlılık:** Alt hesaba ayrı limit konabilir ama bu limit ana hesabınkini aşamaz. Ana hesabın limiti bütün ağaç için ortaktır: her istekte hem alt hesabın hem ana hesabın sayacı kontrol edilir. Aksi halde alt hesap açarak limitler çoğaltılabilirdi.
+- **Model erişimi:** Alt hesabın `scopes` listesi, ana hesabın erişebildiği modellerle sınırlıdır. Alt hesaptaki anahtarların scope'ları da alt hesabınkiyle sınırlıdır.
+- **Askı:** Ana hesap askıya alınırsa bütün alt hesapları 403 `account_suspended` alır. Bir alt hesap tek başına da askıya alınabilir; bunu hem ana hesap hem operatör yapabilir.
+- **İç hesaplar:** `INTERNAL_WORKSPACES` içindeki bir hesabın alt hesapları iç hesap sayılmaz, staging sürümlere ve private modellere erişemez.
+- **Fiyat:** Alt hesap ana hesabın fiyat listesini kullanır (bölüm 10.3). Faturayı ana hesaba kestiğimiz için alt hesaba ayrı bir fiyat listesi bağlanmaz.
+
+**Görünürlük.**
+
+- Ana hesabın normal anahtarları yalnızca ana hesabın kendi task'larını görür. Alt hesapların task'larına ve kullanımına management key ile ya da konsoldan bakılır.
+- Alt hesap ana hesabı ve diğer alt hesapları hiç görmez. Yanıtlarda ve hata mesajlarında ana hesaba dair bilgi olmaz.
+- Admin panelinin Customers ekranı, alt hesapları ana hesabın altında bir ağaç olarak gösterir. Kredi verme ve tier değişikliği ana hesapta yapılır.
+
+**Para akışı.**
+
+```mermaid
+flowchart LR
+  S[Stripe] -->|top_up| P[Ana hesap bakiyesi]
+  P -->|"usage (shared)"| A["Alt hesap A'nın task'ları"]
+  P -->|transfer| B[Alt hesap B bakiyesi]
+  B -->|usage| BT["Alt hesap B'nin task'ları"]
+```
+
+### 10.3 Hesap başı fiyat: fiyat listeleri
+
+Bugün fiyat yalnızca sürümün fiyat listesinden gelir ve herkes için aynıdır. Öneri şu: katalogdaki fiyat **liste fiyatı** olarak kalır, üstüne workspace'e bağlanan bir **fiyat listesi** (price book) gelir.
+
+Fiyat listesi kurallardan oluşur. Her kural bir eşleşme taşır; buna ek olarak ya bir indirim oranı ya da sabit bir fiyat:
+
+```json
+[
+  { "match": { "model": "google/veo-3.1@v2", "tier": "1080p" }, "price": 0.3 },
+  { "match": { "app": "product-shots" }, "price": 0.15 },
+  { "match": { "publisher": "google" }, "discount": 0.1 },
+  { "match": { "modality": "video" }, "discount": 0.2 },
+  { "match": {}, "discount": 0.05 }
+]
+```
+
+- **Yalnızca en özel kural uygulanır.** Öncelik sırası şöyledir: sürüm ve kademe (ya da app) > model > publisher > modalite > genel. Kurallar üst üste binmez. Böylece müşteri de operatör de fiyatın nereden geldiğini tek satırda görür.
+- **Promosyonla birlikte:** Sürümün promosyonlu fiyatıyla fiyat listesinin verdiği fiyattan müşteri için düşük olanı uygulanır. İkisi çarpılmaz.
+- **Canlı sürüm kuralı bozulmaz.** Sürümün liste fiyatı yine dondurulmuştur. Fiyat listesi bunun üstünde duran bir sözleşme katmanıdır ve kendi revizyonları vardır:
+  - Her değişiklik yeni bir revizyon açar. Revizyon, `effective_from` tarihinden sonra oluşturulan task'lara uygulanır.
+  - Fiyat, task oluşturulurken (bloke anında) belirlenir. Task kaydı hangi revizyonla fiyatlandığını taşır, örneğin `price_book: "pb_acme@3"`. Bugün böyle değil: bloke bir birimin asgari tutarıdır ve gerçek fiyat task bitince sürümün fiyat listesinden hesaplanır. Fiyat listeleriyle birlikte fiyat bloke anında sabitlenir.
+  - Çalışmakta olan bir task'ın fiyatı değişmez.
+- **Maliyetin altında fiyat:** Admin paneli her kural için route maliyetine göre marjı gösterir. Negatif marjlı bir kural ayrı bir operatör izni ister (`pricing.below_cost`) ve audit'e yazılır.
+- **Kime bağlanır:** Bir fiyat listesi birden çok workspace'e bağlanabilir, örneğin "Ajans programı". Alt hesaplar ana hesabın fiyat listesini kullanır. Bir tier'ın varsayılan fiyat listesi olup olamayacağı açık bir karar (bölüm 11).
+- **Müşteri ne görür:**
+  - `/v1/models` ve `/v1/apps`, oturumdaki workspace'in net fiyatını `price`, liste fiyatını `list_price` olarak döndürür.
+  - Task'taki `usage.cost` net fiyattır.
+  - Konsolun model sayfaları ve Pricing sekmesi, giriş yapmış müşteriye kendi fiyatını gösterir.
+- **Nerede hesaplanır:** `billing` paketinde. Bugünkü `billing.Charge(pricing, tier, units)` fonksiyonu, fiyat listesini de hesaba katan bir fiyat teklifine (`Quote`) dönüşür. Aynı teklif hem blokede hem tahsilatta kullanılır. Gateway fiyat listelerini bellekte tutar ve Postgres `NOTIFY` ile yeniler (katalog için de aynısı planlanıyor; bugün gateway kataloğu her istekte okuyor). `catalog` paketi değişmez: liste fiyatı katalogun, sözleşme fiyatı faturalamanın işidir.
+
+Taahhütlü anlaşmalar (aylık asgari harcama, yıllık kontrat) bu taslağa dahil değil. Bugünkü tek hacim teşviki, konsoldaki yükleme bonusu olarak kalır: 200 $ ve üstüne %10, 1000 $ ve üstüne %20.
+
+### 10.4 Geliştiricinin kendi müşterisine fiyatı
+
+Bir ajans ya da SaaS, alt hesaplarına veya son kullanıcılarına kendi fiyatını koymak isteyebilir. Öneri: **Modelvend bu fiyatı uygulamaz.**
+
+- Ana hesaba kendi fiyatıyla (liste fiyatı ya da fiyat listesi) biz fatura keseriz. Geliştirici de kendi müşterisine kendi faturasını keser.
+- Bunun için gereken veriyi biz veririz: alt hesap ve `end_user` bazında kullanım, task başına `usage.cost`, `metadata` alanı ve CSV dışa aktarma.
+- Neden: Modelvend içinde bir kâr marjı (markup) uygulamanın iki anlamı olabilir:
+  - Geliştiricinin müşterisinden parayı bizim toplamamız ve geliştiriciye ödememiz. Bu, vergi, KYC ve payout yükümlülükleri olan ayrı bir iş (marketplace).
+  - Yalnızca alt hesabın kredisinin daha hızlı erimesi. Geliştirici aynı sonucu kendi tarafında daha basit alır: müşterisine daha az kredi aktarır.
+- Alt hesaplar ileride kendi konsol kullanıcılarına kavuşursa (white-label müşteri konsolu), fiyatları marjlı göstermek o zaman ele alınır.
+
+### Veritabanı değişiklikleri (taslak)
+
+```sql
+create table price_books (
+  id          text primary key, -- pb_…
+  name        text not null,
+  notes       text not null default '',
+  created_by  text,
+  created_at  timestamptz not null default now()
+);
+
+create table price_book_revisions (
+  price_book_id   text not null references price_books (id),
+  number          integer not null,
+  rules           jsonb not null,
+  effective_from  timestamptz not null,
+  created_by      text,
+  created_at      timestamptz not null default now(),
+  primary key (price_book_id, number)
+);
+
+alter table workspaces
+  -- Null: ana hesap. İki seviye kuralı accounts.Service'te ve bir trigger'da zorlanır.
+  add column parent_id      uuid references workspaces (id),
+  add column billing        text not null default 'own' check (billing in ('own', 'shared', 'prepaid')),
+  -- Alt hesabın çağırabileceği modeller; boşsa ana hesabın erişebildiği her şey.
+  add column scopes         text[] not null default '{}',
+  -- Yalnızca ana hesapta.
+  add column price_book_id  text references price_books (id),
+  add column metadata       jsonb not null default '{}',
+  add column closed_at      timestamptz,
+  add check ((parent_id is null) = (billing = 'own'));
+
+-- Management anahtarları mv_mgmt_ ile başlar; task çalıştıramaz. Bugünkü env kontrolü (live, test)
+-- onlara uymaz: management anahtarında env boştur.
+alter table api_keys
+  add column kind text not null default 'inference' check (kind in ('inference', 'management')),
+  alter column env drop not null,
+  drop constraint api_keys_env_check,
+  add check ((kind = 'management') = (env is null) and (env is null or env in ('live', 'test')));
+
+alter table tasks
+  add column end_user    text,
+  -- Bloke ve tahsilatın yapıldığı hesap.
+  add column billed_to   uuid references workspaces (id),
+  -- "pb_acme@3"; liste fiyatıyla fiyatlandıysa null.
+  add column price_book  text;
+create index tasks_end_user on tasks (workspace_id, end_user, created_at desc) where end_user is not null;
+
+-- ledger_entries.kind'a 'transfer' eklenir.
+alter table ledger_entries
+  -- Shared modda usage satırında harcayan alt hesap, transfer satırında karşı taraf.
+  add column related_workspace_id uuid references workspaces (id);
+```
+
+### Paketlere etkisi
+
+| Paket                     | Değişiklik                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `identity/accounts`       | Alt hesap açma, kapatma ve askıya alma. İki seviye kuralı. Tier, askı ve scope kalıtımı. Tier başına alt hesap sayısı. |
+| `identity/keys`           | `management` anahtar türü ve `mv_mgmt_` biçimi. `Principal` ayrıca ödeyen hesabı, ana hesabı ve anahtar türünü taşır.  |
+| `billing`                 | Fiyat listesi çözümleme (`Quote`), aktarım, ödeyen hesaba göre bloke ve tahsilat                                       |
+| `ratelimit`               | Alt hesap ve ana hesap sayaçları birlikte kontrol edilir. Son kullanıcı tavanı.                                        |
+| `tasks`                   | `end_user`, `billed_to` ve `price_book` alanları                                                                       |
+| `api/public/rest`         | `/v1/subaccounts` uçları, `end_user` alanı, kullanımda `group_by`                                                      |
+| `api/public/openaicompat` | OpenAI'daki `user` alanı `end_user`'a eşlenir                                                                          |
+| `api/public/redact`       | Modellerde net `price` ve `list_price`                                                                                 |
+| `providers`               | Destekleyen adapter'lara son kullanıcı hash'i gönderilir                                                               |
+| `api/admin`, `apps/admin` | Customers ekranında hesap ağacı ve alt hesap kartı. Yeni Price books ekranı. `pricing.below_cost` izni.                |
+| `apps/console`            | Settings → Sub-accounts ve management key'ler. Gerçek workspace değiştirici. Usage ekranında son kullanıcı filtresi.   |
+| `catalog`                 | Değişmez                                                                                                               |
+
+### Geçiş sırası
+
+Her adım ayrı bir PR olur:
+
+1. **Ön koşul: ledger, bloke ve tahsilat (bitti).** Task oluşturulurken bir birimlik bloke alınıyor, task bitince gerçek fiyat `usage` ledger satırıyla bakiyeden düşülüyor (bölüm 4, Faturalama). Shared mod ve fiyat listeleri bunun üstüne kurulur.
+2. **`end_user`:** Yalnızca veri düzlemini etkiler. Bağımsız ve küçük bir iş.
+3. **Fiyat listeleri:** Önce yalnızca admin'den, kurumsal anlaşmalar için. Public API'de değişen tek şey modellerdeki `price` ve `list_price` alanları.
+4. **Alt hesaplar, shared mod:** Önce veritabanı, `accounts` servisi ve konsol. Ardından management key ve `/v1/subaccounts`.
+5. **Prepaid mod ve aktarım.**
+
+## 11. Açık kararlar
 
 - **Sürüm ID'si:** `v1, v2, …` mi, tarih mi (`2026-10-01`)? Admin ikisini de kabul ediyor. Öneri: `vN`, insanlar için ayrıca `label` alanı.
 - **Promosyon:** Sürüm seviyesinde mi kalsın, yoksa zaman aralıklı override olarak mı tanımlansın (OpenRouter'daki `pricing.overrides` gibi)?
 - **Staging erişimi:** Yalnızca dahili anahtarlar mı, yoksa allowlist'teki müşteri workspace'leri de mi?
-- **Kurumsal fiyat:** Workspace başına indirim veya özel fiyat listesi gerekecek mi?
+- **Kurumsal fiyat:** Workspace başına indirim veya özel fiyat listesi gerekecek mi? Taslak öneri bölüm 10.3'te: workspace'e bağlanan, revizyonlu fiyat listeleri.
+- **Alt hesap kimlere açık:** Hangi tier'larda ve kaç tane? Öneri: `standard` ve üstü, sayısı tier'a göre sınırlı.
+- **Ana hesabın limitleri bütün ağaç için ortak mı?** Öneri: evet (bölüm 10.2). Aksi halde alt hesap açarak limitler çoğaltılabilir.
+- **Alt hesaba konsol kullanıcısı:** Ajansın müşterisi konsola girebilsin mi? Öneri: ilk aşamada hayır, alt hesaplar yalnızca API anahtarlarıyla kullanılır.
+- **Reseller marjı:** Modelvend geliştiricinin kendi müşterisine fiyatını uygulasın mı? Öneri: hayır (bölüm 10.4).
+- **Fiyat listesi ve promosyon:** İkisinden düşük olan mı uygulanacak (öneri), yoksa ikisi çarpılacak mı? Bir tier'ın varsayılan fiyat listesi olabilsin mi?
 - **İçerik moderasyonu:** Girdi ve çıktı kontrolü model başına mı yapılsın? Upstream'in `has_nsfw_concepts` gibi sinyalleri request kaydına taşınacak mı?

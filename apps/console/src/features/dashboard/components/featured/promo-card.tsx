@@ -3,12 +3,13 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { playgroundHref } from "@/features/models/lib/links";
 import { formatPrice } from "@/lib/format";
-import { discounted } from "@/lib/pricing";
-import { promo } from "@/mocks/dashboard";
-import { getModel } from "@/mocks/models";
+import { discounted, promoEnds } from "@/lib/pricing";
+import type { PromoBanner } from "@/mocks/dashboard";
+import type { Model } from "@/types/model";
 
-export function PromoCard() {
-  const model = getModel(promo.slug);
+/** Only rendered for a model whose offer still runs; the end date comes from the model. */
+export function PromoCard({ banner: promo, model }: { banner: PromoBanner; model: Model }) {
+  const until = promoEnds(model);
 
   return (
     <Link
@@ -32,8 +33,8 @@ export function PromoCard() {
       </h2>
       <p className="mt-2.5 max-w-sm text-[14px] leading-relaxed text-[rgb(255_255_255/0.75)] tabular">
         <s className="text-[rgb(255_255_255/0.45)]">{formatPrice(model.price)}</s>{" "}
-        <span className="font-semibold text-[#fff]">{formatPrice(discounted(model))}</span> per {model.unit} until {promo.until}. Same
-        endpoint, no code changes.
+        <span className="font-semibold text-[#fff]">{formatPrice(discounted(model))}</span> per {model.unit}
+        {until ? ` until ${until}` : ""}. Same model ID, no code changes.
       </p>
       <span className="mt-4 inline-flex h-10 w-fit items-center gap-2 rounded-lg bg-[#fff] px-4 text-[14px] font-medium text-[#0b0c0f] transition group-hover:bg-[rgb(255_255_255/0.88)]">
         Try {model.name} <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />

@@ -148,6 +148,7 @@ export function appView(store: Store, app: AppRecord): App {
   return {
     ...appSummary(store, app),
     description: app.description,
+    pausedReason: app.status === "paused" ? app.pausedReason : null,
     releases: [...app.releases].sort((a, b) => b.number - a.number).map((release) => releaseView(store, release)),
   };
 }

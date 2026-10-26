@@ -6,8 +6,10 @@ import { Check } from "lucide-react";
 import { CodeBlock } from "@/components/code/code-block";
 import { snippetsFor } from "@/components/code/snippets";
 import { site } from "@/config/site";
+import { modelId } from "@/lib/model";
 import { statsFor } from "@/mocks/model-stats";
 import type { Model } from "@/types/model";
+import { apiExample } from "../../lib/api";
 import { Playground } from "../playground/playground";
 import { DetailSection } from "./detail-section";
 import { ModelAbout } from "./model-about";
@@ -17,14 +19,17 @@ import { ModelTabs } from "./model-tabs";
 import { PerformancePanel } from "./performance-panel";
 import { PricingTable } from "./pricing-table";
 import { ProvidersTable } from "./providers-table";
-import type { ModelTabId } from "./tabs";
+import { defaultTab, modelTabs, type ModelTabId } from "./tabs";
 import { UptimePanel } from "./uptime-panel";
 import { useModelTab } from "./use-model-tab";
 
 export function ModelDetail({ model }: { model: Model }) {
   const stats = useMemo(() => statsFor(model), [model]);
   const searchParams = useSearchParams();
-  const [tab, selectTab] = useModelTab();
+  const [requested, selectTab] = useModelTab();
+  // White-label models have no Providers tab; a link to it lands on the default tab instead.
+  const tabs = modelTabs.filter((t) => t.id !== "providers" || stats.providers.length > 0);
+  const tab = tabs.some((t) => t.id === requested) ? requested : defaultTab;
   const [focusRequest, setFocusRequest] = useState(0);
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -52,11 +57,11 @@ export function ModelDetail({ model }: { model: Model }) {
         }}
         onApi={() => open("api", true)}
       />
-      <ModelAbout model={model} endpoints={stats.endpoints.length} />
+      <ModelAbout model={model} />
       <ModelStats model={model} stats={stats} />
 
       <div ref={anchorRef} className="mt-10 scroll-mt-14 lg:scroll-mt-0" />
-      <ModelTabs active={tab} onSelect={(id) => open(id)} />
+      <ModelTabs tabs={tabs} active={tab} onSelect={(id) => open(id)} />
 
       {/* At least a viewport tall so short tabs don't shrink the page and yank the scroll position. */}
       <div className="min-h-[calc(100dvh-3rem)] pt-8">
@@ -71,16 +76,16 @@ export function ModelDetail({ model }: { model: Model }) {
         {tab === "providers" && (
           <DetailSection
             id="providers"
-            description={`${stats.endpoints.length} endpoints serve ${model.name}. ${site.name} routes each request by the mode you pick and fails over automatically when an endpoint degrades.`}
+            description={`${stats.providers.length === 1 ? "One provider serves" : `${stats.providers.length} providers serve`} ${model.name}. You pay the same price whichever one runs your task, and if a provider turns a job down before starting it, ${site.name} tries the next one.`}
           >
-            <ProvidersTable model={model} endpoints={stats.endpoints} />
+            <ProvidersTable providers={stats.providers} />
           </DetailSection>
         )}
 
         {tab === "pricing" && (
           <DetailSection
             id="pricing"
-            description={`Output is billed per ${model.unit}${model.unitDetail ? ` at ${model.unitDetail}` : ""}${model.inputPrice ? `, reference input per ${model.inputPrice.unit}` : ""}. Higher tiers cost more per unit, and failed generations are never charged.`}
+            description={`Output is billed per ${model.unit}${model.unitDetail ? ` at ${model.unitDetail}` : ""}${model.inputPrice ? `, reference input per ${model.inputPrice.unit}` : ""}. Higher tiers cost more per unit, and failed tasks are never charged.`}
           >
             <PricingTable model={model} />
           </DetailSection>
@@ -95,15 +100,18 @@ export function ModelDetail({ model }: { model: Model }) {
         {tab === "uptime" && (
           <DetailSection
             id="uptime"
-            description={`Daily availability per endpoint over the last ${stats.uptime.length} days. Routed traffic only counts as down when every fallback failed.`}
+            description={`Daily availability over the last ${stats.uptime.length} days${stats.providers.length ? ", overall and per provider" : ""}.`}
           >
             <UptimePanel stats={stats} />
           </DetailSection>
         )}
 
         {tab === "api" && (
-          <DetailSection id="api" description="One endpoint for every model. Swap the model field to switch providers.">
-            <CodeBlock snippets={snippetsFor(model.slug)} title="POST /v1/generations" />
+          <DetailSection
+            id="api"
+            description={`Every model runs as a task: POST /v1/tasks with the model ID and an input that follows its schema (GET /v1/models/${modelId(model)} returns it).`}
+          >
+            <CodeBlock snippets={snippetsFor(modelId(model), apiExample(model))} title="POST /v1/tasks" />
             <ul className="mt-4 flex flex-wrap gap-2">
               {model.capabilities.map((c) => (
                 <li key={c} className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[13px] text-muted">

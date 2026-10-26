@@ -42,7 +42,7 @@ export const VERSION_STATUS_DESCRIPTIONS: Record<VersionStatus, string> = {
   draft: "Being set up. Nobody can call it.",
   staging: "Callable with internal keys only, for testing routes and schema.",
   live: "Callable by customers when pinned, or by default when it is the default version.",
-  deprecated: "Still answers, with Deprecation and Sunset headers, until its sunset date.",
+  deprecated: "Still answers, with Deprecation and Sunset headers, until its sunset date; it can be retired after that.",
   retired: "No longer answers: requests get 410, or go to its replacement.",
 };
 

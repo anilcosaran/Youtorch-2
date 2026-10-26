@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/format";
 import { mediumMeta } from "@/lib/modality";
-import { discounted } from "@/lib/pricing";
+import { discounted, promoRate, roundMicros } from "@/lib/pricing";
 import type { Medium, Model } from "@/types/model";
 
 export type ControlValue = string | boolean;
@@ -283,10 +283,12 @@ export interface CostEstimate {
   detail: string;
 }
 
+/** Like the API: list prices times units, the discount applied to the sum, rounded to micro-dollars at the end. */
 export function estimateCost(model: Model, values: PlaygroundValues, prompt: string, references: number): CostEstimate {
   const tier = model.tiers.find((t) => t.label === values.tier);
   const listUnit = tier?.price ?? model.price;
   const unitPrice = discounted(model, listUnit);
+  const rate = 1 - promoRate(model);
 
   let units = 1;
   let amount = "1";
@@ -299,17 +301,14 @@ export function estimateCost(model: Model, values: PlaygroundValues, prompt: str
     amount = `${chars} chars`;
   }
 
-  let total = unitPrice * units;
   let list = listUnit * units;
   let detail = `${amount} × ${formatPrice(unitPrice)} per ${model.unit}`;
   if (model.inputPrice && references > 0) {
     const perRef = model.inputPrice.unit === model.unit ? units : 1;
-    const refPrice = discounted(model, model.inputPrice.price);
-    total += refPrice * perRef * references;
     list += model.inputPrice.price * perRef * references;
-    detail += ` + ${references} ref × ${formatPrice(refPrice * perRef)}`;
+    detail += ` + ${references} ref × ${formatPrice(roundMicros(model.inputPrice.price * perRef * rate))}`;
   }
-  return { total, list, detail };
+  return { total: Math.max(0, roundMicros(list * rate)), list: roundMicros(list), detail };
 }
 
 /** Short labels describing a run's settings, for history and result captions. */

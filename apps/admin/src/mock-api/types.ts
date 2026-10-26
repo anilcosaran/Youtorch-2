@@ -15,8 +15,14 @@ import type { Random } from "./random";
  */
 
 export interface OperatorRecord extends Operator {
-  /** Accepted at sign-in besides MOCK_PASSWORD. */
+  /** What they sign in with; MOCK_PASSWORD also works, in development only. */
   password: string;
+  /**
+   * Goes up when their password changes or is reset, or they are disabled.
+   * Session cookies carry the version they were issued under, so the older
+   * ones stop working at once.
+   */
+  sessionVersion: number;
 }
 
 /** `routes`, `models` and `requests24h` come from the catalog. */
@@ -60,4 +66,8 @@ export interface Store {
   apiKeys: ApiKeyRecord[];
   /** Newest first. */
   requests: RequestDetail[];
+  /** Failed sign-ins per email (times, oldest first), for throttling. */
+  loginFailures: Map<string, number[]>;
+  /** Sessions signed out before they expired: session ID to its expiry. */
+  endedSessions: Map<string, number>;
 }

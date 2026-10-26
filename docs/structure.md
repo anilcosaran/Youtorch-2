@@ -1,6 +1,6 @@
 # Modelvend platform yapısı: monorepo, teknoloji, white-label ve app'ler
 
-> Durum: iskelet kuruldu (bölüm 8). 17 Ekim 2026'da backend paketleri bounded context'lere ve dışa açık / iç yüzeylere göre yeniden düzenlendi (bölüm 3). Model yayınlama, kendi runtime'larımız ve çoklu sağlayıcı tasarımı bölüm 7'de. Gerçek sağlayıcı çağrıları, faturalama ve tam API daha sonra yazılacak.
+> Durum: iskelet kuruldu (bölüm 8). 17 Ekim 2026'da backend paketleri bounded context'lere ve dışa açık / iç yüzeylere göre yeniden düzenlendi (bölüm 3). Model yayınlama, kendi runtime'larımız ve çoklu sağlayıcı tasarımı bölüm 7'de. Bakiye blokesi, tahsilat ve ledger yazıldı; gerçek sağlayıcı çağrıları, Stripe ve tam API daha sonra yazılacak.
 > [architecture.md](architecture.md)'deki domain modelinin üstüne kurulur. Bölüm 5'teki repo yapısının ayrıntılı ve güncel hâli budur.
 
 ## 1. Kısaca
@@ -122,7 +122,7 @@ modelvend/
 │  │  │  ├─ schema/                     Model şemaları: JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
 │  │  │  └─ manifest/                   catalog/*.yaml'ı draft sürüm olarak içe aktarır
 │  │  ├─ tasks/                         Task kaydı, durum makinesi, servis, job argümanları, müşteri hata kodları
-│  │  │  └─ jobs/                       dispatch_task, poll_task (River worker'ları)
+│  │  │  └─ jobs/                       dispatch_task, poll_task, sweep_tasks (River worker'ları)
 │  │  ├─ routing/                       Strateji, sağlık penceresi, devre kesici
 │  │  ├─ providers/                     Sağlayıcı arayüzü (port) ve kayıt
 │  │  │  ├─ mapping/                    Bizim girdimizden sağlayıcının parametrelerine
@@ -139,7 +139,7 @@ modelvend/
 │  │  │  └─ webhooks/                   İmzalama; sonra teslimat ve yeniden deneme job'ları
 │  │  ├─ audit/  ratelimit/             (henüz yalnız doc.go)
 │  │  │
-│  │  ├─ platform/                      Altyapı: config, database (+ dbtest), httpx, ids, logging
+│  │  ├─ platform/                      Altyapı: config, database (+ dbtest), egress (dış istekler), httpx, ids, logging
 │  │  └─ bootstrap/                     Süreçlerin ortak kurulumu: config, log, veritabanı, kuyruk istemcisi, store'lar
 │  └─ migrations/                       goose SQL (embed ile binary'ye girer)
 │
@@ -222,18 +222,18 @@ Aynı upstream model iki kez yayınlanabilir. Örneğin `kling/kling-3` açık o
 
 ### Sızıntı noktaları ve kapatılmaları
 
-| Nerede sızar             | Nasıl kapatılır                                                                                                                                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Yanıt gövdesi            | `api/public/*` yalnızca `redact` DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                     |
-| Hata mesajları           | Upstream hataları `tasks.UpstreamFailure` bizim kodlarımıza çevirir, `redact.PublicError` da domain hatalarını public biçime getirir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                 |
-| Girdi alanları           | Müşteri bizim şemamızı görür. Sağlayıcıya özgü parametre adlarına çeviri route'un `mapping` kısmında, içeride yapılır.                                                                                                                                                                                                    |
-| Çıktı URL'leri           | Çıktı her zaman `cdn.modelvend.ai/o/<task>/<n>.<ext>` adresine kopyalanır. Upstream URL'si dışarı çıkmaz.                                                                                                                                                                                                                 |
-| Dosya metadata'sı        | EXIF, XMP ve ID3 etiketleri temizlenir (örneğin `Software` alanı). C2PA ve SynthID gibi "yapay zekâ ile üretildi" işaretleri **silinmez**: AB Yapay Zekâ Yasası sentetik içeriğin işaretlenmesini istiyor ve sağlayıcı sözleşmeleri genelde bunları korumayı şart koşuyor. Gerekirse bunlara kendi C2PA kaydımız eklenir. |
-| HTTP header'ları         | Upstream header'larının hepsi düşürülür. Yanıtlarda yalnızca bizim header'larımız olur: `x-request-id`, `ratelimit-*`, `deprecation`, `sunset`.                                                                                                                                                                           |
-| ID'ler                   | Müşteri yalnızca `task_…` görür. Upstream ID'leri sadece admin'de görünür.                                                                                                                                                                                                                                                |
-| Webhook'lar              | Bizim imzamızla, bizim gövdemizle gider.                                                                                                                                                                                                                                                                                  |
-| Dokümanlar ve playground | Bizim şemamızdan üretilir; upstream parametre adı geçmez.                                                                                                                                                                                                                                                                 |
-| Fiyat ve fatura          | Satır kalemlerinde yalnızca bizim model ID'miz yer alır.                                                                                                                                                                                                                                                                  |
+| Nerede sızar             | Nasıl kapatılır                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Yanıt gövdesi            | `api/public/*` yalnızca `redact` DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                                                 |
+| Hata mesajları           | Upstream hataları `tasks.UpstreamFailure` bizim kodlarımıza çevirir, `redact.PublicError` da domain hatalarını public biçime getirir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                                             |
+| Girdi alanları           | Müşteri bizim şemamızı görür. Girdi şemaya göre doğrulanır (`format` dahil, U+0000 içeren metinler 422 alır) ve şemanın tanımlamadığı üst düzey alanlar atılır. Sağlayıcıya özgü parametre adlarına çeviri route'un `mapping` kısmında, içeride yapılır; `transform` isteyen route'lar, transform'lar yazılana kadar gönderimden önce başarısız olur. |
+| Çıktı URL'leri           | Çıktıda, hangi anahtarın altında olursa olsun, değerin tamamı olan her http(s) ya da data URL'si `cdn.modelvend.ai/o/<task>/<n>.<ext>` adresine kopyalanır. Kopyalama özel ağlara ve metadata adreslerine gitmez (`platform/egress`). Daha uzun bir metnin içindeki URL'ler değiştirilmez.                                                            |
+| Dosya metadata'sı        | EXIF, XMP ve ID3 etiketleri temizlenir (örneğin `Software` alanı). C2PA ve SynthID gibi "yapay zekâ ile üretildi" işaretleri **silinmez**: AB Yapay Zekâ Yasası sentetik içeriğin işaretlenmesini istiyor ve sağlayıcı sözleşmeleri genelde bunları korumayı şart koşuyor. Gerekirse bunlara kendi C2PA kaydımız eklenir.                             |
+| HTTP header'ları         | Upstream header'larının hepsi düşürülür. Yanıtlarda yalnızca bizim header'larımız olur: `x-request-id`, `ratelimit-*`, `deprecation`, `sunset`.                                                                                                                                                                                                       |
+| ID'ler                   | Müşteri yalnızca `task_…` görür. Upstream ID'leri sadece admin'de görünür.                                                                                                                                                                                                                                                                            |
+| Webhook'lar              | Bizim imzamızla, bizim gövdemizle gider.                                                                                                                                                                                                                                                                                                              |
+| Dokümanlar ve playground | Bizim şemamızdan üretilir; upstream parametre adı geçmez.                                                                                                                                                                                                                                                                                             |
+| Fiyat ve fatura          | Satır kalemlerinde yalnızca bizim model ID'miz yer alır.                                                                                                                                                                                                                                                                                              |
 
 **Hukuki not:** Her sağlayıcının sözleşmesi yeniden satışa izin vermeyebilir; bazıları atıf şartı koyar ya da başka isimle sunmayı yasaklar. Bu yüzden admin'de sağlayıcı ve route başına `white_label_allowed` alanı ve bir lisans notu tutulur. `white_label` bir model yalnızca izin veren route'lara yönlenebilir. Yayına almadan önce sağlayıcı bazında hukuki kontrol gerekir.
 
@@ -339,7 +339,7 @@ POST /v1/tasks                  {"model": "modelvend/motion-pro@v1" | "app": "pr
 GET  /v1/tasks/{id}             Task nesnesi
 GET  /v1/tasks/{id}/events      SSE: status, progress, output
 POST /v1/tasks/{id}/cancel
-GET  /v1/tasks                  ?status=&model=&app=&cursor=
+GET  /v1/tasks                  ?status=&target=&cursor=  (target: model ID ya da app slug'ı)
 GET  /v1/models                 Katalog; /v1/models/{publisher}/{slug}[@version] şema ve fiyatla birlikte
 GET  /v1/apps                   /v1/apps/{slug} şema ve fiyatla birlikte
 POST /v1/uploads                Referans medya için imzalı yükleme URL'si
@@ -379,7 +379,7 @@ MCP sunucusu (`mcp.modelvend.ai/mcp`) aynı API anahtarıyla doğrulanır. Konso
 | `wait_for_task`              | Task bitene kadar (en fazla N saniye) bekler              |
 | `cancel_task`, `list_tasks`  |                                                           |
 
-**Adlandırma:** architecture.md, admin sözleşmesi ve konsol örnekleri bugün `generations` / `req_` ve "Requests" adlarını kullanıyor. Öneri, her yerde `tasks` / `task_` adına geçmek. Hem model çağrısını hem app çalıştırmasını aynı kelime anlatır.
+**Adlandırma:** Public API, MCP, architecture.md ve konsol örnekleri `tasks` / `task_` adını kullanır. Hem model çağrısını hem app çalıştırmasını aynı kelime anlatır. Admin sözleşmesi aynı kayıtları operatörlere "Requests" ekranında gösterir.
 
 ## 7. Model yayınlama: kaynaklar, runtime'lar ve çoklu sağlayıcı
 
@@ -604,12 +604,12 @@ Konsol taşıma branch'i (`apps/console`, `apps/admin`, npm workspaces) temel al
 5. **Katalog:** `catalog/manifest.schema.json`, bir white-label model ve bir app örneği. `migrate catalog import` komutu bunları draft olarak içe aktarır.
 6. **Belgeler:** architecture.md ve admin sözleşmesinde task adlandırmasına geçiş; README'lerde yeni yapı.
 
-Gerçek sağlayıcı adapter'ları, faturalama, Stripe, rate limit ve webhook teslimatı sonraki adımlardır.
+Gerçek sağlayıcı adapter'ları, Stripe, rate limit ve webhook teslimatı sonraki adımlardır. Bakiye blokesi, tahsilat, anahtar scope'ları ve aylık harcama limiti kodda.
 
 ## 9. Onay gereken kararlar
 
 1. **Backend dili:** Go (öneri) mi, TypeScript mi?
-2. **Adlandırma:** `tasks` / `task_` (öneri) mi, bugünkü `generations` / `req_` mi?
+2. **Adlandırma:** Karar verildi: `tasks` / `task_`. Kod, dokümanlar ve konsol örnekleri buna geçti.
 3. **Katalog kaynağı:** Veritabanı doğruluk kaynağı, `catalog/` YAML içe/dışa aktarma için (öneri). Alternatifi git'in tek kaynak olması.
 4. **Depolama:** Cloudflare R2 (öneri) mi, AWS S3 mü?
 5. **White-label hukuku:** Sağlayıcı bazında izin kontrolü kimde olacak? Admin'deki `white_label_allowed` alanı bunu zorunlu kılar.

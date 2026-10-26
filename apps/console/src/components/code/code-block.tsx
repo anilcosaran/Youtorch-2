@@ -77,7 +77,11 @@ export function CodeBlock({
           <button
             aria-label="Copy code"
             onClick={async () => {
-              await navigator.clipboard.writeText(code);
+              try {
+                await navigator.clipboard.writeText(code);
+              } catch {
+                return; // Clipboard blocked: the code stays selectable on screen.
+              }
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}

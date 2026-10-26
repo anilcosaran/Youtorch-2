@@ -2,11 +2,16 @@ package redact
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/brieeflabs/modelvend/services/internal/billing"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
+	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/tasks"
 )
 
@@ -53,5 +58,27 @@ func TestWhiteLabelModelsHideTheirAuthor(t *testing.T) {
 	r.Model.Disclosure = catalog.Open
 	if PublicModel(r).Author != "Kling AI" {
 		t.Fatal("open model should credit its author")
+	}
+}
+
+func TestBillingAndKeyErrorsArePublic(t *testing.T) {
+	for _, c := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{billing.ErrInsufficientCredits, http.StatusPaymentRequired, "insufficient_credits"},
+		{fmt.Errorf("creating: %w", billing.ErrSpendLimitReached), http.StatusPaymentRequired, "spend_limit_reached"},
+		{tasks.ErrKeyScope, http.StatusForbidden, "key_scope"},
+		{tasks.ErrIdempotencyKeyReused, http.StatusUnprocessableEntity, "idempotency_key_reused"},
+	} {
+		var he *httpx.Error
+		if !errors.As(PublicError(c.err), &he) || he.Status != c.status || he.Code != c.code {
+			t.Errorf("%v: got %+v, want %d %s", c.err, he, c.status, c.code)
+			continue
+		}
+		if strings.Contains(he.Message, "billing:") || strings.Contains(he.Message, "tasks:") {
+			t.Errorf("%v: the message is the internal one: %q", c.err, he.Message)
+		}
 	}
 }

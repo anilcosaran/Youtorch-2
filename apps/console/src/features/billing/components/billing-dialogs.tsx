@@ -2,7 +2,6 @@
 
 import { Dialog } from "@/components/ui/dialog";
 import { useConsole } from "@/providers/console-provider";
-import { AddCardForm } from "./dialogs/add-card-form";
 import { AddFundsForm } from "./dialogs/add-funds-form";
 import { AutoReloadForm } from "./dialogs/auto-reload-form";
 
@@ -27,9 +26,6 @@ export function BillingDialogs() {
         description="Keep requests flowing by topping up automatically when your balance runs low."
       >
         <AutoReloadForm onDone={close} />
-      </Dialog>
-      <Dialog open={dialog === "add-card"} onClose={close} title="Add payment method">
-        <AddCardForm onDone={close} />
       </Dialog>
     </>
   );

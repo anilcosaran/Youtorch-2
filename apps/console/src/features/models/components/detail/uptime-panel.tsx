@@ -8,7 +8,7 @@ export function UptimePanel({ stats }: { stats: ModelStats }) {
     <DetailPanel>
       <div className="flex flex-wrap items-end justify-between gap-3 px-4 pt-3.5 pb-3">
         <div>
-          <p className="text-[13px] text-muted">Routed availability</p>
+          <p className="text-[13px] text-muted">Availability</p>
           <p className="mt-0.5 text-[24px] leading-tight font-semibold tracking-tight text-fg tabular">{stats.uptimePct.toFixed(2)}%</p>
         </div>
         <div className="flex gap-4 text-[12px] text-muted">
@@ -24,17 +24,20 @@ export function UptimePanel({ stats }: { stats: ModelStats }) {
           <span>Today</span>
         </div>
       </div>
-      <ul>
-        {stats.endpoints.map((e) => (
-          <li key={e.id} className="grid grid-cols-[200px_1fr_60px] items-center gap-4 border-t border-line px-4 py-2.5 text-[14px]">
-            <span className="truncate">
-              <span className="font-medium text-fg capitalize">{e.host}</span> <span className="text-muted">{e.location}</span>
-            </span>
-            <StatusStrip days={e.history} className="h-4" />
-            <span className="text-right text-fg tabular">{e.uptime.toFixed(2)}%</span>
-          </li>
-        ))}
-      </ul>
+      {/* Per-provider rows exist only for open models; white-label models show the overall line alone. */}
+      {stats.providers.length > 0 && (
+        <ul>
+          {stats.providers.map((p) => (
+            <li key={p.id} className="grid grid-cols-[200px_1fr_60px] items-center gap-4 border-t border-line px-4 py-2.5 text-[14px]">
+              <span className="truncate">
+                <span className="font-medium text-fg">{p.name}</span> <span className="font-mono text-[12.5px] text-muted">{p.region}</span>
+              </span>
+              <StatusStrip days={p.history} className="h-4" />
+              <span className="text-right text-fg tabular">{p.uptime.toFixed(2)}%</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </DetailPanel>
   );
 }

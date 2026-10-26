@@ -6,15 +6,33 @@ export type ArtPattern = "orb" | "aurora" | "dunes" | "horizon" | "rings" | "pri
 
 export type ModelTag = "new" | "trending" | "original";
 
+/**
+ * How open a model is about where it comes from. `open` models name their author and list their providers;
+ * `white_label` models never show either, anywhere.
+ */
+export type Disclosure = "open" | "white_label";
+
 export interface PriceTier {
   label: string;
   price: number;
 }
 
+/** A launch discount on every price of the model, through the last day of the offer. */
+export interface Promo {
+  /** Fraction off list prices, between 0 and 1. */
+  discount: number;
+  /** Last day of the offer, as an ISO date (UTC). */
+  until: string;
+}
+
 export interface Model {
+  /** Namespace of the model ID, e.g. `google` in `google/veo-3.1`. Ours, not necessarily the maker. */
+  publisher: string;
   slug: string;
   name: string;
-  provider: string;
+  disclosure: Disclosure;
+  /** Who made the model, shown only for open models. */
+  author?: string;
   modality: Modality;
   description: string;
   /** List price of one output unit at the default tier. */
@@ -26,8 +44,8 @@ export interface Model {
   inputPrice?: { price: number; unit: string };
   /** Output price by resolution or quality; includes the default tier. */
   tiers: PriceTier[];
-  /** Fractional launch discount applied on top of list prices. */
-  promo?: number;
+  /** Only present while the offer runs. */
+  promo?: Promo;
   inputs: Medium[];
   outputs: Medium[];
   maxOutput: string;
@@ -37,24 +55,15 @@ export interface Model {
   art: { pattern: ArtPattern; colors: [string, string, string] };
 }
 
-export type Region = "global" | "eu" | "us" | "apac" | "sa";
-
-export type EndpointKind = "direct" | "edge" | "spot";
-
 export type Status = "ok" | "degraded" | "down";
 
-export interface Endpoint {
+/** One provider serving an open model. Every provider bills the model's own price. */
+export interface ModelProvider {
   id: string;
-  host: string;
-  kind: EndpointKind;
-  region: Region;
-  location: string;
-  listPrice: number;
-  price: number;
-  /** Fast low-res preview tier; null when the endpoint doesn't offer it. */
-  draftPrice: number | null;
+  name: string;
+  /** The provider's region, as the provider names it. */
+  region: string;
   latency: { p50: number; p90: number; p99: number };
-  throughput: number;
   uptime: number;
   /** Uptime for each of the last six hours, newest last. */
   recent: number[];
@@ -64,9 +73,10 @@ export interface Endpoint {
 
 export interface ModelStats {
   released: string;
-  endpoints: Endpoint[];
+  /** Empty for white-label models, which never name their providers. */
+  providers: ModelProvider[];
   latency: { label: string; date: string; value: number }[];
+  /** Daily status of the model as a whole for the last 45 days, newest last. */
   uptime: Status[];
   uptimePct: number;
-  effective: number;
 }

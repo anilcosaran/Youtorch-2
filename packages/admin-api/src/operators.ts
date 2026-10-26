@@ -45,6 +45,14 @@ export const getPermissionCatalog = () => request<PermissionCatalog>("/permissio
 
 export const listOperators = () => request<Operator[]>("/operators");
 
+/*
+ * operators.manage doesn't make an operator an admin. The server refuses with
+ * 403 `forbidden` when the signed-in operator:
+ * - gives access they don't hold themselves (only admins make admins);
+ * - changes, disables or resets the password of an operator who has access
+ *   they don't (an admin, for anyone but another admin).
+ */
+
 /**
  * A generated password comes back once and never again; a chosen one comes
  * back as null. 409 `fields.email` when the email is taken.
@@ -52,13 +60,21 @@ export const listOperators = () => request<Operator[]>("/operators");
 export const createOperator = (body: NewOperator) =>
   request<{ operator: Operator; password: string | null }>("/operators", { method: "POST", body });
 
-/** Operators cannot change their own role or permissions, or disable themselves. */
+/**
+ * Operators cannot change their own role or permissions, or disable themselves
+ * (422 `fields.role`, `fields.permissions` or `fields.disabled`). 422
+ * `invalid_state` when the change would leave no active admin.
+ */
 export const updateOperator = (id: string, body: OperatorUpdate) =>
-  request<Operator>(`/operators/${id}`, { method: "PATCH", body });
+  request<Operator>(`/operators/${encodeURIComponent(id)}`, { method: "PATCH", body });
 
-/** Ends the operator's sessions. Without `password` one is generated and returned. */
+/**
+ * Ends the operator's sessions. Without `password` one is generated and returned.
+ * 422 `own_password` for your own account: that goes through `changePassword`,
+ * which asks for the current one.
+ */
 export const resetOperatorPassword = (id: string, password?: string) =>
-  request<{ password: string | null }>(`/operators/${id}/reset-password`, {
+  request<{ password: string | null }>(`/operators/${encodeURIComponent(id)}/reset-password`, {
     method: "POST",
     body: password ? { password } : {},
   });

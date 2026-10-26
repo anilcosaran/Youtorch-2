@@ -2,9 +2,9 @@
 
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn";
-import { modelTabs, panelId, tabId, type ModelTabId } from "./tabs";
+import { panelId, tabId, type ModelTab, type ModelTabId } from "./tabs";
 
-export function ModelTabs({ active, onSelect }: { active: ModelTabId; onSelect: (id: ModelTabId) => void }) {
+export function ModelTabs({ tabs, active, onSelect }: { tabs: ModelTab[]; active: ModelTabId; onSelect: (id: ModelTabId) => void }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
 
@@ -21,13 +21,13 @@ export function ModelTabs({ active, onSelect }: { active: ModelTabId; onSelect: 
       list.scrollTo({ left: el.offsetLeft - (list.clientWidth - el.offsetWidth) / 2, behavior: "smooth" });
     }
     return () => observer.disconnect();
-  }, [active]);
+  }, [active, tabs.length]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
-    const i = modelTabs.findIndex((t) => t.id === active);
-    const next = modelTabs[(i + (e.key === "ArrowRight" ? 1 : -1) + modelTabs.length) % modelTabs.length];
+    const i = tabs.findIndex((t) => t.id === active);
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
     onSelect(next.id);
     listRef.current?.querySelector<HTMLElement>(`#${tabId(next.id)}`)?.focus();
   };
@@ -41,7 +41,7 @@ export function ModelTabs({ active, onSelect }: { active: ModelTabId; onSelect: 
         onKeyDown={onKeyDown}
         className="relative flex [scrollbar-width:none] gap-1 overflow-x-auto border-b border-line"
       >
-        {modelTabs.map((t) => {
+        {tabs.map((t) => {
           const selected = t.id === active;
           return (
             <button

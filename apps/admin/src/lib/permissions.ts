@@ -27,6 +27,17 @@ export function can(access: Access | null | undefined, permission: Permission): 
   return access.role === "admin" || access.permissions.includes(permission);
 }
 
+/**
+ * Whether `access` is within what `holder` may do: admins hold everything, and
+ * only an admin covers another admin. Operators can't give access they don't
+ * have, or manage an operator who has more than they do.
+ */
+export function within(access: Access, holder: Access | null | undefined): boolean {
+  if (!holder) return false;
+  if (holder.role === "admin") return true;
+  return access.role !== "admin" && access.permissions.every((p) => holder.permissions.includes(p));
+}
+
 /** The names screens check, one per permission. */
 const NAMED = {
   viewCatalog: "catalog.view",

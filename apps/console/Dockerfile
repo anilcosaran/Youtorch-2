@@ -24,6 +24,7 @@ COPY apps/console apps/console
 # NEXT_PUBLIC_* values are inlined at build time.
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_MCP_URL
 ARG NEXT_PUBLIC_DOCS_URL
 RUN npm run build --workspace apps/console
 

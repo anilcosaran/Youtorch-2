@@ -10,7 +10,7 @@ export default function AppsPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Apps"
-        description="Ready-made tools that do one job each. Drop in a file, get the result, pay per run. Every app runs on a model from the library."
+        description="Ready-made tools that do one job each. Drop in a file, get the result, and pay a fixed price per run."
       />
       <AppCatalog />
     </>

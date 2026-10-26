@@ -159,7 +159,8 @@ function MoreMenu({
         )}
         {can.viewAudit && (
           <DropdownMenuItem asChild>
-            <Link href={`/audit?targetType=customer&targetId=${encodeURIComponent(data.id)}`}>
+            {/* By customer, not target: refunds and key changes of theirs are filed under the request or key. */}
+            <Link href={`/audit?customerId=${encodeURIComponent(data.id)}`}>
               <History /> Audit trail
             </Link>
           </DropdownMenuItem>

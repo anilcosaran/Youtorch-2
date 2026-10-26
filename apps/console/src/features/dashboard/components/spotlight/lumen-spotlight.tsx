@@ -4,8 +4,8 @@ import { Play, Wand2 } from "lucide-react";
 import { VideoPreview } from "@/components/media/video-preview";
 import { playgroundHref } from "@/features/models/lib/links";
 import { formatPrice } from "@/lib/format";
-import { discounted } from "@/lib/pricing";
-import { getModel } from "@/mocks/models";
+import { costOf } from "@/lib/pricing";
+import { findModel } from "@/mocks/models";
 import { lumenSpotlight, type SpotlightClip } from "@/mocks/spotlights";
 import type { Model } from "@/types/model";
 import { SpotlightHeader } from "./spotlight-header";
@@ -15,8 +15,9 @@ const glass = "rounded-md bg-[rgb(0_0_0/0.45)] px-1.5 py-0.5 text-[11.5px] font-
 /** One playable hero clip and two smaller ones that open in the playground with their prompt. */
 export function LumenSpotlight() {
   const { slug, tagline, accent, items } = lumenSpotlight;
-  const model = getModel(slug);
+  const model = findModel(slug);
   const [hero, ...rest] = items;
+  if (!model || !hero) return null;
 
   return (
     <section>
@@ -50,7 +51,7 @@ function RemixLink({ model, clip }: { model: Model; clip: SpotlightClip }) {
       href={playgroundHref(model.slug, clip.prompt)}
       className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md bg-[#fff] px-2 py-1 text-[12px] font-medium text-[#0b0c0f] transition hover:bg-[rgb(255_255_255/0.88)]"
     >
-      <Wand2 className="size-3" /> Remix · {formatPrice(discounted(model) * clip.seconds)}
+      <Wand2 className="size-3" /> Remix · {formatPrice(costOf(model, clip.seconds))}
     </Link>
   );
 }

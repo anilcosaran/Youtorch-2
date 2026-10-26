@@ -21,12 +21,15 @@ export interface App {
   tagline: string;
   description: string;
   category: AppCategory;
-  /** Model that runs every job. */
-  model: string;
   /** What the user brings: a file of this medium, or a script for `text`. */
   input: Extract<Medium, "image" | "audio" | "text">;
-  /** Output units billed per run, in the model's unit. */
-  units: number;
+  /**
+   * Fixed price of one run of the live release, whatever the options. Apps are black boxes: nothing here says
+   * which models run behind them.
+   */
+  price: number;
+  /** Results one run returns, for apps that return several; defaults to 1. */
+  results?: number;
   cover: string;
   position?: string;
   badge?: "New" | "Top";
@@ -42,9 +45,8 @@ export const apps: App[] = [
     tagline: "Clean cutouts with soft hair edges.",
     description: "Drop a photo and get a transparent PNG in seconds. Hair, fur and glass keep their soft edges.",
     category: "Image",
-    model: "nano-banana-pro",
     input: "image",
-    units: 1,
+    price: 0.06,
     cover: "/gallery/cutout.jpg",
     position: "50% 30%",
     badge: "New",
@@ -61,9 +63,8 @@ export const apps: App[] = [
     tagline: "Recover fine detail without halos.",
     description: "Upscale photos and renders up to 4× while rebuilding texture instead of smearing it.",
     category: "Image",
-    model: "seedream-4-5",
     input: "image",
-    units: 1,
+    price: 0.12,
     cover: "/gallery/macaw.jpg",
     position: "45% 45%",
     showcase: { kind: "compare", before: "/gallery/macaw.jpg", after: "/gallery/macaw.jpg", lowRes: true },
@@ -77,17 +78,15 @@ export const apps: App[] = [
     slug: "image-to-video",
     name: "Image to Video",
     tagline: "Turn any still into a moving shot.",
-    description: "Animate a photo or artwork with natural motion and a camera move of your choice.",
+    description: "Animate a photo or artwork into a 5-second clip with natural motion and a camera move of your choice.",
     category: "Video",
-    model: "lumen-1",
     input: "image",
-    units: 5,
+    price: 0.95,
     cover: "/gallery/balloons.jpg",
     position: "60% 40%",
     badge: "Top",
     showcase: { kind: "video", image: "/gallery/balloons.jpg", seconds: 5 },
     options: [
-      { id: "duration", label: "Duration", options: ["5s", "10s"] },
       { id: "motion", label: "Motion", options: ["Subtle", "Dynamic"] },
       { id: "camera", label: "Camera", options: ["Static", "Push in", "Orbit"] },
     ],
@@ -97,19 +96,16 @@ export const apps: App[] = [
     slug: "product-shots",
     name: "Product Shots",
     tagline: "Studio-grade product photos from one picture.",
-    description: "Place your product in a lit studio scene with realistic shadows and reflections.",
+    description: "Place your product in a lit studio scene with realistic shadows and reflections. Every run returns two shots.",
     category: "Image",
-    model: "flux-2-pro",
     input: "image",
-    units: 2,
+    price: 0.16,
+    results: 2,
     cover: "/gallery/perfume.jpg",
     position: "50% 50%",
     showcase: { kind: "gallery", images: ["/gallery/perfume.jpg", "/gallery/sneaker.jpg"] },
-    options: [
-      { id: "scene", label: "Scene", options: ["Studio", "Travertine", "Splash", "Outdoor"] },
-      { id: "count", label: "Variations", options: ["1", "2", "4"] },
-    ],
-    steps: ["Upload a product photo", "Pick a scene", "Download every variation"],
+    options: [{ id: "scene", label: "Scene", options: ["Studio", "Travertine", "Splash", "Outdoor"] }],
+    steps: ["Upload a product photo", "Pick a scene", "Download both shots"],
   },
   {
     slug: "voiceover",
@@ -117,9 +113,8 @@ export const apps: App[] = [
     tagline: "Expressive narration in 70+ languages.",
     description: "Paste a script and get studio-quality narration with natural pauses and emotion.",
     category: "Audio",
-    model: "eleven-v3",
     input: "text",
-    units: 0.4,
+    price: 0.25,
     cover: "/gallery/singer.jpg",
     position: "60% 40%",
     badge: "Top",
@@ -130,7 +125,7 @@ export const apps: App[] = [
       script: "[warm] Welcome back to the show. Today we go behind the scenes of our biggest launch yet.",
     },
     options: [
-      { id: "voice", label: "Voice", options: ["Aria", "Roger", "Sarah", "Charlie"] },
+      { id: "voice", label: "Voice", options: ["Warm narrator", "Deep and calm", "Bright and friendly", "Energetic host"] },
       { id: "language", label: "Language", options: ["English", "Turkish", "Spanish", "German"] },
     ],
     steps: ["Paste your script", "Pick a voice", "Download the audio"],
@@ -141,9 +136,8 @@ export const apps: App[] = [
     tagline: "Say it once, hear it in any voice.",
     description: "Upload a recording and swap the voice while keeping timing, emotion and breaths.",
     category: "Audio",
-    model: "eleven-v3",
     input: "audio",
-    units: 0.6,
+    price: 0.3,
     cover: "/gallery/dancer.jpg",
     position: "50% 35%",
     badge: "New",
@@ -151,10 +145,10 @@ export const apps: App[] = [
       kind: "audio",
       image: "/gallery/dancer.jpg",
       seconds: 7,
-      script: "Original take re-voiced as Charlie, same timing and delivery.",
+      script: "Original take re-voiced as the energetic host, same timing and delivery.",
     },
     options: [
-      { id: "voice", label: "Target voice", options: ["Charlie", "Aria", "Roger", "Sarah"] },
+      { id: "voice", label: "Target voice", options: ["Energetic host", "Warm narrator", "Deep and calm", "Bright and friendly"] },
       { id: "emotion", label: "Delivery", options: ["Keep original", "Calmer", "More energy"] },
     ],
     steps: ["Upload a recording", "Pick the new voice", "Download the result"],
@@ -165,9 +159,8 @@ export const apps: App[] = [
     tagline: "Game-ready meshes from a single image.",
     description: "Turn a concept or product photo into a textured 3D model you can drop into any engine.",
     category: "3D",
-    model: "hunyuan3d-3",
     input: "image",
-    units: 1,
+    price: 0.45,
     cover: "/gallery/fox.jpg",
     position: "50% 50%",
     showcase: { kind: "gallery", images: ["/gallery/fox.jpg", "/gallery/cabin.jpg"] },

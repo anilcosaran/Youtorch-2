@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { formatPrice } from "@/lib/format";
 import { recentRequests } from "@/mocks/usage";
 import type { RequestLog } from "@/types/usage";
 
@@ -8,7 +9,7 @@ export function RequestTable({ rows = recentRequests }: { rows?: RequestLog[] })
       <table className="w-full min-w-[640px] text-left text-[14px]">
         <thead>
           <tr className="border-b border-line font-mono text-[11px] tracking-[0.14em] text-subtle uppercase">
-            <th className="px-4 py-2.5 font-normal">Request</th>
+            <th className="px-4 py-2.5 font-normal">Task</th>
             <th className="px-4 py-2.5 font-normal">Model</th>
             <th className="px-4 py-2.5 font-normal">Status</th>
             <th className="px-4 py-2.5 text-right font-normal">Duration</th>
@@ -38,7 +39,7 @@ export function RequestTable({ rows = recentRequests }: { rows?: RequestLog[] })
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right text-muted tabular">{r.duration}s</td>
-                <td className="px-4 py-2.5 text-right font-mono text-[13px] tabular">${r.cost.toFixed(3)}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-[13px] tabular">{formatPrice(r.cost)}</td>
                 <td className="px-4 py-2.5 text-right text-subtle">{r.ago}</td>
               </tr>
             );

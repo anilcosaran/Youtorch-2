@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toastError } from "@/lib/notify";
-import { accessLabel } from "@/lib/permissions";
+import { accessLabel, within } from "@/lib/permissions";
 import { keys } from "@/lib/query-keys";
 import { useSession } from "@/lib/session";
 import { PasswordDialog } from "./operator-dialogs";
@@ -32,12 +32,13 @@ import { CreateOperatorSheet, EditAccessSheet, usePermissionCatalog } from "./op
 
 function RowActions({
   operator,
-  self,
+  locked,
   onEdit,
   onReset,
 }: {
   operator: Operator;
-  self: boolean;
+  /** Yourself, or an operator with access you don't have: view only. */
+  locked: boolean;
   onEdit: (operator: Operator) => void;
   onReset: (operator: Operator) => void;
 }) {
@@ -78,9 +79,9 @@ function RowActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={() => onEdit(operator)}>
-            <ShieldCheck /> {self ? "View access" : "Edit access"}
+            <ShieldCheck /> {locked ? "View access" : "Edit access"}
           </DropdownMenuItem>
-          {!self && (
+          {!locked && (
             <>
               <DropdownMenuItem onSelect={() => onReset(operator)}>
                 <KeyRound /> Reset password
@@ -173,7 +174,7 @@ export function OperatorsView() {
       cell: (row) => (
         <RowActions
           operator={row}
-          self={row.id === me?.id}
+          locked={row.id === me?.id || !within(row, me)}
           onEdit={setEditing}
           onReset={(o) => void resetPassword(o)}
         />

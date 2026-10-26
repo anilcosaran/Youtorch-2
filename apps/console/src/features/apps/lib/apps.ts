@@ -1,23 +1,8 @@
-import { modelHref } from "@/features/models/lib/links";
-import { discounted } from "@/lib/pricing";
 import type { App } from "@/mocks/apps";
-import { getModel } from "@/mocks/models";
 
 export const appHref = (slug: string) => `/apps/${slug}`;
 
-export function appModel(app: App) {
-  return getModel(app.model);
-}
-
-/** Price of one run after the model's launch discount; clip length and variation count scale it. */
-export function runPrice(app: App, values: Record<string, string> = {}) {
-  const seconds = Number.parseInt(values.duration ?? "");
-  return discounted(appModel(app)) * (seconds || app.units) * (Number(values.count) || 1);
-}
-
 export const defaultValues = (app: App) => Object.fromEntries(app.options.map((o) => [o.id, o.options[0]]));
-
-export const poweredByHref = (app: App) => modelHref(app.model);
 
 /** What the hero's main button asks for. */
 export function inputCopy(app: App) {

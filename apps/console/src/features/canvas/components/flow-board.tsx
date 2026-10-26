@@ -33,9 +33,7 @@ export function FlowBoard({ flow }: { flow: Flow }) {
               <Webhook className="size-3.5 text-iris-300" />
               <span className="font-medium text-fg">Endpoint</span>
               <span className="flex-1" />
-              <span className="inline-flex items-center gap-1 text-ok">
-                <span className="size-1.5 rounded-full bg-ok" /> Live
-              </span>
+              <span className="text-subtle">Preview</span>
             </div>
             <p className="mt-2.5 rounded-lg bg-white/[0.05] px-2.5 py-2 font-mono text-[12px] leading-relaxed text-fg/85">
               <span className="text-iris-300">POST</span>{" "}

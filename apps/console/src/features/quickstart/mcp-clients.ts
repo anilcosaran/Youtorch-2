@@ -4,18 +4,25 @@ import { site } from "@/config/site";
 export type McpClientId = "claude" | "claude-code" | "chatgpt" | "codex" | "gemini" | "cursor";
 export type McpClientIcon = "claude" | "openai" | "gemini" | "cursor";
 
+/**
+ * The MCP server takes the same API key as the REST API, as a bearer token, for every client. Clients that can
+ * only sign in with OAuth can't connect yet; `unavailable` says why and what to use instead.
+ */
 export type McpClient = {
   id: McpClientId;
   name: string;
   kind: "App" | "CLI" | "Editor";
   icon: McpClientIcon;
-  /** CLIs and editors need a key. Claude and ChatGPT sign in with OAuth. */
-  needsKey: boolean;
-  steps: string[];
-  /** Label shown in the code block header, usually the file or command. */
-  file: string;
-  code: string;
-};
+} & (
+  | {
+      steps: string[];
+      /** Label shown in the code block header, usually the file or command. */
+      file: string;
+      code: string;
+      unavailable?: never;
+    }
+  | { unavailable: string; steps?: never; file?: never; code?: never }
+);
 
 const bearer = `Authorization: Bearer $${apiKeyEnv}`;
 
@@ -25,21 +32,13 @@ export const mcpClients: McpClient[] = [
     name: "Claude",
     kind: "App",
     icon: "claude",
-    needsKey: false,
-    steps: [
-      "Open Settings → Connectors → Add custom connector.",
-      `Name it ${site.name} and paste the server URL below.`,
-      "Click Connect and sign in. No key needed, it uses OAuth.",
-    ],
-    file: "server url",
-    code: site.mcpUrl,
+    unavailable: `Custom connectors in the Claude app sign in with OAuth, which ${site.name} doesn't offer yet. Use Claude Code with an API key for now.`,
   },
   {
     id: "claude-code",
     name: "Claude Code",
     kind: "CLI",
     icon: "claude",
-    needsKey: true,
     steps: ["Run this once in your terminal.", "Type /mcp inside Claude Code to check it's connected."],
     file: "terminal",
     code: `claude mcp add --transport http modelvend ${site.mcpUrl} \\
@@ -50,21 +49,13 @@ export const mcpClients: McpClient[] = [
     name: "ChatGPT",
     kind: "App",
     icon: "openai",
-    needsKey: false,
-    steps: [
-      "Settings → Apps & Connectors → Advanced, turn on Developer mode.",
-      "Back in Apps & Connectors, click Create and paste the URL below.",
-      "Pick OAuth as authentication and sign in.",
-    ],
-    file: "server url",
-    code: site.mcpUrl,
+    unavailable: `ChatGPT connectors sign in with OAuth, which ${site.name} doesn't offer yet. Use Codex with an API key for now.`,
   },
   {
     id: "codex",
     name: "Codex",
     kind: "CLI",
     icon: "openai",
-    needsKey: true,
     steps: ["Add this block to your Codex config.", `Codex reads the key from ${apiKeyEnv}.`],
     file: "~/.codex/config.toml",
     code: `[mcp_servers.modelvend]
@@ -76,7 +67,6 @@ bearer_token_env_var = "${apiKeyEnv}"`,
     name: "Gemini",
     kind: "CLI",
     icon: "gemini",
-    needsKey: true,
     steps: ["Add the server to your Gemini settings.", "Run /mcp in Gemini CLI to see the tools."],
     file: "~/.gemini/settings.json",
     code: `{
@@ -93,7 +83,6 @@ bearer_token_env_var = "${apiKeyEnv}"`,
     name: "Cursor",
     kind: "Editor",
     icon: "cursor",
-    needsKey: true,
     steps: ["Add this to your project or global MCP config.", "Enable it under Settings → MCP."],
     file: ".cursor/mcp.json",
     code: `{
@@ -107,14 +96,19 @@ bearer_token_env_var = "${apiKeyEnv}"`,
   },
 ];
 
+/** The tools the MCP server registers, in the order an assistant usually calls them. */
 export const mcpTools: { name: string; description: string }[] = [
-  { name: "list_models", description: "Browse the model library and compare capabilities" },
-  { name: "create_generation", description: "Start a video, image or audio job" },
-  { name: "get_generation", description: "Check status and fetch the finished asset" },
+  { name: "search_models", description: "Find models by name, task or modality" },
+  { name: "get_model", description: "A model's input schema, output schema and price" },
+  { name: "create_task", description: "Run a model with input that matches its schema" },
+  { name: "wait_for_task", description: "Wait up to 60 seconds for a task to finish" },
+  { name: "get_task", description: "A task's status, progress and output" },
+  { name: "list_tasks", description: "Recent tasks in this workspace, newest first" },
+  { name: "cancel_task", description: "Stop a task that hasn't finished" },
 ];
 
 export const mcpPrompts = [
-  "Make an 8 second 16:9 clip of a paper boat in a neon canal with lumen-1",
+  "Make a 5 second 16:9 clip of a paper boat in a neon canal with modelvend/lumen-1",
   "Which video models support 4K and how much do they cost?",
-  "Show my last five generations and their status",
+  "Show my last five tasks and their status",
 ];

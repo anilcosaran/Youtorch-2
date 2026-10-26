@@ -45,9 +45,11 @@ const MODE_TEXT: Record<RequestDetail["mode"], { label: string; title: string }>
 
 const linkClass = "outline-none hover:underline focus-visible:underline";
 
-/** A request a customer paid for and that finished can be refunded, once. */
-const refundable = (request: RequestDetail) =>
-  (request.status === "succeeded" || request.status === "failed") && request.price > 0 && !request.refundedAt;
+/**
+ * A request the customer paid for can be refunded, once. Only succeeded requests are charged: failed and canceled
+ * ones cost the customer nothing, so there is nothing to give back.
+ */
+const refundable = (request: RequestDetail) => request.status === "succeeded" && request.price > 0 && !request.refundedAt;
 
 function Fact({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -68,7 +70,17 @@ function Summary({ request }: { request: RequestDetail }) {
   return (
     <section aria-label="Summary" className="rounded-lg border bg-card p-4">
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
-        <Fact label="Price">{pending ? none : <span className="tabular">{money(request.price)}</span>}</Fact>
+        <Fact label="Price">
+          {pending ? (
+            none
+          ) : request.price === 0 && (request.status === "failed" || request.status === "canceled") ? (
+            <span className="text-muted-foreground" title="Only succeeded requests are billed">
+              Not charged
+            </span>
+          ) : (
+            <span className="tabular">{money(request.price)}</span>
+          )}
+        </Fact>
         <Fact label="Upstream cost">{pending ? none : <span className="tabular">{money(request.cost)}</span>}</Fact>
         <Fact label="Margin">
           {pending ? (
@@ -284,9 +296,10 @@ export function RequestPanel({
     const updated = await refundRequest(id, reason);
     queryClient.setQueryData(keys.request(id), updated);
     void queryClient.invalidateQueries({ queryKey: [...keys.requests, "list"] });
-    // The refund lands in the customer's ledger and comes off revenue.
+    // The refund lands in the customer's ledger and the audit log, and comes off revenue.
     void queryClient.invalidateQueries({ queryKey: keys.customers });
     void queryClient.invalidateQueries({ queryKey: keys.overviewAll });
+    void queryClient.invalidateQueries({ queryKey: keys.audit });
     setRefunding(null);
     toast.success("Refunded", { description: `${money(price)} went back to ${customer}.` });
   };

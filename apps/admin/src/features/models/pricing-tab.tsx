@@ -10,7 +10,7 @@ import { Pill } from "@/components/shared/pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { isEditable, margin, marginTone, slugify } from "@/lib/catalog";
+import { isEditable, marginTone, slugify, soldPrice, tierMargin } from "@/lib/catalog";
 import { percent, unitPrice } from "@/lib/format";
 import { UNIT_LABELS } from "@/lib/labels";
 import { usePermissions } from "@/lib/session";
@@ -41,8 +41,8 @@ function PriceTable({ pricing }: { pricing: Pricing }) {
       </thead>
       <tbody className="[&_td]:border-t [&_td]:py-2">
         {pricing.tiers.map((tier) => {
-          const sold = tier.price * (1 - promo);
-          const share = margin(sold, tier.cost);
+          const sold = soldPrice(pricing, tier.price);
+          const share = tierMargin(pricing, tier, tier.cost);
           return (
             <tr key={tier.id}>
               <td>
@@ -76,8 +76,10 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
   const [unit, setUnit] = useState<BillingUnit>(pricing.unit);
   const [tiers, setTiers] = useState<TierDraft[]>(pricing.tiers.map((t) => ({ ...t, price: String(t.price) })));
   const [defaultId, setDefaultId] = useState(pricing.defaultTier);
-  const [promo, setPromo] = useState(pricing.promo ? String(Math.round(pricing.promo * 100)) : "");
+  // Exact, so a 12.5% promo reloads as 12.5 and saving again doesn't change the price.
+  const [promo, setPromo] = useState(pricing.promo ? String(Number((pricing.promo * 100).toFixed(4))) : "");
   const [inputPrice, setInputPrice] = useState(pricing.input ? String(pricing.input.price) : "");
+  const [inputUnit, setInputUnit] = useState<BillingUnit>(pricing.input?.unit ?? pricing.unit);
   const [saving, setSaving] = useState(false);
 
   const ids = tiers.map((t) => slugify(t.label));
@@ -86,7 +88,16 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
   if (tiers.some((t) => !t.label.trim())) problems.push("Every tier needs a label.");
   if (new Set(ids).size !== ids.length) problems.push("Tier labels must differ.");
   if (tiers.some((t) => !(Number(t.price) >= 0) || t.price === "")) problems.push("Prices are numbers of 0 or more.");
-  if (promo && !(Number(promo) > 0 && Number(promo) < 100)) problems.push("Promo is a percentage between 1 and 99.");
+  if (promo && !(Number(promo) > 0 && Number(promo) <= 99)) problems.push("Promo is a percentage above 0 and at most 99.");
+  if (inputPrice && !(Number(inputPrice) >= 0)) problems.push("The input price is a number of 0 or more.");
+  // A route's cost is a number per unit, so the unit can't change under it (the server refuses too).
+  const staleRoutes = unit === pricing.unit ? [] : version.routes.filter((r) => r.cost.unit !== unit);
+  if (staleRoutes.length > 0) {
+    problems.push(
+      `${staleRoutes.map((r) => r.providerName).join(", ")} ${staleRoutes.length === 1 ? "costs" : "cost"} per ${UNIT_LABELS[staleRoutes[0].cost.unit]}. ` +
+        `Enter ${staleRoutes.length === 1 ? "its" : "their"} cost per ${UNIT_LABELS[unit]} on the Routing tab, or remove ${staleRoutes.length === 1 ? "it" : "them"}, before billing per ${UNIT_LABELS[unit]}.`,
+    );
+  }
   const defaultIndex = Math.max(0, tiers.findIndex((t) => t.id === defaultId));
 
   const next = (): Pricing => ({
@@ -95,8 +106,9 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
     tiers: tiers.map(
       (t, i): PriceTier => ({ id: ids[i], label: t.label.trim(), price: Number(t.price), cost: t.cost }),
     ),
-    input: inputPrice ? { unit: pricing.input?.unit ?? unit, price: Number(inputPrice) } : null,
-    promo: promo ? Number(promo) / 100 : null,
+    input: inputPrice ? { unit: inputUnit, price: Number(inputPrice) } : null,
+    // Percent to a share, kept to six decimals: 12.5 → 0.125.
+    promo: promo ? Math.round(Number(promo) * 10_000) / 1_000_000 : null,
   });
   const changed = JSON.stringify(next()) !== JSON.stringify(pricing);
 
@@ -135,18 +147,32 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
             </SelectContent>
           </Select>
         </Field>
-        <Field id="promo" label="Launch promo %" hint="Off every tier; empty for none.">
-          <Input id="promo" type="number" min={1} max={99} value={promo} onChange={(e) => setPromo(e.target.value)} />
+        <Field id="promo" label="Launch promo %" hint="Off every tier, not the input price; empty for none.">
+          <Input id="promo" type="number" min={0} max={99} step="any" value={promo} onChange={(e) => setPromo(e.target.value)} />
         </Field>
-        <Field id="input-price" label="Input price" hint="Per unit of reference media; empty for free.">
-          <Input
-            id="input-price"
-            type="number"
-            min={0}
-            step="0.0001"
-            value={inputPrice}
-            onChange={(e) => setInputPrice(e.target.value)}
-          />
+        <Field id="input-price" label="Input price" hint="Charged per unit of reference media sent in; empty for free.">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <Input
+              id="input-price"
+              type="number"
+              min={0}
+              step="any"
+              value={inputPrice}
+              onChange={(e) => setInputPrice(e.target.value)}
+            />
+            <Select value={inputUnit} onValueChange={(value) => setInputUnit(value as BillingUnit)} disabled={!inputPrice}>
+              <SelectTrigger aria-label="Input price unit" className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BILLING_UNITS.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    Per {UNIT_LABELS[u]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </Field>
       </div>
       <fieldset className="grid gap-2">

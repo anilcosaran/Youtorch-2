@@ -1,5 +1,5 @@
-import { featuredApps, galleryShots, showcaseSlides } from "@/mocks/dashboard";
-import { getModel } from "@/mocks/models";
+import { galleryShots, showcaseSlides } from "@/mocks/dashboard";
+import { findModel } from "@/mocks/models";
 import type { Modality, Model } from "@/types/model";
 import type { PlaygroundValues } from "./playground";
 import { isSpeech } from "./playground";
@@ -14,12 +14,10 @@ export interface PlaygroundExample {
   values: PlaygroundValues;
 }
 
-const shots = [
-  ...galleryShots.map((s) => ({ ...s, own: s.slug })),
-  ...featuredApps.map((a) => ({ image: a.image, title: a.title, slug: a.slug, prompt: a.prompt, seconds: undefined, own: a.slug })),
-];
+const shots = galleryShots.map((s) => ({ ...s, own: s.slug }));
 
-const modalityOf = (slug: string) => getModel(slug).modality;
+/** Undefined when the model has left the catalog, which keeps its samples out of every pool. */
+const modalityOf = (slug: string) => findModel(slug)?.modality;
 
 const pools = new Map<Modality, string[]>();
 

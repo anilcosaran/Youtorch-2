@@ -6,7 +6,6 @@ import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { APP_CATEGORIES, createApp, type AppCategory } from "@modelvend/admin-api/apps";
-import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ID_PART, slugify } from "@/lib/catalog";
 import { APP_CATEGORY_LABELS } from "@/lib/labels";
+import { formErrors } from "@/lib/notify";
 import { keys } from "@/lib/query-keys";
 
 function NewAppForm({ onDone }: { onDone: () => void }) {
@@ -32,18 +32,22 @@ function NewAppForm({ onDone }: { onDone: () => void }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
+    setFields({});
     setError(null);
     try {
       const app = await createApp({ slug: shownSlug, name: name.trim(), tagline: tagline.trim(), category });
       queryClient.setQueryData(keys.app(app.slug), app);
       void queryClient.invalidateQueries({ queryKey: keys.appList });
+      void queryClient.invalidateQueries({ queryKey: keys.audit });
       toast.success(`${app.name} created`, { description: "Add steps to release 1, then deploy it." });
       onDone();
       router.push(`/apps/${app.slug}`);
     } catch (err) {
-      setFields(fieldErrors(err));
-      setError(Object.keys(fieldErrors(err)).length ? null : errorMessage(err));
+      const shown = formErrors(err, ["name", "slug", "category", "tagline"]);
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
   };
@@ -67,7 +71,7 @@ function NewAppForm({ onDone }: { onDone: () => void }) {
             className="font-mono"
           />
         </Field>
-        <Field id="app-category" label="Category">
+        <Field id="app-category" label="Category" error={fields.category}>
           <Select value={category} onValueChange={(value) => setCategory(value as AppCategory)}>
             <SelectTrigger id="app-category" className="w-full">
               <SelectValue />
@@ -82,7 +86,7 @@ function NewAppForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
       </div>
-      <Field id="app-tagline" label="Tagline" hint="One line for the app card.">
+      <Field id="app-tagline" label="Tagline" hint="One line for the app card." error={fields.tagline}>
         <Input id="app-tagline" value={tagline} onChange={(e) => setTagline(e.target.value)} />
       </Field>
       <DialogFooter>

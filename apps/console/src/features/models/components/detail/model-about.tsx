@@ -11,7 +11,7 @@ import type { Model } from "@/types/model";
  * Two-line summary that expands only when the text actually overflows. The toggle keeps its row even when
  * hidden, and starts out shown because the copy nearly always overflows, so measuring never shifts the page.
  */
-export function ModelAbout({ model, endpoints }: { model: Model; endpoints: number }) {
+export function ModelAbout({ model }: { model: Model }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(true);
   const ref = useRef<HTMLParagraphElement>(null);
@@ -29,13 +29,13 @@ export function ModelAbout({ model, endpoints }: { model: Model; endpoints: numb
   return (
     <div className="mt-5">
       <p ref={ref} className={cn("text-[15px] leading-[1.65] text-fg/75", !expanded && "line-clamp-2")}>
-        {model.description} Supports {model.capabilities.join(", ").replace(/→/g, "to")}, with output up to {model.maxOutput}. {model.name}{" "}
-        is served from {endpoints} endpoints with automatic failover, and every request is billed per {model.unit}
+        {model.description} Supports {model.capabilities.join(", ").replace(/→/g, "to")}, with output up to {model.maxOutput}. Every task is
+        billed per {model.unit}
         {model.unitDetail ? ` at ${model.unitDetail}` : ""}
         {model.inputPrice
           ? `, plus ${formatPrice(discounted(model, model.inputPrice.price))} per ${model.inputPrice.unit} of reference input`
           : ""}
-        . Higher tiers are listed in the Pricing tab, and test keys run the same model for free so you can tune prompts before going live.
+        , and failed tasks are never charged. Higher tiers are listed in the Pricing tab; test and live keys pay the same price.
       </p>
       <button
         onClick={() => setExpanded((e) => !e)}

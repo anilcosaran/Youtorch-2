@@ -5,9 +5,8 @@ import { ArrowRight } from "lucide-react";
 import { appHref } from "@/features/apps/lib/apps";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
-import { discounted } from "@/lib/pricing";
+import type { App } from "@/mocks/apps";
 import type { FeaturedApp } from "@/mocks/dashboard";
-import { getModel } from "@/mocks/models";
 
 const badgeTone: Record<NonNullable<FeaturedApp["badge"]>, string> = {
   Top: "bg-[#ff5e2b] text-[#fff]",
@@ -17,8 +16,8 @@ const badgeTone: Record<NonNullable<FeaturedApp["badge"]>, string> = {
 const sizes = "(min-width: 1280px) 25vw, (min-width: 640px) 50vw, 100vw";
 const checker = "repeating-conic-gradient(#e4e4e7 0 25%, #fafafa 0 50%) 0 0 / 12px 12px";
 
-export function AppTile({ app }: { app: FeaturedApp }) {
-  const model = getModel(app.slug);
+/** A featured app with its fixed price per run; `price` comes from the app it opens. */
+export function AppTile({ app, price }: { app: FeaturedApp; price: App["price"] }) {
   const objectPosition = app.position ?? "50% 50%";
   const cutout = app.effect === "cutout";
 
@@ -90,7 +89,7 @@ export function AppTile({ app }: { app: FeaturedApp }) {
         </h3>
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-[rgb(255_255_255/0.78)]">{app.description}</p>
         <p className="mt-1.5 text-[11.5px] leading-snug text-[rgb(255_255_255/0.65)] tabular">
-          {model.name} · from <span className="text-[#fff]">{formatPrice(discounted(model))}</span> / {model.unit}
+          <span className="text-[#fff]">{formatPrice(price)}</span> per run
         </p>
       </div>
     </Link>
