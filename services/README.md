@@ -35,7 +35,7 @@ services/
 │  │  ├─ schema/               JSON Schema validation and defaults for model input
 │  │  └─ manifest/             Imports catalog YAML as draft versions
 │  ├─ tasks/                   Task record, state machine, service, job arguments, customer error codes
-│  │  └─ jobs/                 dispatch_task and poll_task workers
+│  │  └─ jobs/                 dispatch_task, poll_task and sweep_tasks workers
 │  ├─ routing/                 Orders a version's routes by strategy
 │  ├─ providers/               Provider port and registry; mapping/, fake/, real adapters later
 │  ├─ apps/                    App releases and step templates

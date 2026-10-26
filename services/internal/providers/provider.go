@@ -76,6 +76,11 @@ type Result struct {
 // Provider is one upstream API.
 type Provider interface {
 	// Submit starts a job. Synchronous providers may return a finished Result.
+	// A provider that refused the job (a 4xx, a 5xx, rate limiting) returns a
+	// Failed Result, and the worker may try another route. An error means the
+	// outcome is unknown, as with a timeout after the request went out: the
+	// provider may be running the job, so the worker fails the task instead of
+	// risking it being made, and paid for, twice.
 	Submit(ctx context.Context, call Call) (Result, error)
 	// Status polls a job Submit left pending.
 	Status(ctx context.Context, upstreamModel, upstreamID string) (Result, error)

@@ -73,9 +73,10 @@ func run(ctx context.Context) error {
 		queueConfig[q] = river.QueueConfig{MaxWorkers: perQueue}
 	}
 	client, err := river.NewClient[pgx.Tx](riverpgxv5.New(d.DB), &river.Config{
-		Logger:  d.Logger,
-		Queues:  queueConfig,
-		Workers: workers,
+		Logger:       d.Logger,
+		Queues:       queueConfig,
+		Workers:      workers,
+		PeriodicJobs: jobs.Periodic(),
 	})
 	if err != nil {
 		return fmt.Errorf("job queue: %w", err)

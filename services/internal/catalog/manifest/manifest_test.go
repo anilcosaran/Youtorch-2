@@ -71,3 +71,26 @@ func TestModelValidation(t *testing.T) {
 		}
 	}
 }
+
+// A routing block that leaves fields out keeps the defaults for them, so it
+// can't turn off fallbacks or the timeout by accident.
+func TestPartialRoutingKeepsDefaults(t *testing.T) {
+	var v Version
+	dec := yaml.NewDecoder(strings.NewReader("id: v1\nrouting: {strategy: cheapest, max_attempts: 3}\n"))
+	dec.KnownFields(true)
+	if err := dec.Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	want := catalog.DefaultRouting
+	want.Strategy, want.MaxAttempts = "cheapest", 3
+	if got := v.Routing.Resolve(); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if got := (*Routing)(nil).Resolve(); got != catalog.DefaultRouting {
+		t.Errorf("no routing block: got %+v, want the defaults", got)
+	}
+	off := false
+	if got := (&Routing{Fallbacks: &off}).Resolve(); got.Fallbacks || got.TimeoutSeconds != catalog.DefaultRouting.TimeoutSeconds {
+		t.Errorf("fallbacks: false: got %+v", got)
+	}
+}

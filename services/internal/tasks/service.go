@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
 	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
@@ -24,7 +25,8 @@ type DispatchArgs struct {
 func (DispatchArgs) Kind() string { return "dispatch_task" }
 
 func (DispatchArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: QueueDispatch, MaxAttempts: 5}
+	// One live dispatch per task: two could submit the same task twice.
+	return river.InsertOpts{Queue: QueueDispatch, MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: liveStates}}
 }
 
 // PollArgs checks a pending upstream job of one attempt.
@@ -36,7 +38,17 @@ type PollArgs struct {
 func (PollArgs) Kind() string { return "poll_task" }
 
 func (PollArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: QueuePoll, MaxAttempts: 25}
+	return river.InsertOpts{Queue: QueuePoll, MaxAttempts: 25, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: liveStates}}
+}
+
+// liveStates are the states of a job that will still run. A finished job
+// doesn't count against uniqueness, so a task can be dispatched again later.
+var liveStates = []rivertype.JobState{
+	rivertype.JobStateAvailable,
+	rivertype.JobStatePending,
+	rivertype.JobStateRetryable,
+	rivertype.JobStateRunning,
+	rivertype.JobStateScheduled,
 }
 
 // The worker queues; worker pools pick which ones they work.
@@ -173,7 +185,7 @@ func (s *Service) Wait(ctx context.Context, workspaceID, id string, wait time.Du
 }
 
 // Cancel stops one of the workspace's tasks. The worker drops it at its next
-// step; a provider job already running is left to finish unbilled.
+// step, and asks the provider to stop a job it already started.
 func (s *Service) Cancel(ctx context.Context, workspaceID, id string) (Task, error) {
 	t, err := s.Store.GetFor(ctx, workspaceID, id)
 	if err != nil {

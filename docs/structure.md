@@ -122,7 +122,7 @@ modelvend/
 │  │  │  ├─ schema/                     Model şemaları: JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
 │  │  │  └─ manifest/                   catalog/*.yaml'ı draft sürüm olarak içe aktarır
 │  │  ├─ tasks/                         Task kaydı, durum makinesi, servis, job argümanları, müşteri hata kodları
-│  │  │  └─ jobs/                       dispatch_task, poll_task (River worker'ları)
+│  │  │  └─ jobs/                       dispatch_task, poll_task, sweep_tasks (River worker'ları)
 │  │  ├─ routing/                       Strateji, sağlık penceresi, devre kesici
 │  │  ├─ providers/                     Sağlayıcı arayüzü (port) ve kayıt
 │  │  │  ├─ mapping/                    Bizim girdimizden sağlayıcının parametrelerine

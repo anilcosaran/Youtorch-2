@@ -149,7 +149,7 @@ sequenceDiagram
   Q->>W: iş
   W->>W: Router: politikaya ve sağlığa göre route seç
   W->>P: Adapter ile gönder (attempt 1)
-  P-->>W: hata veya zaman aşımı → attempt 2 başka route
+  P-->>W: işi reddederse → attempt 2 başka route (kabul ettiyse fallback yok)
   P-->>W: sonuç (webhook veya polling)
   W->>S: Çıktıyı kopyala (upstream URL'si dışarı çıkmaz)
   W->>W: Gerçek birimle tahsil et, fazla blokeyi iade et, ledger
@@ -166,7 +166,7 @@ Ayrıntılar:
 - **İstek idempotency'si.** Müşteri `Idempotency-Key` gönderirse aynı anahtar 24 saat boyunca aynı `req_…` kaydını döndürür.
 - **Çıktı saklama.** Varsayılan süre workspace başına 30 gündür ve değiştirilebilir. URL'ler imzalıdır veya CDN üzerinden herkese açıktır.
 - **Faturalanmayanlar:** Başarısız istekler, kuyrukta geçen süre ve yalnızca 5xx dönen attempt'ler.
-- **İptal.** `POST /v1/generations/{id}/cancel` iptal eder. Upstream işi başladıysa sağlayıcı kurallarına göre ücret oluşabilir; bu durum attempt kaydında görünür.
+- **İptal.** `POST /v1/generations/{id}/cancel` iptal eder. Upstream işi başladıysa worker bir sonraki poll'da sağlayıcıdan işi durdurmasını ister ve attempt `canceled` olur. Sağlayıcı kurallarına göre yine de ücret oluşabilir; bu durum attempt kaydında görünür.
 
 ### Routing
 
@@ -179,7 +179,7 @@ Router her attempt öncesinde şu adımları uygular:
    - `cheapest`: maliyete göre sırala.
    - `fastest`: p50 gecikmesine göre sırala.
    - `weighted`: aynı priority içinde weight oranında rastgele seç.
-4. **Gerekirse sonraki adaya geç.** Fallback açıksa ve sağlayıcı henüz çıktı üretmediyse, `maxAttempts` sınırına kadar sıradaki adayla denenir.
+4. **Gerekirse sonraki adaya geç.** Fallback açıksa ve sağlayıcı işi kabul etmeden reddettiyse, `maxAttempts` sınırına kadar sıradaki adayla denenir. Sağlayıcı işi kabul ettikten sonra başka route'a geçilmez: iş poll edilir; hata ya da zaman aşımında upstream iş iptal edilir ve görev başarısız olur. Gönderimin sonucu belli değilse (istek gitti ama yanıt gelmedi) de başka route denenmez, görev başarısız olur.
 
 Müşteri tarafında OpenRouter'daki `provider{only, ignore, max_price}` karşılığı ileride eklenebilir. Model düzeyinde yedek de (`models: [...]`) daha sonra eklenebilir.
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -111,34 +112,77 @@ func (s *Store) List(ctx context.Context, workspaceID string, f ListFilter) ([]T
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Task, error) { return scanTask(row) })
 }
 
-// Start marks a queued task running.
-func (s *Store) Start(ctx context.Context, id string, at time.Time) error {
-	_, err := s.DB.Exec(ctx, `update tasks set status = 'running', started_at = coalesce(started_at, $2)
-		where id = $1 and status in ('queued', 'running')`, id, at)
-	return err
+// execer is what the pool and a transaction both offer.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// Succeed records the output and what it cost.
-func (s *Store) Succeed(ctx context.Context, id string, output json.RawMessage, units float64, unit string, priceMicros, costMicros int64, at time.Time) error {
-	return s.finish(ctx, `update tasks set status = 'succeeded', output = $2, units = $3, unit = $4,
+const (
+	succeedSQL = `update tasks set status = 'succeeded', output = $2, units = $3, unit = $4,
 		price_micros = $5, cost_micros = $6, finished_at = $7, error_code = null, error_message = null
-		where id = $1 and status in ('queued', 'running')`, id, output, units, unit, priceMicros, costMicros, at)
+		where id = $1 and status in ('queued', 'running')`
+	failSQL = `update tasks set status = 'failed', error_code = $2, error_message = $3, finished_at = $4
+		where id = $1 and status in ('queued', 'running')`
+	endAttemptSQL = `update attempts set status = $3, error = nullif($4, ''), finished_at = $5,
+			latency_ms = (extract(epoch from ($5 - started_at)) * 1000)::int
+		where task_id = $1 and number = $2`
+)
+
+// Start marks a queued task running; ErrFinal when it finished (was canceled) meanwhile.
+func (s *Store) Start(ctx context.Context, id string, at time.Time) error {
+	return move(ctx, s.DB, `update tasks set status = 'running', started_at = coalesce(started_at, $2)
+		where id = $1 and status in ('queued', 'running')`, id, at)
 }
 
 // Fail records the public error.
 func (s *Store) Fail(ctx context.Context, id, code, message string, at time.Time) error {
-	return s.finish(ctx, `update tasks set status = 'failed', error_code = $2, error_message = $3, finished_at = $4
-		where id = $1 and status in ('queued', 'running')`, id, code, message, at)
+	return move(ctx, s.DB, failSQL, id, code, message, at)
 }
 
 // Cancel stops a task that hasn't finished.
 func (s *Store) Cancel(ctx context.Context, id string, at time.Time) error {
-	return s.finish(ctx, `update tasks set status = 'canceled', finished_at = $2
+	return move(ctx, s.DB, `update tasks set status = 'canceled', finished_at = $2
 		where id = $1 and status in ('queued', 'running')`, id, at)
 }
 
-func (s *Store) finish(ctx context.Context, sql string, args ...any) error {
-	tag, err := s.DB.Exec(ctx, sql, args...)
+// SucceedAttempt ends an attempt as succeeded and records the task's output
+// and what it cost, together.
+func (s *Store) SucceedAttempt(ctx context.Context, taskID string, number int, output json.RawMessage, units float64, unit string, priceMicros, costMicros int64, at time.Time) error {
+	return s.settle(ctx, taskID, number, "succeeded", "", at, succeedSQL, taskID, output, units, unit, priceMicros, costMicros, at)
+}
+
+// FailAttempt ends an attempt as status (failed or timeout) with the
+// provider's error text, and fails the task with the public error, together.
+func (s *Store) FailAttempt(ctx context.Context, taskID string, number int, status, errText, code, message string, at time.Time) error {
+	return s.settle(ctx, taskID, number, status, errText, at, failSQL, taskID, code, message, at)
+}
+
+// settle ends an attempt and runs the task's status change in one
+// transaction, so a task never stays unfinished behind an attempt that ended.
+// ErrFinal when the task had finished meanwhile; the attempt is ended anyway.
+func (s *Store) settle(ctx context.Context, taskID string, number int, status, errText string, at time.Time, sql string, args ...any) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, endAttemptSQL, taskID, number, status, errText, at); err != nil {
+		return err
+	}
+	moved := move(ctx, tx, sql, args...)
+	if moved != nil && !errors.Is(moved, ErrFinal) {
+		return moved
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return moved
+}
+
+// move runs a status change guarded by the task's current status; ErrFinal when
+// the task had already finished.
+func move(ctx context.Context, db execer, sql string, args ...any) error {
+	tag, err := db.Exec(ctx, sql, args...)
 	if err != nil {
 		return err
 	}
@@ -178,10 +222,43 @@ func (s *Store) SetUpstreamID(ctx context.Context, taskID string, number int, up
 	return err
 }
 
-// EndAttempt records how an attempt ended.
+// EndAttempt records how an attempt ended, leaving the task as it is.
 func (s *Store) EndAttempt(ctx context.Context, taskID string, number int, status, errText string, at time.Time) error {
-	_, err := s.DB.Exec(ctx, `update attempts set status = $3, error = nullif($4, ''), finished_at = $5,
-			latency_ms = (extract(epoch from ($5 - started_at)) * 1000)::int
-		where task_id = $1 and number = $2`, taskID, number, status, errText, at)
+	_, err := s.DB.Exec(ctx, endAttemptSQL, taskID, number, status, errText, at)
 	return err
+}
+
+// Unattended lists tasks no job is working on although one should be: an
+// unfinished task, or a finished one with an attempt still running upstream.
+// Every such task normally has a live dispatch or poll job, so these are left
+// over from a crash or a job that ran out of retries. Only tasks created
+// between since and before are considered, oldest first.
+func (s *Store) Unattended(ctx context.Context, since, before time.Time, limit int) ([]string, error) {
+	rows, err := s.DB.Query(ctx, `
+		with candidates as (
+			select id, created_at from tasks
+			where status in ('queued', 'running') and target_type = 'model' and created_at between $1 and $2
+			union
+			select t.id, t.created_at from attempts a join tasks t on t.id = a.task_id
+			where a.status = 'running' and t.created_at between $1 and $2
+		)
+		select c.id from candidates c
+		where not exists (
+			select 1 from river_job j
+			where j.kind in ($3, $4) and j.state in ('available', 'pending', 'retryable', 'running', 'scheduled')
+				and j.args @> jsonb_build_object('task_id', c.id))
+		order by c.created_at limit $5`,
+		since, before, DispatchArgs{}.Kind(), PollArgs{}.Kind(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// Expire fails unfinished tasks created before cutoff with f, and returns how
+// many there were. Their running attempts are left for the worker to stop.
+func (s *Store) Expire(ctx context.Context, cutoff time.Time, f Failure, at time.Time) (int64, error) {
+	tag, err := s.DB.Exec(ctx, `update tasks set status = 'failed', error_code = $2, error_message = $3, finished_at = $4
+		where status in ('queued', 'running') and created_at < $1`, cutoff, f.Code, f.Message, at)
+	return tag.RowsAffected(), err
 }
