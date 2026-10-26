@@ -66,7 +66,7 @@ export const createOperator = (body: NewOperator) =>
  * `invalid_state` when the change would leave no active admin.
  */
 export const updateOperator = (id: string, body: OperatorUpdate) =>
-  request<Operator>(`/operators/${id}`, { method: "PATCH", body });
+  request<Operator>(`/operators/${encodeURIComponent(id)}`, { method: "PATCH", body });
 
 /**
  * Ends the operator's sessions. Without `password` one is generated and returned.
@@ -74,7 +74,7 @@ export const updateOperator = (id: string, body: OperatorUpdate) =>
  * which asks for the current one.
  */
 export const resetOperatorPassword = (id: string, password?: string) =>
-  request<{ password: string | null }>(`/operators/${id}/reset-password`, {
+  request<{ password: string | null }>(`/operators/${encodeURIComponent(id)}/reset-password`, {
     method: "POST",
     body: password ? { password } : {},
   });

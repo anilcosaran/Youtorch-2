@@ -32,6 +32,7 @@ export interface ApiKeyRow {
 }
 
 export interface ApiKeyFilters {
+  /** Matches the key's ID, name and prefix, and its customer's name, workspace and email. */
   query?: string;
   env?: KeyEnv;
   status?: KeyStatus;
@@ -42,7 +43,7 @@ export const listApiKeys = (params: ApiKeyFilters & PageParams) =>
   request<Page<ApiKeyRow>>("/api-keys", { query: { ...params } });
 
 export const revokeApiKey = (id: string, reason: string) =>
-  request<ApiKeyRow>(`/api-keys/${id}/revoke`, { method: "POST", body: { reason } });
+  request<ApiKeyRow>(`/api-keys/${encodeURIComponent(id)}/revoke`, { method: "POST", body: { reason } });
 
 export const updateApiKey = (id: string, body: { spendLimit: number | null }) =>
-  request<ApiKeyRow>(`/api-keys/${id}`, { method: "PATCH", body });
+  request<ApiKeyRow>(`/api-keys/${encodeURIComponent(id)}`, { method: "PATCH", body });

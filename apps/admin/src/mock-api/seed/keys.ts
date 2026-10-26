@@ -74,7 +74,7 @@ export function seedApiKeys(
           action: "api_key.revoke",
           targetType: "api_key",
           targetId: id,
-          detail: { prefix: keyPrefix, reason: operator.reason },
+          detail: { prefix: keyPrefix, customerId: customer.id, reason: operator.reason },
         });
       }
       return {

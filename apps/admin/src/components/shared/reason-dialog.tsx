@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -50,17 +50,22 @@ function ReasonForm({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set at once, unlike `busy`, so a second Enter or click before the next render can't send it twice.
+  const sending = useRef(false);
   const blocked = required && text.trim().length === 0;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (blocked) return;
+    if (blocked || sending.current) return;
+    sending.current = true;
     setBusy(true);
     setError(null);
     try {
       await onSubmit(text.trim());
+      // Done: the dialog closes, and stays unsendable until it does.
     } catch (err) {
       setError(describeError(err));
+      sending.current = false;
       setBusy(false);
     }
   };
@@ -76,10 +81,11 @@ function ReasonForm({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            // Ctrl/⌘ Enter sends, so a decision needs no reach for the mouse.
+            // Ctrl/⌘ Enter sends, so a decision needs no reach for the mouse; like the button, not while
+            // it is sending or still needs text.
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
+              if (!busy && !blocked) e.currentTarget.form?.requestSubmit();
             }
           }}
           placeholder={placeholder}

@@ -9,7 +9,8 @@ import { keys } from "@/lib/query-keys";
 
 /**
  * Puts a model a change returned in the cache. Lists, provider route counts
- * and the overview show figures derived from it, so they load again.
+ * and the overview show figures derived from it, and the change is in the
+ * audit log, so they load again.
  */
 export function useApplyModel() {
   const queryClient = useQueryClient();
@@ -19,6 +20,7 @@ export function useApplyModel() {
       void queryClient.invalidateQueries({ queryKey: ["models", "list"] });
       void queryClient.invalidateQueries({ queryKey: keys.providers });
       void queryClient.invalidateQueries({ queryKey: keys.overviewAll });
+      void queryClient.invalidateQueries({ queryKey: keys.audit });
     },
     [queryClient],
   );

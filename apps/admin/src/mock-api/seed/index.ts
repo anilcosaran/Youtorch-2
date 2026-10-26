@@ -1,4 +1,5 @@
 import { createRandom, hashSeed } from "../random";
+import { seedPassword } from "../session";
 import type { Store } from "../types";
 import { seedApps } from "./apps";
 import { seedAudit } from "./audit";
@@ -17,7 +18,7 @@ const stream = (area: string) => createRandom(hashSeed(`${SEED}:${area}`));
 
 /** A fresh store with seeded data; every seeded time is relative to `now`. */
 export function createStore(now: number): Store {
-  const operators = seedOperators(now);
+  const operators = seedOperators(now, seedPassword());
   const providers = seedProviders(now);
   const models = seedCatalog(now, stream("catalog"), providers);
   for (const provider of providers) provider.cost30d = providerCost30d(models, provider.id);
@@ -49,5 +50,7 @@ export function createStore(now: number): Store {
     customers: customerSeed.customers,
     apiKeys: keySeed.apiKeys,
     requests: requestSeed.requests,
+    loginFailures: new Map(),
+    endedSessions: new Map(),
   };
 }

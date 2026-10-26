@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 import { createVersion, deprecateVersion, type Model, type ModelVersion } from "@modelvend/admin-api/models";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
@@ -12,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ID_PART, nextVersionId } from "@/lib/catalog";
+import { formErrors } from "@/lib/notify";
 import { useApplyModel } from "./use-model-action";
 
 const BLANK = "__blank";
@@ -42,8 +42,9 @@ function NewVersionForm({ model, onDone }: { model: Model; onDone: () => void })
       toast.success(`${id} created as a draft`);
       onDone();
     } catch (err) {
-      setFields(fieldErrors(err));
-      setError(Object.keys(fieldErrors(err)).length ? null : errorMessage(err));
+      const shown = formErrors(err, ["id", "label", "from", "changelog"], { id: "Version ID" });
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
   };
@@ -55,11 +56,16 @@ function NewVersionForm({ model, onDone }: { model: Model; onDone: () => void })
         <Field id="version-id" label="Version ID" hint={`Pinned as ${model.id}@${id || "…"}`} error={idError}>
           <Input id="version-id" required autoFocus value={id} onChange={(e) => setId(e.target.value.trim())} className="font-mono" />
         </Field>
-        <Field id="version-label" label="Label" hint="What people call it, e.g. 3.1">
+        <Field id="version-label" label="Label" hint="What people call it, e.g. 3.1" error={fields.label}>
           <Input id="version-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={id} />
         </Field>
       </div>
-      <Field id="version-from" label="Start from" hint="Copies the schema, price, routing and routes. You can change all of it before it goes live.">
+      <Field
+        id="version-from"
+        label="Start from"
+        hint="Copies the schema, price, routing and routes. You can change all of it before it goes live."
+        error={fields.from}
+      >
         <Select value={from} onValueChange={setFrom}>
           <SelectTrigger id="version-from" className="w-full">
             <SelectValue />
@@ -74,7 +80,12 @@ function NewVersionForm({ model, onDone }: { model: Model; onDone: () => void })
           </SelectContent>
         </Select>
       </Field>
-      <Field id="version-changelog" label="Changelog" hint="What changed for callers. Shown in the catalog and in deprecation notices.">
+      <Field
+        id="version-changelog"
+        label="Changelog"
+        hint="What changed for callers. Shown in the catalog and in deprecation notices."
+        error={fields.changelog}
+      >
         <Textarea id="version-changelog" value={changelog} onChange={(e) => setChangelog(e.target.value)} className="min-h-20" />
       </Field>
       <DialogFooter>
@@ -122,6 +133,7 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
   const [replacement, setReplacement] = useState(model.defaultVersion ?? replacements[0]?.id ?? NONE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fields, setFields] = useState<Record<string, string>>({});
   const tooSoon = sunset < dateFromToday(1);
 
   const submit = async (e: React.FormEvent) => {
@@ -134,10 +146,12 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
         replacement: replacement === NONE ? null : replacement,
       });
       apply(updated);
-      toast.success(`${version.id} is deprecated`, { description: `It stops answering on ${sunset}.` });
+      toast.success(`${version.id} is deprecated`, { description: `It keeps answering until ${sunset}, then it can be retired.` });
       onDone();
     } catch (err) {
-      setError(errorMessage(err));
+      const shown = formErrors(err, ["sunsetAt", "replacement"]);
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
   };
@@ -146,10 +160,15 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
     <form onSubmit={submit} className="grid gap-4">
       <FormError message={error} />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="sunset" label="Sunset date" hint="Give callers at least 30 days." error={tooSoon ? "Pick a date after today." : undefined}>
+        <Field
+          id="sunset"
+          label="Sunset date"
+          hint="Give callers at least 30 days."
+          error={fields.sunsetAt ?? (tooSoon ? "Pick a date after today." : undefined)}
+        >
           <Input id="sunset" type="date" required value={sunset} min={dateFromToday(1)} onChange={(e) => setSunset(e.target.value)} />
         </Field>
-        <Field id="replacement" label="Replacement" hint="Named in the Deprecation header and used after retirement.">
+        <Field id="replacement" label="Replacement" hint="Named in the Deprecation header and used after retirement." error={fields.replacement}>
           <Select value={replacement} onValueChange={setReplacement}>
             <SelectTrigger id="replacement" className="w-full">
               <SelectValue />
@@ -167,8 +186,8 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
       </div>
       <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
         Until the sunset date, responses carry <code className="font-mono">Deprecation</code> and{" "}
-        <code className="font-mono">Sunset</code> headers and workspaces that called it in the last 30 days get an email. Retire it
-        after the sunset date.
+        <code className="font-mono">Sunset</code> headers and workspaces that called it in the last 30 days get an email. It can
+        only be retired after the sunset date, once no live app release pins it.
       </p>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
@@ -190,7 +209,9 @@ export function DeprecateDialog({ model, version, onClose }: { model: Model; ver
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Deprecate {version?.id}?</DialogTitle>
-          <DialogDescription>It keeps answering until the sunset date, so pinned callers have time to move.</DialogDescription>
+          <DialogDescription>
+            It keeps answering until the sunset date, so pinned callers have time to move, and can&apos;t be retired before then.
+          </DialogDescription>
         </DialogHeader>
         {version && <DeprecateForm model={model} version={version} onDone={onClose} />}
       </DialogContent>

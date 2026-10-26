@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, Ellipsis, GitBranchPlus, History, OctagonPause, Play, Undo2 } from "lucide-react";
@@ -40,15 +40,7 @@ import { toastError } from "@/lib/notify";
 import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { ReleaseEditor } from "./release-editor";
-
-/** Puts an app a change returned in the cache and refreshes the list's figures. */
-function useApplyApp() {
-  const queryClient = useQueryClient();
-  return (app: App) => {
-    queryClient.setQueryData(keys.app(app.slug), app);
-    void queryClient.invalidateQueries({ queryKey: keys.appList });
-  };
-}
+import { useApplyApp } from "./use-apply-app";
 
 /** The steps of a release as a left-to-right chain. */
 function Pipeline({ steps }: { steps: AppStep[] }) {
@@ -215,19 +207,29 @@ export function AppDetail({ slug }: { slug: string }) {
   const live = data?.releases.find((r) => r.status === "live");
   const draft = data?.releases.find((r) => r.status === "draft");
 
+  // Deploying or rolling back never lifts a pause: the release becomes the live one, and resuming stays a separate step.
+  const paused = data?.status === "paused";
+  const stillPaused = (number: number) =>
+    `${data?.name ?? "The app"} stays paused: #${number} becomes the live release, but runs keep failing with 503 app_paused until you resume the app.`;
+
   const deploy = async (release: AppRelease) => {
     if (!data) return;
     const ok = await confirm({
       title: `Deploy release #${release.number}?`,
-      description: live
-        ? `New runs use it at once; runs in progress finish on #${live.number}. You can roll back to #${live.number} later.`
-        : `${data.name} goes live and customers can run it.`,
-      action: "Deploy",
+      description: paused
+        ? `${stillPaused(release.number)}${live ? ` #${live.number} is superseded; you can roll back to it later.` : ""}`
+        : live
+          ? `New runs use it at once; runs in progress finish on #${live.number}. You can roll back to #${live.number} later.`
+          : `${data.name} goes live and customers can run it.`,
+      action: paused ? "Deploy, stay paused" : "Deploy",
     });
     if (!ok) return;
     try {
-      apply(await publishRelease(data.slug, release.number));
-      toast.success(`Release #${release.number} is live`);
+      const updated = await publishRelease(data.slug, release.number);
+      apply(updated);
+      toast.success(`Release #${release.number} is the live release`, {
+        description: updated.status === "paused" ? `${updated.name} is still paused; resume it to take runs.` : undefined,
+      });
     } catch (error) {
       toastError(error, "Couldn't deploy the release");
     }
@@ -237,14 +239,19 @@ export function AppDetail({ slug }: { slug: string }) {
     if (!data) return;
     const ok = await confirm({
       title: `Roll back to release #${release.number}?`,
-      description: `It goes live again and #${live?.number} is superseded. New runs use #${release.number} at once.`,
-      action: "Roll back",
+      description: paused
+        ? `${stillPaused(release.number)} #${live?.number} is superseded.`
+        : `It goes live again and #${live?.number} is superseded. New runs use #${release.number} at once.`,
+      action: paused ? "Roll back, stay paused" : "Roll back",
       destructive: true,
     });
     if (!ok) return;
     try {
-      apply(await rollbackApp(data.slug, release.number));
-      toast.success(`Rolled back to #${release.number}`);
+      const updated = await rollbackApp(data.slug, release.number);
+      apply(updated);
+      toast.success(`Rolled back to #${release.number}`, {
+        description: updated.status === "paused" ? `${updated.name} is still paused; resume it to take runs.` : undefined,
+      });
     } catch (error) {
       toastError(error, "Couldn't roll back");
     }
@@ -281,6 +288,13 @@ export function AppDetail({ slug }: { slug: string }) {
                 Updated <DateTime value={data.updatedAt} />
               </span>
             </div>
+            {data.status === "paused" && (
+              <div role="status" className="rounded-lg border border-status-critical/40 bg-status-critical/10 px-4 py-3 text-sm">
+                <p className="font-medium">Paused: every new run gets 503 app_paused</p>
+                {data.pausedReason && <p className="mt-0.5 text-muted-foreground">{data.pausedReason}</p>}
+                <p className="mt-0.5 text-muted-foreground">Deploying or rolling back keeps it paused; resume it to take runs again.</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatTile
                 label="Live release"

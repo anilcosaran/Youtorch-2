@@ -6,6 +6,7 @@ import { audit, changes } from "../audit";
 import { conflict, forbidden, invalid, invalidState, notFound } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";
 import { ACCESS_PRESETS, PERMISSION_CATALOG, withRequired } from "../seed/operators";
+import { endSessions } from "../session";
 import type { OperatorRecord, Store } from "../types";
 import { clone } from "../util";
 import { bool, has, oneOf, text, type Body } from "../validate";
@@ -86,6 +87,7 @@ function createOperator(ctx: Context) {
     lastLoginAt: null,
     disabled: false,
     password: password ?? generated ?? "",
+    sessionVersion: 0,
   };
   store.operators.push(operator);
   audit(ctx, "operator.create", "operator", operator.id, { email, role: operator.role, permissions: operator.permissions });
@@ -116,6 +118,8 @@ function updateOperator(ctx: Context) {
 
   if (name !== undefined) target.name = name;
   if (access) Object.assign(target, access);
+  // Disabling ends their sessions, so enabling them again doesn't bring the old ones back.
+  if (disabled === true && !target.disabled) endSessions(target);
   if (disabled !== undefined) target.disabled = disabled;
   const after = operatorView(target);
   const changed = changes(before, after, ["name", "role", "permissions", "disabled"]);
@@ -132,6 +136,7 @@ function resetPassword(ctx: Context) {
   const chosen = chosenPassword(ctx.body);
   const generated = chosen === undefined ? newPassword(ctx.store) : null;
   target.password = chosen ?? generated ?? "";
+  endSessions(target);
   audit(ctx, "operator.reset_password", "operator", target.id, { generated: generated !== null });
   return { password: generated };
 }

@@ -1,6 +1,6 @@
 import { ADAPTERS, PROVIDER_KINDS } from "@modelvend/admin-api/providers";
 import { audit, changes } from "../audit";
-import { conflict, invalid, invalidState, notFound } from "../http";
+import { conflict, fail, invalid, invalidState, notFound } from "../http";
 import { route, type Context, type RouteDef } from "../router";
 import type { ProviderRecord, Store } from "../types";
 import { clone } from "../util";
@@ -69,26 +69,50 @@ function createProvider(ctx: Context) {
   return providerView(store, provider);
 }
 
+/** The secret from the body, trimmed; 422 when it is too short to be one. */
+function readSecret(body: Body): string {
+  const secret = typeof body.secret === "string" ? body.secret.trim() : "";
+  if (secret.length < 8) invalid("secret", "Paste the full secret; it looks too short.");
+  return secret;
+}
+
+/** Stores a new secret; only its hint is kept in the clear. */
+function storeCredential(ctx: Context, provider: ProviderRecord, secret: string) {
+  const hint = `…${secret.slice(-4)}`;
+  provider.credential = { configured: true, hint, source: "console", rotatedAt: new Date().toISOString() };
+  audit(ctx, "provider.credential", "provider", provider.id, { hint });
+}
+
 function updateProvider(ctx: Context) {
   const provider = findProvider(ctx.store, ctx.params.id);
   const { body } = ctx;
   const before = clone(provider);
   const name = text(body, "name", { max: 80 });
   if (name === "") invalid("name", "Enter a name.");
-  if (name !== undefined) provider.name = name;
   const baseUrl = readBaseUrl(body, false);
-  if (baseUrl !== undefined) provider.baseUrl = baseUrl;
-  const regions = readRegions(body, false);
-  if (regions) provider.regions = regions;
-  if (has(body, "limits")) {
-    const limits = nested(body, "limits");
-    within("limits", () => {
-      const concurrency = nullableNumber(limits, "concurrency", { min: 1, integer: true });
-      const rpm = nullableNumber(limits, "requestsPerMinute", { min: 1, integer: true });
-      if (concurrency !== undefined) provider.limits.concurrency = concurrency;
-      if (rpm !== undefined) provider.limits.requestsPerMinute = rpm;
-    });
+  const moves = baseUrl !== undefined && baseUrl !== provider.baseUrl;
+  const hasSecret = body.secret !== undefined && body.secret !== null && body.secret !== "";
+  // The stored secret goes only to the endpoint it was entered for: moving needs it entered again.
+  if (moves && provider.credential.configured && !hasSecret) {
+    const message = "Enter the API key again to change the endpoint; the stored one stays with the old one.";
+    fail(422, "credential_required", message, { secret: message });
   }
+  const secret = hasSecret ? readSecret(body) : undefined;
+  const regions = readRegions(body, false);
+  const limits = has(body, "limits") ? nested(body, "limits") : null;
+  const { concurrency, rpm } = limits
+    ? within("limits", () => ({
+        concurrency: nullableNumber(limits, "concurrency", { min: 1, integer: true }),
+        rpm: nullableNumber(limits, "requestsPerMinute", { min: 1, integer: true }),
+      }))
+    : { concurrency: undefined, rpm: undefined };
+  // Everything is valid: apply it all, so a refused request changes nothing.
+  if (name !== undefined) provider.name = name;
+  if (baseUrl !== undefined) provider.baseUrl = baseUrl;
+  if (secret !== undefined) storeCredential(ctx, provider, secret);
+  if (regions) provider.regions = regions;
+  if (concurrency !== undefined) provider.limits.concurrency = concurrency;
+  if (rpm !== undefined) provider.limits.requestsPerMinute = rpm;
   const changed = changes(before, provider, ["name", "baseUrl", "regions", "limits"]);
   if (Object.keys(changed).length > 0) audit(ctx, "provider.update", "provider", provider.id, changed);
   return done(ctx, provider);
@@ -116,11 +140,7 @@ function resumeProvider(ctx: Context) {
 
 function setCredential(ctx: Context) {
   const provider = findProvider(ctx.store, ctx.params.id);
-  const secret = typeof ctx.body.secret === "string" ? ctx.body.secret.trim() : "";
-  if (secret.length < 8) invalid("secret", "Paste the full secret; it looks too short.");
-  const hint = `…${secret.slice(-4)}`;
-  provider.credential = { configured: true, hint, source: "console", rotatedAt: new Date().toISOString() };
-  audit(ctx, "provider.credential", "provider", provider.id, { hint });
+  storeCredential(ctx, provider, readSecret(ctx.body));
   return done(ctx, provider);
 }
 
@@ -146,5 +166,6 @@ export const providerRoutes: RouteDef[] = [
   route("POST", "/providers/:id/pause", "providers.edit", pauseProvider),
   route("POST", "/providers/:id/resume", "providers.edit", resumeProvider),
   route("PUT", "/providers/:id/credential", "providers.edit", setCredential),
-  route("POST", "/providers/:id/check", "providers.view", checkProvider),
+  // Calls out with the stored credential and writes health, so it is a change.
+  route("POST", "/providers/:id/check", "providers.edit", checkProvider),
 ];

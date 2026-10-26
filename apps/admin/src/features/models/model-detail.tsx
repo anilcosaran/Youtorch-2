@@ -248,7 +248,8 @@ export function ModelDetail({ id }: { id: string }) {
                 {version && <SchemaTab model={data} version={version} onPick={(v) => set({ version: v })} />}
               </TabsContent>
               <TabsContent value="details">
-                <DetailsTab key={data.updatedAt} model={data} />
+                {/* Keyed by model only: a refetch must not wipe edits in progress. */}
+                <DetailsTab key={data.id} model={data} />
               </TabsContent>
             </Tabs>
           </>

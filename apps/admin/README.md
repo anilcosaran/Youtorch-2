@@ -19,7 +19,9 @@ From the repository root, `npm run dev:admin` and `npm run check:admin` do the s
 
 Without `ADMIN_API_URL` the dev server answers `/api/admin/v1/*` from the in-memory mock in `src/mock-api`, which
 implements the same contract with seeded data. You start signed in as the seeded admin; after signing out, sign in
-as any seeded operator with the password in `src/mock-api` (`MOCK_PASSWORD`). Mock data resets when the server restarts.
+as any seeded operator with the password in `src/mock-api` (`MOCK_PASSWORD`). Mock data resets when the server
+restarts, and so do sessions: the session cookie is signed with a key made at startup, so after a restart you are
+asked to sign in again (unless you never signed out, in which case you are still the seeded admin).
 
 ## Scripts
 
@@ -63,14 +65,29 @@ Conventions:
 | --------------------------- | ------------------------------ | ---------------------------------------------------------- |
 | `ADMIN_API_URL`             | unset                          | Where `/api/admin/v1/*` is forwarded, read at request time |
 | `ADMIN_API_MOCK`            | unset                          | `1` serves the mock in a production build (demos only)     |
+| `ADMIN_API_MOCK_PASSWORD`   | unset                          | What seeded operators sign in with when `ADMIN_API_MOCK=1` |
 | `TRUSTED_PROXY_HOPS`        | `1`                            | Proxies in front that append to `X-Forwarded-For`          |
 | `NEXT_PUBLIC_CONSOLE_NAME`  | `Modelvend Admin`              | Name in the sidebar and page titles                        |
 | `NEXT_PUBLIC_CONSOLE_URL`   | `https://app.modelvend.ai`     | "Open in the console" links                                |
 | `NEXT_PUBLIC_API_BASE_URL`  | `https://api.modelvend.ai/v1`  | Example calls on a model's schema tab                      |
 
 A production build without `ADMIN_API_URL` answers `/api/admin/v1/*` with 502 instead of falling back to mock data.
-The mock has no real sign-in (no cookie means the seeded admin, and `MOCK_PASSWORD` opens every account), so never
-set `ADMIN_API_MOCK=1` where anyone but you can reach the console.
+
+The development shortcuts stop in a production build (`NODE_ENV=production`), so `ADMIN_API_MOCK=1` asks everyone to
+sign in:
+
+- Nobody is signed in automatically, and `MOCK_PASSWORD` opens no account. Seeded operators sign in with
+  `ADMIN_API_MOCK_PASSWORD` (12 characters or more); without it they have a random password nobody knows, and the
+  server logs a warning.
+- The session cookie is HMAC-signed with a key made when the process starts and checked in constant time, so a
+  cookie can't be made up or edited. It carries the operator's ID, a session ID, an expiry (12 hours) and their
+  session version: changing a password ends the operator's other sessions, and a reset or disabling ends them all.
+  Signing out ends the session even for a copy of the cookie.
+- The cookie is `HttpOnly; SameSite=Lax; Path=/`, and over https (or behind a proxy that sends
+  `X-Forwarded-Proto: https`) it is `Secure` and named `__Host-mv_mock_session`.
+- After 5 failed sign-ins in 15 minutes an email gets 429 with `Retry-After`.
+
+It is still demo data in memory with one shared password, so keep it to demos.
 
 ## Deploying
 
@@ -83,6 +100,18 @@ docker run -p 3001:3001 -e ADMIN_API_URL=http://admin-api:8081 modelvend-admin
 ```
 
 Put it behind an allowlist or SSO proxy; it is for operators only and is marked `noindex`.
+
+The admin API sets the session cookie, and the proxy passes its `Set-Cookie` through unchanged while mapping
+`/api/admin/v1` to `/admin/v1`. So the cookie must be `__Host-…; Path=/; Secure; HttpOnly; SameSite=Lax`: with any
+other `Path` the browser never sends it back. The rest of the session rules (revocation when a password changes or an
+operator is disabled, sign-in throttling with 429 and `Retry-After`) are in `packages/admin-api/src/auth.ts`.
+
+`next.config.ts` sends a Content-Security-Policy with every page: everything from the console's own origin, no
+plugins, frames or `<base>` changes, forms posting only to itself, and no framing by other sites. Scripts and styles
+allow `'unsafe-inline'` because Next.js inlines its bootstrap and the root layout runs boot scripts before first
+paint; nonces would need every page rendered per request, which `cacheComponents` and partial prerendering rule out.
+Development adds `'unsafe-eval'` (React's error stacks) and `ws:` (hot reload). Request outputs are links, not
+embeds, so no customer media host is allowed; anything that loads from another origin needs its source added there.
 
 The proxy in `app/api/[...path]` is the admin API's only way in from outside:
 

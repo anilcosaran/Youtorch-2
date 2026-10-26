@@ -1,7 +1,13 @@
 /**
  * Typed fetch for the admin API. The browser calls `/api/admin/v1/...` on the
- * console's own origin; Next.js forwards it to the admin server, so the session
- * cookie just works.
+ * console's own origin; Next.js forwards it to `/admin/v1/...` on the admin
+ * server and passes its Set-Cookie headers back untouched, so the session
+ * cookie works only as `__Host-…; Path=/; Secure; HttpOnly; SameSite=Lax`
+ * (see the sessions note in `auth.ts`): a cookie scoped to `/admin/v1` would
+ * never be sent back.
+ *
+ * Throttled endpoints (sign-in, at least) answer 429 with `Retry-After` in
+ * seconds; `request` turns that into an ApiError with code `rate_limited`.
  *
  * Every request that changes state must be `Content-Type: application/json`,
  * or the server answers 415 `unsupported_media_type`: a form on another site

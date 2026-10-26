@@ -180,10 +180,13 @@ export function AuditView() {
   const pager = usePager();
   const operatorId = get("operatorId");
   const action = pick(get("action"), ACTION_VALUES);
-  // Model and customer pages link here for what changed on one target.
+  // Model and app pages link here for what changed on one target.
   const targetType = get("targetType");
   const targetId = targetType ? get("targetId") : undefined;
-  const filters = { operatorId, action, targetType: targetId ? targetType : undefined, targetId, cursor: pager.cursor };
+  // Customer pages link here for everything about one customer: the customer, its keys and refunds.
+  const customerId = get("customerId");
+  const filters = { operatorId, action, targetType: targetId ? targetType : undefined, targetId, customerId, cursor: pager.cursor };
+  const filtered = Boolean(operatorId || action || targetId || customerId);
   const list = useQuery({
     queryKey: keys.auditList(filters),
     queryFn: () => listAudit(filters),
@@ -227,9 +230,19 @@ export function AuditView() {
               <span className="max-w-32 truncate font-mono text-xs">{targetId}</span> <X />
             </Button>
           )}
+          {customerId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => set({ customerId: null })}
+              title="Changes to the customer, its API keys and refunds of its requests"
+            >
+              Customer <span className="max-w-32 truncate font-mono text-xs">{customerId}</span> <X />
+            </Button>
+          )}
           <ClearFilters
-            active={Boolean(operatorId || action || targetId)}
-            onClear={() => set({ operatorId: null, action: null, targetType: null, targetId: null })}
+            active={filtered}
+            onClear={() => set({ operatorId: null, action: null, targetType: null, targetId: null, customerId: null })}
           />
         </FilterBar>
         <ListPanel>
@@ -245,7 +258,7 @@ export function AuditView() {
             retrying={list.isFetching}
             empty={
               <EmptyState
-                title={operatorId || action || targetId ? "No entries match these filters" : "Nothing logged yet"}
+                title={filtered ? "No entries match these filters" : "Nothing logged yet"}
                 description="Sign-ins and every change appear here."
               />
             }

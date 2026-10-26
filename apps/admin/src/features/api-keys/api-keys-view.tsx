@@ -52,7 +52,7 @@ export function ApiKeysView() {
         <FilterBar>
           <SearchInput
             label="Search keys"
-            placeholder="Name, prefix or customer"
+            placeholder="Name, prefix, key ID or customer"
             value={query}
             onChange={(value) => set({ query: value })}
           />
