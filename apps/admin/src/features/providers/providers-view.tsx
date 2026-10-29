@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useState } from "react";
 import { Ellipsis, KeyRound, OctagonPause, Pencil, Play, Plus, Stethoscope } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "@modelvend/admin-api/client";
+import {
+  checkProvider,
+  listProviders,
+  pauseProvider,
+  resumeProvider,
+  type HealthState,
+  type Provider,
+} from "@modelvend/admin-api/providers";
 import { EmptyState, ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConfirm } from "@/components/shared/confirm";
@@ -22,19 +31,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorMessage } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import {
-  checkProvider,
-  listProviders,
-  pauseProvider,
-  resumeProvider,
-  type HealthState,
-  type Provider,
-} from "@/lib/api/providers";
 import { integer, milliseconds, percent, plural, usd, usdCompact } from "@/lib/format";
 import { toastError } from "@/lib/notify";
 import { ADAPTER_LABELS, PROVIDER_KIND_DESCRIPTIONS, PROVIDER_KIND_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { CredentialDialog, ProviderDialog } from "./provider-dialogs";
 
@@ -44,12 +44,13 @@ const ACCENT: Record<HealthState, string> = {
   outage: "var(--status-critical)",
 };
 
-/** Puts a provider a change returned in the cache; model pages show its status, so they load again. */
+/** Puts a provider a change returned in the cache; model pages show its status and the audit log the change, so they load again. */
 function useApplyProvider() {
   const queryClient = useQueryClient();
   return (provider: Provider) => {
     queryClient.setQueryData<Provider[]>(keys.providers, (list) => list?.map((p) => (p.id === provider.id ? provider : p)));
     void queryClient.invalidateQueries({ queryKey: keys.models });
+    void queryClient.invalidateQueries({ queryKey: keys.audit });
   };
 }
 

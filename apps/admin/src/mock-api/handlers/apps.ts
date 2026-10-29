@@ -1,4 +1,4 @@
-import { APP_CATEGORIES, type AppStep } from "@/lib/api/apps";
+import { APP_CATEGORIES, type AppStep } from "@modelvend/admin-api/apps";
 import { audit, changes } from "../audit";
 import { conflict, fail, invalid, invalidState, notFound } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";
@@ -90,15 +90,15 @@ function createApp(ctx: Context) {
 function updateApp(ctx: Context) {
   const app = findApp(ctx.store, ctx.params.slug);
   const { body } = ctx;
-  const before = clone(app);
   const name = text(body, "name", { max: 80 });
   if (name === "") invalid("name", "Enter a name.");
-  if (name !== undefined) app.name = name;
   const tagline = text(body, "tagline", { max: 120 });
-  if (tagline !== undefined) app.tagline = tagline;
   const description = text(body, "description", { max: 2000 });
-  if (description !== undefined) app.description = description;
   const category = oneOf(body, "category", APP_CATEGORIES);
+  const before = clone(app);
+  if (name !== undefined) app.name = name;
+  if (tagline !== undefined) app.tagline = tagline;
+  if (description !== undefined) app.description = description;
   if (category) app.category = category;
   const changed = changes(before, app, ["name", "tagline", "description", "category"]);
   if (Object.keys(changed).length > 0) audit(ctx, "app.update", "app", app.slug, changed);
@@ -130,25 +130,29 @@ function updateRelease(ctx: Context) {
   const release = findRelease(app, Number(ctx.params.number));
   if (release.status !== "draft") invalidState("Only draft releases can change. Create a new release instead.");
   const { body } = ctx;
-  const before = clone(release);
-  if (has(body, "steps")) release.steps = readSteps(ctx.store, body.steps);
+  // Everything is checked before anything changes, so a refused update leaves the draft as it was.
+  const steps = has(body, "steps") ? readSteps(ctx.store, body.steps) : undefined;
   const price = number(body, "price", { min: 0 });
-  if (price !== undefined) release.price = price;
   const notes = text(body, "notes", { max: 2000 });
+  const before = clone(release);
+  if (steps) release.steps = steps;
+  if (price !== undefined) release.price = price;
   if (notes !== undefined) release.notes = notes;
   const changed = changes(before, release, ["steps", "price", "notes"]);
   if (Object.keys(changed).length > 0) audit(ctx, "app.release.update", "app", app.slug, { release: release.number, ...changed });
   return done(ctx, app);
 }
 
-/** Puts `release` live, superseding the live one; the app goes live too. */
+/**
+ * Puts `release` live, superseding the live one. A draft app goes live with it; a paused app stays paused
+ * (the kill switch is only lifted by resuming), so the release is what runs once it is resumed.
+ */
 function goLive(app: AppRecord, release: ReleaseRecord): number | null {
   const previous = app.releases.find((r) => r.status === "live") ?? null;
   if (previous) previous.status = "superseded";
   release.status = "live";
   release.publishedAt = now();
-  app.status = "live";
-  app.pausedReason = null;
+  if (app.status !== "paused") app.status = "live";
   return previous?.number ?? null;
 }
 
@@ -160,7 +164,7 @@ function publishRelease(ctx: Context) {
   checkSteps(ctx.store, release.steps, false);
   if (!(release.price > 0)) invalidState("Set a price per run before publishing.", "no_price");
   const previous = goLive(app, release);
-  audit(ctx, "app.release.publish", "app", app.slug, { release: release.number, previous, price: release.price });
+  audit(ctx, "app.release.publish", "app", app.slug, { release: release.number, previous, price: release.price, paused: app.status === "paused" });
   return done(ctx, app);
 }
 
@@ -172,7 +176,7 @@ function rollback(ctx: Context) {
   // Deprecated versions still answer, so an emergency rollback may use them.
   checkSteps(ctx.store, release.steps, true);
   const previous = goLive(app, release);
-  audit(ctx, "app.rollback", "app", app.slug, { from: previous, to: release.number });
+  audit(ctx, "app.rollback", "app", app.slug, { from: previous, to: release.number, paused: app.status === "paused" });
   return done(ctx, app);
 }
 

@@ -32,3 +32,21 @@ func TestCostAndMicros(t *testing.T) {
 		t.Fatal("rounding")
 	}
 }
+
+func TestEstimateIsOneUnitAtTheDefaultTier(t *testing.T) {
+	p := catalog.Pricing{Unit: "second", DefaultTier: "1080p", Tiers: []catalog.Tier{{ID: "720p", Price: 0.056}, {ID: "1080p", Price: 0.084}}}
+	if got, ok := Estimate(p); !ok || got != 84_000 {
+		t.Fatalf("estimate: %d %v", got, ok)
+	}
+	p.DefaultTier = "4k"
+	if _, ok := Estimate(p); ok {
+		t.Fatal("a missing default tier has no estimate")
+	}
+}
+
+func TestLimitAllows(t *testing.T) {
+	limit := int64(100)
+	if !LimitAllows(nil, 1<<40, 1) || !LimitAllows(&limit, 60, 40) || LimitAllows(&limit, 60, 41) {
+		t.Fatal("limit")
+	}
+}

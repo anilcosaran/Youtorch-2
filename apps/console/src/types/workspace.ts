@@ -35,3 +35,14 @@ export interface TopUpPreset {
   /** Fraction of the amount granted as extra credits. */
   bonus: number;
 }
+
+export interface Workspace {
+  id: string;
+  name: string;
+  plan: string;
+}
+
+export interface User {
+  name: string;
+  email: string;
+}

@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { KEY_ENVS, KEY_STATUSES, listApiKeys } from "@modelvend/admin-api/api-keys";
 import { DataTable, rowsOf } from "@/components/data/data-table";
 import { ClearFilters, FilterBar, FilterSelect, SearchInput } from "@/components/data/filters";
 import { ListPanel } from "@/components/data/list-panel";
@@ -9,9 +10,8 @@ import { PagerBar } from "@/components/data/pager";
 import { EmptyState } from "@/components/data/states";
 import { PageFill, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { KEY_ENVS, KEY_STATUSES, listApiKeys } from "@/lib/api/api-keys";
-import { keys } from "@/lib/api/keys";
 import { KEY_ENV_LABELS, KEY_STATUS_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { pick, usePager, useUrlState } from "@/lib/use-url-state";
 import { KeyActionDialogs, KeyActionsMenu, useKeyActions } from "./key-actions";
@@ -52,7 +52,7 @@ export function ApiKeysView() {
         <FilterBar>
           <SearchInput
             label="Search keys"
-            placeholder="Name, prefix or customer"
+            placeholder="Name, prefix, key ID or customer"
             value={query}
             onChange={(value) => set({ query: value })}
           />

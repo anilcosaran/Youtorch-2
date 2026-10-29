@@ -28,11 +28,17 @@ function listRequests({ store, query }: Context) {
   return { ...page, items: page.items.map(requestRow) };
 }
 
-/** Gives the price back once: a refund ledger entry, a timeline event and `refundedAt`. */
+/**
+ * Gives the price back once: a refund ledger entry, a timeline event and `refundedAt`. Only succeeded requests
+ * are charged, so only they can be refunded.
+ */
 function refund(ctx: Context) {
   const request = findRequest(ctx.store, ctx.params.id);
   if (request.refundedAt) conflict("This request was already refunded.");
-  if (request.status !== "succeeded" && request.status !== "failed") invalidState("Only finished requests can be refunded.");
+  if (request.status === "failed" || request.status === "canceled") {
+    invalidState(`Nothing to refund: ${request.status} requests aren't charged.`);
+  }
+  if (request.status !== "succeeded") invalidState("Only finished requests can be refunded.");
   if (!(request.price > 0)) invalidState("Nothing was charged for this request.");
   const why = reason(ctx.body);
   const operator = actor(ctx);

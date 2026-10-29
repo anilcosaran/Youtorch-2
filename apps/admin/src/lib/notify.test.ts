@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "./api/client";
+import { ApiError } from "@modelvend/admin-api/client";
 import { toastError } from "./notify";
 
 const toast = vi.hoisted(() => ({ error: vi.fn() }));

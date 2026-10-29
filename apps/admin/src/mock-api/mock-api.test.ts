@@ -1,14 +1,14 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ApiKeyRow } from "@/lib/api/api-keys";
-import type { App } from "@/lib/api/apps";
-import type { AuditEntry } from "@/lib/api/audit";
-import type { Operator } from "@/lib/api/auth";
-import type { Page } from "@/lib/api/client";
-import type { Customer, CustomerRow } from "@/lib/api/customers";
-import type { Model, ModelSummary } from "@/lib/api/models";
-import type { Overview } from "@/lib/api/overview";
-import type { RequestDetail, RequestRow } from "@/lib/api/requests";
+import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
+import type { App } from "@modelvend/admin-api/apps";
+import type { AuditEntry } from "@modelvend/admin-api/audit";
+import type { Operator } from "@modelvend/admin-api/auth";
+import type { Page } from "@modelvend/admin-api/client";
+import type { Customer, CustomerRow } from "@modelvend/admin-api/customers";
+import type { Model, ModelSummary } from "@modelvend/admin-api/models";
+import type { Overview } from "@modelvend/admin-api/overview";
+import type { RequestDetail, RequestRow } from "@modelvend/admin-api/requests";
 import { MOCK_PASSWORD, handleMock, mockSettings } from ".";
 import { createStore } from "./seed";
 import { resetStore } from "./store";
@@ -189,6 +189,52 @@ describe("mock admin API", () => {
     const taken = await call("POST", "/operators", { email: "sam@modelvend.ai", name: "Sam", role: "admin" });
     expect(taken.status).toBe(409);
     expect(taken.body.error.fields?.email).toBeTruthy();
+  });
+
+  it("keeps operators.manage from making admins or taking over other operators", async () => {
+    const manager = await call<{ operator: Operator }>("POST", "/operators", {
+      email: "kit@modelvend.ai",
+      name: "Kit",
+      role: "custom",
+      permissions: ["operators.manage"],
+    });
+    await call("POST", "/auth/logout");
+    expect((await call("POST", "/auth/login", { email: "kit@modelvend.ai", password: MOCK_PASSWORD })).status).toBe(200);
+    const kit = manager.body.operator.id;
+
+    const admin = await call("POST", "/operators", { email: "eve@modelvend.ai", name: "Eve", role: "admin" });
+    expect(admin.status).toBe(403);
+    const wider = await call("POST", "/operators", { email: "eve@modelvend.ai", name: "Eve", role: "custom", permissions: ["catalog.view"] });
+    expect(wider.status).toBe(403);
+    const peer = await call<{ operator: Operator }>("POST", "/operators", {
+      email: "lee@modelvend.ai",
+      name: "Lee",
+      role: "custom",
+      permissions: ["operators.manage"],
+    });
+    expect(peer.status).toBe(200);
+    expect((await call("PATCH", `/operators/${peer.body.operator.id}`, { role: "admin" })).status).toBe(403);
+    expect((await call("PATCH", `/operators/${peer.body.operator.id}`, { name: "Lee Park" })).status).toBe(200);
+
+    // Admins and wider operators are out of reach: no disabling, no password reset.
+    expect((await call("PATCH", "/operators/op_anil", { disabled: true })).status).toBe(403);
+    expect((await call("POST", "/operators/op_anil/reset-password", { password: "takeover-1234" })).status).toBe(403);
+    expect((await call("POST", "/operators/op_mara/reset-password", {})).status).toBe(403);
+    // Your own password needs the current one, through /me/password.
+    const own = await call("POST", `/operators/${kit}/reset-password`, { password: "takeover-1234" });
+    expect(own.status).toBe(422);
+    expect(own.body.error.code).toBe("own_password");
+  });
+
+  it("refuses changes that aren't JSON", async () => {
+    const request = new NextRequest("http://localhost/api/admin/v1/operators", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ email: "eve@modelvend.ai", name: "Eve", role: "admin" }),
+    });
+    const response = await handleMock(request, "/admin/v1/operators");
+    expect(response.status).toBe(415);
+    expect((await call<Operator[]>("GET", "/operators")).body.some((o) => o.email === "eve@modelvend.ai")).toBe(false);
   });
 
   it("answers 404 for unknown routes and IDs", async () => {

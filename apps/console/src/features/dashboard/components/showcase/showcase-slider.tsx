@@ -8,7 +8,7 @@ import { buttonClass } from "@/components/ui/button";
 import { modelHref, playgroundHref } from "@/features/models/lib/links";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
-import { discounted } from "@/lib/pricing";
+import { discounted, promoRate } from "@/lib/pricing";
 import { showcaseSlides } from "@/mocks/dashboard";
 import { findModel } from "@/mocks/models";
 import type { Model } from "@/types/model";
@@ -26,6 +26,7 @@ const slides = showcaseSlides
 export function ShowcaseSlider() {
   const [index, setIndex] = useState(0);
   const go = useCallback((next: number) => setIndex((next + slides.length) % slides.length), []);
+  if (!slides.length) return null;
   const { model, headline } = slides[index];
 
   return (
@@ -86,7 +87,7 @@ export function ShowcaseSlider() {
               <Play className="size-4" /> Try it
             </Link>
             <span className="text-[14px] text-white/75 tabular">
-              from {model.promo && <s className="mr-1 text-white/45">{formatPrice(model.price)}</s>}
+              from {promoRate(model) > 0 && <s className="mr-1 text-white/45">{formatPrice(model.price)}</s>}
               <span className="font-semibold text-white">{formatPrice(discounted(model))}</span> / {model.unit}
             </span>
           </div>

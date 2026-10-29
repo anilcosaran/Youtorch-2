@@ -57,7 +57,7 @@ src/
 ├─ mocks/                   Sample models, usage series, workspace and dashboard content
 ├─ lib/                     Framework-free helpers: cn, formatters, pricing, theme, modality
 ├─ types/                   Domain types (Model, Endpoint, ApiKey, DailyUsage, ...)
-└─ config/site.ts           Brand name, URLs, user and workspace defaults
+└─ config/site.ts           Brand name and URLs (the sample user and workspace live in mocks)
 ```
 
 Conventions:
@@ -68,11 +68,12 @@ Conventions:
 
 ## Environment
 
-| Variable                   | Default                       | Used for                      |
-| -------------------------- | ----------------------------- | ----------------------------- |
-| `NEXT_PUBLIC_SITE_URL`     | `https://app.modelvend.ai`    | `metadataBase`, absolute URLs |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://api.modelvend.ai/v1` | Code samples                  |
-| `NEXT_PUBLIC_DOCS_URL`     | `https://docs.modelvend.ai`   | Docs links                    |
+| Variable                   | Default                        | Used for                      |
+| -------------------------- | ------------------------------ | ----------------------------- |
+| `NEXT_PUBLIC_SITE_URL`     | `https://app.modelvend.ai`     | `metadataBase`, absolute URLs |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://api.modelvend.ai/v1`  | Code samples                  |
+| `NEXT_PUBLIC_MCP_URL`      | `https://mcp.modelvend.ai/mcp` | MCP setup in Quickstart       |
+| `NEXT_PUBLIC_DOCS_URL`     | `https://docs.modelvend.ai`    | Docs links                    |
 
 `NEXT_PUBLIC_*` values are inlined at build time; rebuild after changing them.
 
@@ -96,10 +97,10 @@ cp -r public .next/standalone/apps/console/ && cp -r .next/static .next/standalo
 PORT=3000 node .next/standalone/apps/console/server.js
 ```
 
-Security headers (HSTS, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) are set in `next.config.ts`. A Content Security Policy is not set yet: it needs nonces for the inline theme script and Next's runtime, so add it together with the auth/proxy layer.
+Security headers (Content Security Policy, HSTS, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) are set in `next.config.ts`. Pages are prerendered, so the CSP can't use per-request nonces and allows `'unsafe-inline'` scripts (the theme script and Next's bootstrap); dev also allows `'unsafe-eval'`. Add the API origin to `connect-src` once the console calls it.
 
 ## Before going live
 
 - Replace `src/mocks` with API calls and move `ConsoleProvider` actions to server actions or a data layer.
-- Collect card details through the payment provider's hosted fields; `AddCardForm` is a visual placeholder only.
+- Add cards through Stripe's hosted form; the console never handles card numbers and only lists saved cards.
 - Add authentication; the console currently renders for anyone and is marked `noindex`.

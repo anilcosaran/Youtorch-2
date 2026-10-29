@@ -10,11 +10,13 @@ import {
   type Route,
   type RoutingPolicy,
   type UnitPrice,
-} from "@/lib/api/models";
+} from "@modelvend/admin-api/models";
+import { describeSchemaProblem, schemaProblem } from "@/lib/catalog";
+import { can } from "@/lib/permissions";
 import { matchesQuery } from "@/lib/search";
 import { audit, changes } from "../audit";
-import { UNIT_FOR, activeRoutes, answers, defaultRouting, withTierCosts } from "../catalog";
-import { conflict, invalid, invalidState, notFound, paginate } from "../http";
+import { UNIT_FOR, activeRoutes, answers, defaultRouting, listNames, mismatchedRoutes, perUnit, withTierCosts } from "../catalog";
+import { conflict, fail, forbidden, invalid, invalidState, notFound, paginate } from "../http";
 import { actor, route, type Context, type RouteDef } from "../router";
 import { EMPTY_INPUT, outputFor } from "../seed/schemas";
 import type { ModelRecord, Store } from "../types";
@@ -105,11 +107,41 @@ function readRouting(value: Body, current: RoutingPolicy): RoutingPolicy {
   };
 }
 
+/** A JSON Schema in the shape the catalog relies on; 422 naming where it breaks otherwise. */
 function readSchema(body: Body, field: string) {
   const value = body[field];
   if (!isObject(value)) return invalid(field, "Must be a JSON Schema object.");
+  const problem = schemaProblem(value);
+  if (problem) invalid(problem.path ? `${field}.${problem.path}` : field, describeSchemaProblem(problem));
   return clone(value);
 }
+
+const SCHEMA_NAMES = { inputSchema: "input", outputSchema: "output" } as const;
+
+/** 422 `invalid_schema` when either schema isn't usable, for versions copied or saved before it was checked. */
+function checkSchemas(version: ModelVersion) {
+  for (const field of ["inputSchema", "outputSchema"] as const) {
+    const problem = schemaProblem(version[field]);
+    if (!problem) continue;
+    const message = `Fix the ${SCHEMA_NAMES[field]} schema first. ${describeSchemaProblem(problem)}`;
+    fail(422, "invalid_schema", message, { [problem.path ? `${field}.${problem.path}` : field]: describeSchemaProblem(problem) });
+  }
+}
+
+/** 422 `unit_mismatch` when a route costs in another unit than the version bills, so its margin can't be known. */
+function checkRouteUnits(version: ModelVersion, doing: string) {
+  const mismatched = mismatchedRoutes(version);
+  if (mismatched.length === 0) return;
+  const names = listNames(mismatched.map((route) => route.providerName || route.providerId));
+  const units = listNames([...new Set(mismatched.map((route) => perUnit(route.cost.unit)))]);
+  invalidState(
+    `The ${names} ${mismatched.length === 1 ? "route costs" : "routes cost"} ${units}, but the version bills ${perUnit(version.pricing.unit)}. ` +
+      `Enter ${mismatched.length === 1 ? "its" : "their"} cost ${perUnit(version.pricing.unit)} before ${doing}.`,
+    "unit_mismatch",
+  );
+}
+
+const VISIBILITY_RANK = { private: 0, unlisted: 1, public: 2 } as const;
 
 // ---- Models
 
@@ -196,30 +228,37 @@ function createModel(ctx: Context) {
   return modelView(store, model);
 }
 
+/** Every field is read and checked before anything changes, so a refused update leaves the model as it was. */
 function updateModel(ctx: Context) {
   const model = findModel(ctx.store, ctx.params);
   const { body } = ctx;
-  const before = clone(model);
+  const next: Partial<ModelRecord> = {};
   const name = text(body, "name", { max: 80 });
   if (name === "") invalid("name", "Enter a name.");
-  if (name !== undefined) model.name = name;
+  if (name !== undefined) next.name = name;
   const description = text(body, "description", { max: 2000 });
-  if (description !== undefined) model.description = description;
+  if (description !== undefined) next.description = description;
   const tasks = stringList(body, "tasks", 10);
-  if (tasks) model.tasks = tasks;
+  if (tasks) next.tasks = tasks;
   const visibility = oneOf(body, "visibility", VISIBILITIES);
-  if (visibility) model.visibility = visibility;
+  if (visibility) next.visibility = visibility;
   const featured = bool(body, "featured");
-  if (featured !== undefined) model.featured = featured;
+  if (featured !== undefined) next.featured = featured;
   const tags = stringList(body, "tags", 20);
-  if (tags) model.tags = tags;
-  if (has(body, "license")) model.license = text(body, "license", { max: 120 }) || null;
+  if (tags) next.tags = tags;
+  if (has(body, "license")) next.license = text(body, "license", { max: 120 }) || null;
   for (const field of ["inputs", "outputs"] as const) {
     const media = stringList(body, field, 5);
     if (!media) continue;
     if (media.some((m) => !(MEDIA as readonly string[]).includes(m))) invalid(field, `Use ${MEDIA.join(", ")}.`);
-    model[field] = media as Medium[];
+    next[field] = media as Medium[];
   }
+  // Showing a model to more customers is a release decision, like putting a version live.
+  if (visibility && VISIBILITY_RANK[visibility] > VISIBILITY_RANK[model.visibility] && !can(actor(ctx), "catalog.publish")) {
+    forbidden(`Making ${model.name} ${visibility} needs the Publish permission (catalog.publish).`);
+  }
+  const before = clone(model);
+  Object.assign(model, next);
   const changed = changes(before, model, ["name", "description", "tasks", "visibility", "featured", "tags", "license", "inputs", "outputs"]);
   if (Object.keys(changed).length > 0) audit(ctx, "model.update", "model", model.id, changed);
   return done(ctx, model);
@@ -289,6 +328,7 @@ function createVersion(ctx: Context) {
   return done(ctx, model);
 }
 
+/** Every field is read and checked before anything changes, so a refused update leaves the version as it was. */
 function updateVersion(ctx: Context) {
   const { model, version, versionId } = target(ctx);
   const { body } = ctx;
@@ -297,16 +337,30 @@ function updateVersion(ctx: Context) {
   if (locked.length > 0 && version.status !== "draft" && version.status !== "staging") {
     invalidState("Live versions can't change their schema or price. Create a new version.", "version_locked");
   }
-  const before = clone(version);
+  const next: Partial<ModelVersion> = {};
   const label = text(body, "label", { max: 40 });
   if (label === "") invalid("label", "Enter a label.");
-  if (label !== undefined) version.label = label;
+  if (label !== undefined) next.label = label;
   const changelog = text(body, "changelog", { max: 4000 });
-  if (changelog !== undefined) version.changelog = changelog;
-  if (has(body, "routing")) version.routing = within("routing", () => readRouting(nested(body, "routing"), version.routing));
-  if (has(body, "inputSchema")) version.inputSchema = readSchema(body, "inputSchema");
-  if (has(body, "outputSchema")) version.outputSchema = readSchema(body, "outputSchema");
-  if (has(body, "pricing")) version.pricing = withTierCosts(within("pricing", () => readPricing(nested(body, "pricing"))), version.routes);
+  if (changelog !== undefined) next.changelog = changelog;
+  if (has(body, "routing")) next.routing = within("routing", () => readRouting(nested(body, "routing"), version.routing));
+  if (has(body, "inputSchema")) next.inputSchema = readSchema(body, "inputSchema");
+  if (has(body, "outputSchema")) next.outputSchema = readSchema(body, "outputSchema");
+  if (has(body, "pricing")) {
+    const pricing = within("pricing", () => readPricing(nested(body, "pricing")));
+    // A route's cost is a number per unit; billing by another unit would silently change what it means.
+    const stale = pricing.unit === version.pricing.unit ? [] : version.routes.filter((route) => route.cost.unit !== pricing.unit);
+    if (stale.length > 0) {
+      const names = listNames(stale.map((route) => route.providerName || route.providerId));
+      const message =
+        `The ${names} ${stale.length === 1 ? "route costs" : "routes cost"} ${listNames([...new Set(stale.map((r) => perUnit(r.cost.unit)))])}. ` +
+        `Enter ${stale.length === 1 ? "its" : "their"} cost ${perUnit(pricing.unit)} on the Routing tab, or remove ${stale.length === 1 ? "it" : "them"}, before billing ${perUnit(pricing.unit)}.`;
+      fail(422, "unit_mismatch", message, { "pricing.unit": message });
+    }
+    next.pricing = withTierCosts(pricing, version.routes);
+  }
+  const before = clone(version);
+  Object.assign(version, next);
   const changed = changes(before, version, ["label", "changelog", "routing", "inputSchema", "outputSchema", "pricing"]);
   if (Object.keys(changed).length > 0) audit(ctx, "version.update", "version", versionId, changed);
   return done(ctx, model);
@@ -318,6 +372,8 @@ function promoteVersion(ctx: Context) {
   const from = version.status;
   if (from !== "draft" && from !== "staging") invalidState("Only draft and staging versions can be promoted.");
   if (from === to) invalidState(`The version is already ${to}.`);
+  checkSchemas(version);
+  checkRouteUnits(version, "promoting it");
   if (to === "live") {
     if (activeRoutes(version).length === 0) invalidState("Add an active route before going live.", "no_route");
     if (version.pricing.tiers.some((tier) => !(tier.price > 0))) invalidState("Every price tier needs a price above zero.", "no_price");
@@ -359,9 +415,37 @@ function deprecateVersion(ctx: Context) {
   return done(ctx, model);
 }
 
+/**
+ * Retiring can't be undone, so it waits until nothing still counts on the version: its sunset date has passed,
+ * no live app release pins it, and no other deprecated version sends its callers to it.
+ */
 function retireVersion(ctx: Context) {
   const { model, version, versionId } = target(ctx);
   if (version.status !== "deprecated") invalidState("Only deprecated versions can be retired.");
+  if (version.sunsetAt !== null && Date.parse(version.sunsetAt) > Date.now()) {
+    invalidState(
+      `${version.id} keeps answering until its sunset date, ${version.sunsetAt.slice(0, 10)}, as callers were told. Retire it after that.`,
+      "before_sunset",
+    );
+  }
+  const pinning = ctx.store.apps.filter((app) =>
+    app.releases.some((release) => release.status === "live" && release.steps.some((step) => step.modelId === model.id && step.version === version.id)),
+  );
+  if (pinning.length > 0) {
+    invalidState(
+      `The live ${pinning.length === 1 ? "release" : "releases"} of ${listNames(pinning.map((app) => app.name))} ${pinning.length === 1 ? "pins" : "pin"} ${version.id}. ` +
+        "Deploy a release that uses another version first.",
+      "pinned_by_app",
+    );
+  }
+  const forwarding = model.versionList.filter((v) => v.id !== version.id && v.status === "deprecated" && v.replacement === version.id);
+  if (forwarding.length > 0) {
+    const ids = listNames(forwarding.map((v) => v.id));
+    invalidState(
+      `${ids} ${forwarding.length === 1 ? "is" : "are"} deprecated with ${version.id} as the replacement, so ${forwarding.length === 1 ? "its" : "their"} callers would be sent to a retired version. Retire ${ids} first.`,
+      "is_replacement",
+    );
+  }
   version.status = "retired";
   audit(ctx, "version.retire", "version", versionId, { replacement: version.replacement });
   return done(ctx, model);
@@ -397,7 +481,11 @@ function readRoute(ctx: Context, version: ModelVersion, current: Route | null) {
   if (weight !== undefined) fields.weight = weight;
   if (has(body, "cost") || !current) {
     const cost = within("cost", () => readUnitPrice(nested(body, "cost")));
-    if (cost.unit !== version.pricing.unit) invalid("cost", `Use the version's billing unit (${version.pricing.unit}).`);
+    // A draft may hold costs in the unit it is about to bill by; promoting it needs them all to match.
+    // A version that answers customers can't change its unit, so a new cost must be in it.
+    if (cost.unit !== version.pricing.unit && answers(version) && !sameJson(cost, current?.cost)) {
+      invalid("cost.unit", `This version bills ${perUnit(version.pricing.unit)}, so enter the cost ${perUnit(version.pricing.unit)}.`);
+    }
     fields.cost = cost;
   }
   const region = text(body, "region", { max: 50, ...(current ? {} : { required: "Enter a region." }) });

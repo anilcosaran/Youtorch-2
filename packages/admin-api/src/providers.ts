@@ -22,7 +22,10 @@ export type HealthState = "operational" | "degraded" | "outage";
 
 export interface ProviderCredential {
   configured: boolean;
-  /** Last characters of the secret, e.g. "…a1b2"; the secret itself never leaves the server. */
+  /**
+   * Last characters of the secret, e.g. "…a1b2". The secret itself never comes
+   * back from the API, and goes only to the `baseUrl` it was entered for.
+   */
   hint: string | null;
   source: "console" | "environment" | null;
   rotatedAt: string | null;
@@ -69,28 +72,44 @@ export interface NewProvider {
   regions: string[];
 }
 
-export type ProviderUpdate = Partial<Pick<Provider, "name" | "baseUrl" | "regions" | "limits">>;
+export type ProviderUpdate = Partial<Pick<Provider, "name" | "baseUrl" | "regions" | "limits">> & {
+  /**
+   * The credential, entered again. Required with a `baseUrl` that differs from
+   * the current one while a credential is set (from the console or the
+   * environment), so a stored secret only ever goes to the endpoint it was
+   * entered for and an operator can't point it at a host of their choosing.
+   * Without it the server answers 422 `credential_required` with
+   * `fields.secret`. It replaces the stored credential, as
+   * `setProviderCredential` does.
+   */
+  secret?: string;
+};
 
 export const listProviders = () => request<Provider[]>("/providers");
+
+const path = (id: string) => `/providers/${encodeURIComponent(id)}`;
 
 /** 409 `fields.id` when the ID is taken. */
 export const createProvider = (body: NewProvider) => request<Provider>("/providers", { method: "POST", body });
 
-export const updateProvider = (id: string, body: ProviderUpdate) =>
-  request<Provider>(`/providers/${id}`, { method: "PATCH", body });
+/** A new `baseUrl` needs `secret` while a credential is set (see `ProviderUpdate`). */
+export const updateProvider = (id: string, body: ProviderUpdate) => request<Provider>(path(id), { method: "PATCH", body });
 
 /** Every route through the provider stops taking new attempts; requests fall through to other routes. */
 export const pauseProvider = (id: string, reason: string) =>
-  request<Provider>(`/providers/${id}/pause`, { method: "POST", body: { reason } });
+  request<Provider>(`${path(id)}/pause`, { method: "POST", body: { reason } });
 
-export const resumeProvider = (id: string) => request<Provider>(`/providers/${id}/resume`, { method: "POST" });
+export const resumeProvider = (id: string) => request<Provider>(`${path(id)}/resume`, { method: "POST" });
 
 /** Write-only: the secret is stored encrypted and only its hint comes back. */
 export const setProviderCredential = (id: string, secret: string) =>
-  request<Provider>(`/providers/${id}/credential`, { method: "PUT", body: { secret } });
+  request<Provider>(`${path(id)}/credential`, { method: "PUT", body: { secret } });
 
-/** Calls the provider's cheapest health endpoint with the stored credential. */
+/**
+ * Calls the provider's cheapest health endpoint with the stored credential and
+ * records the result in its health, so it needs providers.edit (403 without).
+ */
 export const checkProvider = (id: string) =>
-  request<{ ok: boolean; latencyMs: number; message: string; provider: Provider }>(`/providers/${id}/check`, {
+  request<{ ok: boolean; latencyMs: number; message: string; provider: Provider }>(`${path(id)}/check`, {
     method: "POST",
   });

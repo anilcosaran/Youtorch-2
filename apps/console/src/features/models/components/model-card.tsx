@@ -5,8 +5,10 @@ import { ArrowUpRight, Flame, Sparkles, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { site } from "@/config/site";
 import { cn } from "@/lib/cn";
+import { formatPrice } from "@/lib/format";
 import { modalityIcon, modalityLabel } from "@/lib/modality";
-import { discounted } from "@/lib/pricing";
+import { madeBy } from "@/lib/model";
+import { discounted, promoLabel } from "@/lib/pricing";
 import type { Model } from "@/types/model";
 import { modelHref } from "../lib/links";
 import { ModelArt } from "./model-art";
@@ -21,6 +23,7 @@ interface ModelCardProps {
 
 export function ModelCard({ model, cover, className, style }: ModelCardProps) {
   const Icon = modalityIcon[model.modality];
+  const promo = promoLabel(model, false);
   return (
     <Link
       href={modelHref(model.slug)}
@@ -66,21 +69,21 @@ export function ModelCard({ model, cover, className, style }: ModelCardProps) {
       <div className="flex flex-1 flex-col p-3.5 pt-3">
         <div className="flex items-baseline justify-between gap-2">
           <h3 className="truncate text-[16px] font-bold tracking-tight">{model.name}</h3>
-          <span className="shrink-0 font-mono text-[11px] tracking-wider text-subtle uppercase">{model.provider}</span>
+          <span className="shrink-0 font-mono text-[11px] tracking-wider text-subtle uppercase">{madeBy(model)}</span>
         </div>
         <p className="mt-1 line-clamp-2 text-[13.5px] leading-relaxed text-muted">{model.description}</p>
         <div className="mt-auto flex items-center justify-between pt-3.5 text-[13px]">
           <span className="text-muted tabular">
-            {model.promo ? (
+            {promo ? (
               <>
-                <s className="mr-1 text-[12px] text-subtle">${model.price.toFixed(3)}</s>
-                <span className="font-medium text-deal">${discounted(model).toFixed(3)}</span>
+                <s className="mr-1 text-[12px] text-subtle">{formatPrice(model.price)}</s>
+                <span className="font-medium text-deal">{formatPrice(discounted(model))}</span>
               </>
             ) : (
-              <span className="font-medium text-fg">${model.price.toFixed(3)}</span>
+              <span className="font-medium text-fg">{formatPrice(model.price)}</span>
             )}
             <span className="text-subtle"> per {model.unit}</span>
-            {model.promo && <span className="ml-1.5 text-[12px] text-deal">{Math.round(model.promo * 100)}% off</span>}
+            {promo && <span className="ml-1.5 text-[12px] text-deal">{promo}</span>}
           </span>
           <span className="flex items-center gap-1 text-subtle">
             <Timer className="size-3.5" />

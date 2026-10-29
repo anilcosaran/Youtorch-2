@@ -1,17 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const DOLLARS = /^\d+(\.\d{0,2})?$/;
-
-/**
- * A typed dollar amount: null when the box is empty, NaN when it isn't an
- * amount with at most two decimals. A leading "$" and thousands commas are fine.
- */
-export function parseDollars(text: string): number | null {
-  const clean = text.trim().replace(/^\$/, "").replace(/,/g, "");
-  if (clean === "") return null;
-  return DOLLARS.test(clean) ? Number(clean) : Number.NaN;
-}
+export { DECIMAL_COMMA_MESSAGE, dollarsError, parseDollars } from "./money";
 
 /** A text box for US dollars, with the sign in front. */
 export function MoneyInput({

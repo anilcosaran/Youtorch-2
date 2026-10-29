@@ -1,11 +1,14 @@
+import { promoActive } from "@/lib/pricing";
 import type { Model } from "@/types/model";
+import { sampleToday } from "./clock";
 
-// Sample catalog: prices and specs are placeholders, replace with your real pricing source.
-export const models: Model[] = [
+// Sample catalog: IDs match the admin catalog; prices and specs are placeholders, replace with your real pricing source.
+const catalog: Model[] = [
   {
+    publisher: "modelvend",
     slug: "lumen-1",
     name: "Lumen 1",
-    provider: "modelvend",
+    disclosure: "white_label",
     modality: "video",
     description: "Our in-house cinematic model with camera control, consistent characters and native audio up to 20s.",
     price: 0.152,
@@ -16,7 +19,7 @@ export const models: Model[] = [
       { label: "1080p", price: 0.152 },
       { label: "4K", price: 0.29 },
     ],
-    promo: 0.25,
+    promo: { discount: 0.25, until: "2026-11-30" },
     inputs: ["text", "image"],
     outputs: ["video", "audio"],
     maxOutput: "20s · 4K",
@@ -26,9 +29,11 @@ export const models: Model[] = [
     art: { pattern: "aurora", colors: ["#ff5e2b", "#7a2cff", "#0b0d12"] },
   },
   {
+    publisher: "kling",
     slug: "kling-3",
     name: "Kling 3.0",
-    provider: "kling",
+    disclosure: "open",
+    author: "Kling AI",
     modality: "video",
     description: "Multi-shot sequences from text or images with synced audio and durations up to 15 seconds.",
     price: 0.084,
@@ -38,7 +43,7 @@ export const models: Model[] = [
       { label: "720p", price: 0.056 },
       { label: "1080p", price: 0.084 },
     ],
-    promo: 0.2,
+    promo: { discount: 0.2, until: "2026-11-15" },
     inputs: ["text", "image"],
     outputs: ["video", "audio"],
     maxOutput: "15s · 1080p",
@@ -48,9 +53,11 @@ export const models: Model[] = [
     art: { pattern: "dunes", colors: ["#ffb36b", "#e8467c", "#1a0e1f"] },
   },
   {
-    slug: "veo-3-1",
+    publisher: "google",
+    slug: "veo-3.1",
     name: "Veo 3.1",
-    provider: "google",
+    disclosure: "open",
+    author: "Google",
     modality: "video",
     description: "High-fidelity 1080p video with dialogue, sound effects and strong prompt adherence.",
     price: 0.25,
@@ -68,9 +75,11 @@ export const models: Model[] = [
     art: { pattern: "horizon", colors: ["#58c4ff", "#3a4bff", "#060914"] },
   },
   {
-    slug: "seedance-2-5",
+    publisher: "bytedance",
+    slug: "seedance-2.5",
     name: "Seedance 2.5",
-    provider: "bytedance",
+    disclosure: "open",
+    author: "ByteDance",
     modality: "video",
     description: "Fast, motion-rich clips from text, images or reference video with optional sound.",
     price: 0.206,
@@ -82,7 +91,7 @@ export const models: Model[] = [
       { label: "720p", price: 0.14 },
       { label: "1080p", price: 0.206 },
     ],
-    promo: 0.5,
+    promo: { discount: 0.5, until: "2026-10-14" },
     inputs: ["text", "image", "video"],
     outputs: ["video", "audio"],
     maxOutput: "12s · 1080p",
@@ -92,9 +101,11 @@ export const models: Model[] = [
     art: { pattern: "orb", colors: ["#c9ff6b", "#1fbf7c", "#06120d"] },
   },
   {
+    publisher: "minimax",
     slug: "hailuo-03",
     name: "Hailuo 03",
-    provider: "minimax",
+    disclosure: "open",
+    author: "MiniMax",
     modality: "video",
     description: "2K renders up to 12 seconds with physics-aware motion and first/last frame control.",
     price: 0.13,
@@ -112,9 +123,11 @@ export const models: Model[] = [
     art: { pattern: "rings", colors: ["#ff8fb1", "#8e98ff", "#0e0b18"] },
   },
   {
+    publisher: "bfl",
     slug: "flux-2-pro",
     name: "FLUX.2 Pro",
-    provider: "black forest labs",
+    disclosure: "open",
+    author: "Black Forest Labs",
     modality: "image",
     description: "Photoreal images with precise typography, multi-reference editing and 4MP output.",
     price: 0.045,
@@ -135,9 +148,11 @@ export const models: Model[] = [
     art: { pattern: "prism", colors: ["#ffd36b", "#ff5e2b", "#140b06"] },
   },
   {
+    publisher: "google",
     slug: "nano-banana-pro",
     name: "Nano Banana Pro",
-    provider: "google",
+    disclosure: "open",
+    author: "Google",
     modality: "image",
     description: "Conversational image editing with world knowledge, legible text and character consistency.",
     price: 0.039,
@@ -149,7 +164,7 @@ export const models: Model[] = [
       { label: "2048×2048", price: 0.078 },
       { label: "4096×4096", price: 0.156 },
     ],
-    promo: 0.25,
+    promo: { discount: 0.25, until: "2026-11-30" },
     inputs: ["text", "image"],
     outputs: ["text", "image"],
     maxOutput: "4096×4096",
@@ -159,9 +174,11 @@ export const models: Model[] = [
     art: { pattern: "orb", colors: ["#ffe66b", "#ff9f40", "#161106"] },
   },
   {
-    slug: "seedream-4-5",
+    publisher: "bytedance",
+    slug: "seedream-4.5",
     name: "Seedream 4.5",
-    provider: "bytedance",
+    disclosure: "open",
+    author: "ByteDance",
     modality: "image",
     description: "Up to 4K images and batch generation of consistent sets from a single prompt.",
     price: 0.03,
@@ -179,9 +196,11 @@ export const models: Model[] = [
     art: { pattern: "aurora", colors: ["#6bf0ff", "#b06bff", "#080a16"] },
   },
   {
+    publisher: "elevenlabs",
     slug: "eleven-v3",
     name: "Eleven v3",
-    provider: "elevenlabs",
+    disclosure: "open",
+    author: "ElevenLabs",
     modality: "audio",
     description: "Expressive multilingual speech with emotion tags, dialogue mode and 70+ languages.",
     price: 0.18,
@@ -198,9 +217,11 @@ export const models: Model[] = [
     art: { pattern: "dunes", colors: ["#8e98ff", "#3ddc97", "#070d10"] },
   },
   {
+    publisher: "google",
     slug: "lyria-2",
     name: "Lyria 2",
-    provider: "google",
+    disclosure: "open",
+    author: "Google",
     modality: "audio",
     description: "Instrumental music beds at 48kHz with tempo, key and mood steering.",
     price: 0.06,
@@ -218,9 +239,11 @@ export const models: Model[] = [
     art: { pattern: "rings", colors: ["#3ddc97", "#58c4ff", "#04100c"] },
   },
   {
+    publisher: "tencent",
     slug: "hunyuan3d-3",
     name: "Hunyuan3D 3",
-    provider: "tencent",
+    disclosure: "open",
+    author: "Tencent",
     modality: "3d",
     description: "Textured, game-ready meshes from a single image or prompt with PBR materials.",
     price: 0.35,
@@ -239,9 +262,11 @@ export const models: Model[] = [
     art: { pattern: "horizon", colors: ["#ff7a4d", "#ffc7b0", "#120806"] },
   },
   {
-    slug: "wan-2-6",
+    publisher: "alibaba",
+    slug: "wan-2.6",
     name: "Wan 2.6",
-    provider: "alibaba",
+    disclosure: "open",
+    author: "Alibaba",
     modality: "video",
     description: "Open-weight video model with lip-sync, character references and 1080p output.",
     price: 0.07,
@@ -260,13 +285,17 @@ export const models: Model[] = [
   },
 ];
 
+/** Offers past their last day are dropped, as the API would. */
+export const models: Model[] = catalog.map(({ promo, ...model }) =>
+  promo && promoActive(promo, sampleToday) ? { ...model, promo } : model,
+);
+
+/** Undefined for slugs that aren't in the catalog; curated lists skip those instead of failing. */
 export function findModel(slug: string) {
   return models.find((m) => m.slug === slug);
 }
 
-/** For curated lists whose slugs are known to exist in the catalog. */
-export function getModel(slug: string) {
-  const model = findModel(slug);
-  if (!model) throw new Error(`Unknown model "${slug}"`);
-  return model;
+/** Resolves curated slugs, leaving out any the catalog no longer has. */
+export function findModels(slugs: string[]) {
+  return slugs.map(findModel).filter((m): m is Model => !!m);
 }

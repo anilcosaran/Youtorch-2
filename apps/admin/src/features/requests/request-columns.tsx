@@ -1,12 +1,12 @@
 "use client";
 
+import type { RequestRow } from "@modelvend/admin-api/requests";
 import type { Column } from "@/components/data/data-table";
 import { AccessLink } from "@/components/shared/access-link";
 import { PanelRowLink } from "@/components/shared/panel-link";
 import { RequestStatusPill } from "@/components/shared/status";
 import { RelativeTime } from "@/components/shared/time";
-import { modelHref } from "@/lib/api/models";
-import type { RequestRow } from "@/lib/api/requests";
+import { modelHref } from "@/lib/catalog";
 import { milliseconds, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { inFlight, marginOf, money, unitsText } from "./request-format";

@@ -1,4 +1,4 @@
-import type { Limits } from "@/lib/api/customers";
+import type { Limits } from "@modelvend/admin-api/customers";
 import { integer, usd } from "@/lib/format";
 
 export type LimitKey = keyof Limits;

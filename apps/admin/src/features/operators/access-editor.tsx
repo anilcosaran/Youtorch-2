@@ -1,13 +1,16 @@
 "use client";
 
 import { ShieldCheck } from "lucide-react";
-import type { PermissionCatalog } from "@/lib/api/operators";
+import type { PermissionCatalog } from "@modelvend/admin-api/operators";
 import {
+  can,
   chooseCustom,
   choosePreset,
   CUSTOM,
   groupByArea,
   togglePermission,
+  within,
+  type Access,
   type AccessDraft,
 } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
@@ -21,16 +24,20 @@ const CUSTOM_PRESET = {
 /**
  * Who may do what: a preset, then the permissions it stands for. Picking a
  * preset ticks its boxes; changing a box makes the access custom. Admins
- * hold every permission, so their boxes can't be changed.
+ * hold every permission, so their boxes can't be changed. Presets and
+ * permissions beyond what `holder` has are locked, as the server refuses them.
  */
 export function AccessEditor({
   catalog,
+  holder,
   value,
   onChange,
   disabled = false,
   error,
 }: {
   catalog: PermissionCatalog;
+  /** The signed-in operator, who can only give access they have. */
+  holder: Access | null;
   value: AccessDraft;
   onChange: (draft: AccessDraft) => void;
   disabled?: boolean;
@@ -38,7 +45,10 @@ export function AccessEditor({
   error?: string;
 }) {
   const admin = value.role === "admin";
-  const presets = [...catalog.presets, CUSTOM_PRESET];
+  const presets = [
+    ...catalog.presets.map((preset) => ({ ...preset, locked: !within(preset, holder) })),
+    { ...CUSTOM_PRESET, locked: false },
+  ];
   const ticked = new Set(value.permissions);
 
   const pick = (id: string) => {
@@ -67,6 +77,7 @@ export function AccessEditor({
                   name="operator-access"
                   value={preset.id}
                   checked={selected}
+                  disabled={preset.locked}
                   onChange={() => pick(preset.id)}
                   className="mt-0.5 accent-[var(--brand)]"
                 />
@@ -106,10 +117,16 @@ export function AccessEditor({
               <ul className="divide-y">
                 {group.permissions.map((info) => (
                   <li key={info.id}>
-                    <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 has-disabled:cursor-default">
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-start gap-3 px-3 py-2.5 has-disabled:cursor-default",
+                        !admin && !can(holder, info.id) && "opacity-60",
+                      )}
+                    >
                       <input
                         type="checkbox"
                         checked={admin || ticked.has(info.id)}
+                        disabled={!can(holder, info.id)}
                         onChange={(event) =>
                           onChange(togglePermission(value, info.id, event.target.checked, catalog.permissions))
                         }

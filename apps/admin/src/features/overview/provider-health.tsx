@@ -1,10 +1,10 @@
+import type { OverviewProvider } from "@modelvend/admin-api/overview";
+import type { HealthState } from "@modelvend/admin-api/providers";
 import { AccessLink } from "@/components/shared/access-link";
 import { HealthPill } from "@/components/shared/status";
-import type { Overview } from "@/lib/api/overview";
-import type { HealthState } from "@/lib/api/providers";
 import { compact, milliseconds, percent } from "@/lib/format";
 
-type ProviderHealthRow = Overview["providers"][number];
+type ProviderHealthRow = OverviewProvider;
 
 /** Outages first, then degraded, then by traffic. */
 const SEVERITY: Record<HealthState, number> = { outage: 0, degraded: 1, operational: 2 };

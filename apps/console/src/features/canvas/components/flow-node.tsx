@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import { modalityIcon } from "@/lib/modality";
 import type { FlowStep } from "@/mocks/canvas";
-import { getModel } from "@/mocks/models";
+import { findModel } from "@/mocks/models";
 import { stepCost } from "../lib/flow";
 
 export const stepKinds: Record<FlowStep["kind"], { label: string; icon: LucideIcon }> = {
@@ -20,7 +20,7 @@ const wave = Array.from({ length: 30 }, (_, i) => Math.round(22 + Math.abs(Math.
 /** One step on a Canvas board: what it makes, which model runs it and what it costs per run. */
 export function FlowNode({ step, className, style }: { step: FlowStep; className?: string; style?: CSSProperties }) {
   const { label, icon: Icon } = stepKinds[step.kind];
-  const model = step.slug ? getModel(step.slug) : undefined;
+  const model = step.slug ? findModel(step.slug) : undefined;
   const running = step.progress !== undefined;
 
   return (

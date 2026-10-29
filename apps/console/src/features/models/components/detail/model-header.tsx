@@ -2,12 +2,13 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Code2, Copy, FileText, Flame, GitCompareArrows, Play, Sparkles, Star } from "lucide-react";
+import { ArrowUpRight, Code2, Copy, FileText, Flame, Play, Sparkles, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { site } from "@/config/site";
 import { cn } from "@/lib/cn";
+import { modelId } from "@/lib/model";
 import type { Model } from "@/types/model";
 import { ModelArt } from "../model-art";
 
@@ -15,9 +16,18 @@ export function ModelHeader({ model, onTry, onApi }: { model: Model; onTry: () =
   const toast = useToast();
   const [starred, setStarred] = useState(false);
 
-  const copyId = () => {
-    navigator.clipboard?.writeText(model.slug);
-    toast(`Copied ${model.slug}`);
+  const id = modelId(model);
+  // Open models credit their maker; white-label models never name it.
+  const author =
+    model.disclosure === "open" && model.author && !model.name.toLowerCase().startsWith(model.author.toLowerCase()) ? model.author : null;
+
+  const copyId = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      toast(`Copied ${id}`);
+    } catch {
+      toast(`Couldn’t copy. The model ID is ${id}`);
+    }
   };
 
   return (
@@ -26,14 +36,14 @@ export function ModelHeader({ model, onTry, onApi }: { model: Model; onTry: () =
         <h1 className="flex items-center gap-3 text-[24px] leading-8 font-semibold tracking-[-0.02em] text-fg">
           <ModelArt model={model} className="size-8 shrink-0 rounded-lg ring-1 ring-white/10" />
           <span className="min-w-0 truncate">
-            {!model.name.toLowerCase().startsWith(model.provider) && <span className="capitalize">{model.provider}: </span>}
+            {author && <span>{author}: </span>}
             {model.name}
           </span>
         </h1>
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[14px]">
           <span className="mr-1 text-muted">
             <Link href="/models" className="text-fg underline decoration-white/30 underline-offset-4 transition hover:decoration-white">
-              {model.provider.replace(/\s+/g, "-")}
+              {model.publisher}
             </Link>
             /{model.slug}
           </span>
@@ -64,9 +74,6 @@ export function ModelHeader({ model, onTry, onApi }: { model: Model; onTry: () =
         </div>
       </div>
       <div className="flex gap-2">
-        <Button variant="outline" className="h-9 px-3.5 text-[14px]">
-          <GitCompareArrows /> Compare
-        </Button>
         <Button variant="outline" className="h-9 px-3.5 text-[14px]" onClick={onApi}>
           <Code2 /> API
         </Button>

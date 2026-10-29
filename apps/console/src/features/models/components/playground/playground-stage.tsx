@@ -1,9 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Download, RotateCcw, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import type { Model } from "@/types/model";
@@ -38,7 +37,6 @@ export function PlaygroundStage({
   onUseExample: (example: PlaygroundExample) => void;
   onReuse: (run: PlaygroundRun) => void;
 }) {
-  const toast = useToast();
   const showOutput = view === "output" && run;
   const step = (by: number) => onExampleIndex((exampleIndex + by + exampleCount) % exampleCount);
 
@@ -64,9 +62,8 @@ export function PlaygroundStage({
                 <Button variant="ghost" size="sm" onClick={() => onReuse(run)}>
                   <RotateCcw /> Reuse
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast("Download started")}>
-                  <Download /> Download
-                </Button>
+                {/* Playground runs are simulated until the console calls the API, so there is no file to download. */}
+                <span className="px-1.5 text-[12.5px] text-subtle">Sample output</span>
               </>
             )
           : exampleCount > 1 && (

@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Ban, CircleCheck, KeyRound, MoreHorizontal, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import type { Operator } from "@modelvend/admin-api/auth";
+import { fieldErrors } from "@modelvend/admin-api/client";
+import { listOperators, resetOperatorPassword, updateOperator } from "@modelvend/admin-api/operators";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { ListPanel } from "@/components/data/list-panel";
 import { EmptyState } from "@/components/data/states";
@@ -20,24 +23,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Operator } from "@/lib/api/auth";
-import { fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { listOperators, resetOperatorPassword, updateOperator } from "@/lib/api/operators";
 import { toastError } from "@/lib/notify";
-import { accessLabel } from "@/lib/permissions";
+import { accessLabel, within } from "@/lib/permissions";
+import { keys } from "@/lib/query-keys";
 import { useSession } from "@/lib/session";
 import { PasswordDialog } from "./operator-dialogs";
 import { CreateOperatorSheet, EditAccessSheet, usePermissionCatalog } from "./operator-sheets";
 
 function RowActions({
   operator,
-  self,
+  locked,
   onEdit,
   onReset,
 }: {
   operator: Operator;
-  self: boolean;
+  /** Yourself, or an operator with access you don't have: view only. */
+  locked: boolean;
   onEdit: (operator: Operator) => void;
   onReset: (operator: Operator) => void;
 }) {
@@ -78,9 +79,9 @@ function RowActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={() => onEdit(operator)}>
-            <ShieldCheck /> {self ? "View access" : "Edit access"}
+            <ShieldCheck /> {locked ? "View access" : "Edit access"}
           </DropdownMenuItem>
-          {!self && (
+          {!locked && (
             <>
               <DropdownMenuItem onSelect={() => onReset(operator)}>
                 <KeyRound /> Reset password
@@ -173,7 +174,7 @@ export function OperatorsView() {
       cell: (row) => (
         <RowActions
           operator={row}
-          self={row.id === me?.id}
+          locked={row.id === me?.id || !within(row, me)}
           onEdit={setEditing}
           onReset={(o) => void resetPassword(o)}
         />

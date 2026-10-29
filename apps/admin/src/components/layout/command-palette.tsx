@@ -13,13 +13,14 @@ import {
   type ReactNode,
 } from "react";
 import { ArrowRight, Boxes, CornerDownLeft, LoaderCircle, Search, type LucideIcon } from "lucide-react";
+import { errorMessage } from "@modelvend/admin-api/client";
+import { listCustomers, type CustomerRow } from "@modelvend/admin-api/customers";
+import { listModels, type ModelSummary } from "@modelvend/admin-api/models";
 import { Monogram } from "@/components/shared/monogram";
 import { CustomerStatusPill, ModelStatePill } from "@/components/shared/status";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { errorMessage } from "@/lib/api/client";
-import { listCustomers, type CustomerRow } from "@/lib/api/customers";
-import { keys } from "@/lib/api/keys";
-import { listModels, modelHref, type ModelSummary } from "@/lib/api/models";
+import { modelHref } from "@/lib/catalog";
+import { keys } from "@/lib/query-keys";
 import { matchesQuery } from "@/lib/search";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";

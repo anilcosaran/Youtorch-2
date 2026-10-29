@@ -1,8 +1,8 @@
 "use client";
 
+import type { Model, ModelVersion } from "@modelvend/admin-api/models";
 import { VersionStatusPill } from "@/components/shared/status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Model, ModelVersion } from "@/lib/api/models";
 
 /** Picks which version a tab shows; the default is marked. */
 export function VersionPicker({

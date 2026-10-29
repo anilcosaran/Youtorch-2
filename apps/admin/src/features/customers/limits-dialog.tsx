@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { limitsFor, loweredLimits, TIER_LIMITS, TIERS, updateCustomer, type Customer, type Tier } from "@modelvend/admin-api/customers";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,12 +23,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { TIER_LIMITS, TIERS, updateCustomer, type Customer, type Tier } from "@/lib/api/customers";
+import { Textarea } from "@/components/ui/textarea";
 import { TIER_LABELS } from "@/lib/labels";
+import { formErrors } from "@/lib/notify";
 import { storeCustomer } from "./cache";
 import { formatLimit, LIMIT_KEYS, LIMIT_LABELS, type LimitKey } from "./limits";
-import { MoneyInput, parseDollars } from "./money-input";
+import { dollarsError, parseCount, parseDollars } from "./money";
+import { MoneyInput } from "./money-input";
 
 const MAX_COUNT = 1_000_000;
 
@@ -41,10 +43,8 @@ function parseLimit(key: LimitKey, text: string): number | null {
     const dollars = parseDollars(text);
     return dollars === null || dollars > 0 ? dollars : Number.NaN;
   }
-  const clean = text.trim().replace(/,/g, "");
-  if (clean === "") return null;
-  const n = Number(clean);
-  return /^\d+$/.test(clean) && n >= 1 && n <= MAX_COUNT ? n : Number.NaN;
+  const n = parseCount(text);
+  return n === null || (n >= 1 && n <= MAX_COUNT) ? n : Number.NaN;
 }
 
 const INVALID: Record<LimitKey, string> = {
@@ -52,6 +52,12 @@ const INVALID: Record<LimitKey, string> = {
   concurrency: "Enter a whole number from 1 to 1,000,000, or leave it empty.",
   monthlySpendCap: "Enter an amount above $0 with at most two decimals, or leave it empty.",
 };
+
+/** The server's names for the fields this form shows. */
+const FIELD = { tier: "tier", reason: "reason", ...Object.fromEntries(LIMIT_KEYS.map((key) => [key, `limits.${key}`])) } as Record<
+  "tier" | "reason" | LimitKey,
+  string
+>;
 
 function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => void }) {
   const queryClient = useQueryClient();
@@ -67,6 +73,7 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
       monthlySpendCap: text("monthlySpendCap"),
     };
   });
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -80,10 +87,14 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
   const tierChanged = tier !== customer.tier;
   const changed = tierChanged || limitsChanged;
   const defaults = TIER_LIMITS[tier];
+  const after = limitsFor(tier, parsed);
+  // What the change takes away; it starts refusing requests sooner, so it needs a reason on record.
+  const lowered = invalid ? [] : loweredLimits({ tier: customer.tier, limits: customer.limits }, { tier, limits: after });
+  const lowering = changed && lowered.length > 0;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!changed || invalid) return;
+    if (!changed || invalid || busy || (lowering && !reason.trim())) return;
     setBusy(true);
     setError(null);
     setFields({});
@@ -92,17 +103,23 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
       const updated = await updateCustomer(customer.id, {
         ...(tierChanged && { tier }),
         ...(limitsChanged && { limits: parsed }),
+        ...(reason.trim() && { reason: reason.trim() }),
       });
       storeCustomer(queryClient, updated);
       toast.success(`Limits saved for ${customer.workspace}`);
       onDone();
     } catch (err) {
-      const byField = fieldErrors(err);
-      setFields(byField);
-      const known = ["tier", ...LIMIT_KEYS];
-      if (!Object.keys(byField).some((field) => known.includes(field))) setError(errorMessage(err));
+      const shown = formErrors(err, Object.values(FIELD), { tier: "Tier" });
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
+  };
+
+  const fieldError = (key: LimitKey) => {
+    if (fields[FIELD[key]]) return fields[FIELD[key]];
+    if (!Number.isNaN(parsed[key])) return undefined;
+    return (key === "monthlySpendCap" && dollarsError(values[key])) || INVALID[key];
   };
 
   return (
@@ -129,18 +146,12 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
         {LIMIT_KEYS.map((key) => {
           const id = `limit-${key}`;
           const fallback = `${TIER_LABELS[tier]} default: ${formatLimit(key, defaults[key])}`;
-          const bad = Number.isNaN(parsed[key]);
+          const problem = fieldError(key);
           const change = (value: string) => setValues((v) => ({ ...v, [key]: value }));
           return (
-            <Field key={key} id={id} label={LIMIT_LABELS[key]} error={fields[key] ?? (bad ? INVALID[key] : undefined)}>
+            <Field key={key} id={id} label={LIMIT_LABELS[key]} error={problem}>
               {key === "monthlySpendCap" ? (
-                <MoneyInput
-                  id={id}
-                  value={values[key]}
-                  onChange={change}
-                  placeholder={fallback}
-                  invalid={bad || Boolean(fields[key])}
-                />
+                <MoneyInput id={id} value={values[key]} onChange={change} placeholder={fallback} invalid={Boolean(problem)} />
               ) : (
                 <Input
                   id={id}
@@ -149,7 +160,7 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
                   value={values[key]}
                   onChange={(e) => change(e.target.value)}
                   placeholder={fallback}
-                  aria-invalid={bad || Boolean(fields[key])}
+                  aria-invalid={Boolean(problem)}
                   className="tabular"
                 />
               )}
@@ -157,13 +168,50 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
           );
         })}
       </fieldset>
+      {lowering && (
+        <div role="alert" className="grid gap-3 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-sm">
+          <div>
+            <p className="font-medium">This lowers what {customer.workspace} may do, from its next request:</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {lowered.map((key) =>
+                key === "tier" ? (
+                  <li key={key}>
+                    Tier: {TIER_LABELS[customer.tier]} → {TIER_LABELS[tier]}
+                  </li>
+                ) : (
+                  <li key={key}>
+                    {LIMIT_LABELS[key]}: {formatLimit(key, customer.limits[key])} → {formatLimit(key, after[key])}
+                    {key === "monthlySpendCap" && ". Requests are refused once this month's spend reaches it"}
+                  </li>
+                ),
+              )}
+            </ul>
+          </div>
+          <Field id="limits-reason" label="Reason" hint="Required to lower limits; kept in the audit log." error={fields.reason}>
+            <Textarea
+              id="limits-reason"
+              required
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why the workspace gets less, e.g. the customer asked to downgrade"
+              maxLength={500}
+              aria-invalid={Boolean(fields.reason)}
+              className="min-h-16 bg-background"
+            />
+          </Field>
+        </div>
+      )}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={busy || !changed || invalid}>
+        <Button
+          type="submit"
+          variant={lowering ? "destructive" : "default"}
+          disabled={busy || !changed || invalid || (lowering && !reason.trim())}
+        >
           {busy && <LoaderCircle className="animate-spin" />}
-          Save limits
+          {lowering ? "Lower limits" : "Save limits"}
         </Button>
       </DialogFooter>
     </form>

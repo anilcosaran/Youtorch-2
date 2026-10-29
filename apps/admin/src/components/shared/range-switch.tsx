@@ -1,6 +1,6 @@
 "use client";
 
-import { RANGES, type Range } from "@/lib/api/client";
+import { RANGES, type Range } from "@modelvend/admin-api/client";
 import { pick, useUrlState } from "@/lib/use-url-state";
 import { Segmented } from "./segmented";
 

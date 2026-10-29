@@ -9,7 +9,9 @@ export const modelTabs = [
   { id: "api", label: "API", icon: Code2 },
 ] as const;
 
-export type ModelTabId = (typeof modelTabs)[number]["id"];
+export type ModelTab = (typeof modelTabs)[number];
+
+export type ModelTabId = ModelTab["id"];
 
 export const defaultTab: ModelTabId = "playground";
 

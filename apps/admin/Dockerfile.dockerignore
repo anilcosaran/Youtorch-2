@@ -1,9 +1,12 @@
 # The build context is the repository root; patterns are relative to it.
-# Keep only the root manifests and this app.
+# Keep only the root manifests, this app and the workspace packages it depends on.
 *
 !package.json
 !package-lock.json
 !apps/admin
+!packages/admin-api
+!packages/config-eslint
+!packages/config-typescript
 **/node_modules
 **/.next
 **/npm-debug.log*

@@ -1,6 +1,6 @@
 # Modelvend platform yapısı: monorepo, teknoloji, white-label ve app'ler
 
-> Durum: iskelet kuruldu (bölüm 7). 17 Ekim 2026'da backend paketleri bounded context'lere ve dışa açık / iç yüzeylere göre yeniden düzenlendi (bölüm 3). Gerçek sağlayıcı çağrıları, faturalama ve tam API daha sonra yazılacak.
+> Durum: iskelet kuruldu (bölüm 8). 17 Ekim 2026'da backend paketleri bounded context'lere ve dışa açık / iç yüzeylere göre yeniden düzenlendi (bölüm 3). Model yayınlama, kendi runtime'larımız ve çoklu sağlayıcı tasarımı bölüm 7'de. Bakiye blokesi, tahsilat ve ledger yazıldı; gerçek sağlayıcı çağrıları, Stripe ve tam API daha sonra yazılacak.
 > [architecture.md](architecture.md)'deki domain modelinin üstüne kurulur. Bölüm 5'teki repo yapısının ayrıntılı ve güncel hâli budur.
 
 ## 1. Kısaca
@@ -98,8 +98,8 @@ modelvend/
 │  ├─ console/                          MÜŞTERİ UI: app.modelvend.ai
 │  │  └─ src/                           app/ (rotalar), features/, components/, lib/, config/, mocks/
 │  ├─ admin/                            YÖNETİM UI: admin.modelvend.ai (yalnız iç ağ veya SSO arkasında)
-│  │  └─ src/                           app/ (+ api/[...path] proxy'si), features/, components/,
-│  │                                    lib/api/ (admin API sözleşmesi ve istemci), mock-api/ (geliştirme)
+│  │  └─ src/                           app/ (+ api/[...path] proxy'si), features/, components/, lib/,
+│  │                                    mock-api/ (geliştirme; packages/admin-api sözleşmesini uygular)
 │  └─ docs/                             (sonra) docs.modelvend.ai, model sayfaları katalogdan üretilir
 │
 ├─ services/                            Go backend: tek modül, birden çok binary (ayrıntı: services/README.md)
@@ -116,13 +116,13 @@ modelvend/
 │  │  │  │  ├─ openaicompat/            /v1/chat/completions, /v1/images/generations
 │  │  │  │  ├─ mcpserver/               /mcp araçları (bölüm 6)
 │  │  │  │  └─ redact/                  Public DTO'lar ve hata eşleme: müşteriye giden her şeyin son kapısı
-│  │  │  └─ admin/                      /admin/v1 handler'ları (apps/admin/src/lib/api sözleşmesi)
+│  │  │  └─ admin/                      /admin/v1 handler'ları (packages/admin-api sözleşmesi)
 │  │  │
 │  │  ├─ catalog/                       Model, sürüm, route, fiyat, görünürlük; ID çözümleme
 │  │  │  ├─ schema/                     Model şemaları: JSON Schema doğrulama, varsayılanlar, x-ui ipuçları
 │  │  │  └─ manifest/                   catalog/*.yaml'ı draft sürüm olarak içe aktarır
 │  │  ├─ tasks/                         Task kaydı, durum makinesi, servis, job argümanları, müşteri hata kodları
-│  │  │  └─ jobs/                       dispatch_task, poll_task (River worker'ları)
+│  │  │  └─ jobs/                       dispatch_task, poll_task, sweep_tasks (River worker'ları)
 │  │  ├─ routing/                       Strateji, sağlık penceresi, devre kesici
 │  │  ├─ providers/                     Sağlayıcı arayüzü (port) ve kayıt
 │  │  │  ├─ mapping/                    Bizim girdimizden sağlayıcının parametrelerine
@@ -139,7 +139,7 @@ modelvend/
 │  │  │  └─ webhooks/                   İmzalama; sonra teslimat ve yeniden deneme job'ları
 │  │  ├─ audit/  ratelimit/             (henüz yalnız doc.go)
 │  │  │
-│  │  ├─ platform/                      Altyapı: config, database (+ dbtest), httpx, ids, logging
+│  │  ├─ platform/                      Altyapı: config, database (+ dbtest), egress (dış istekler), httpx, ids, logging
 │  │  └─ bootstrap/                     Süreçlerin ortak kurulumu: config, log, veritabanı, kuyruk istemcisi, store'lar
 │  └─ migrations/                       goose SQL (embed ile binary'ye girer)
 │
@@ -148,9 +148,14 @@ modelvend/
 │  ├─ admin.yaml                        İÇ: /admin/v1 → internal/api/admin
 │  └─ webhooks.yaml                     Müşteriye giden olay gövdeleri: task.succeeded, task.failed, …
 │
-├─ packages/                            Paylaşılan JS paketleri
+├─ packages/                            Paylaşılan JS paketleri (npm workspaces)
+│  ├─ admin-api/                        @modelvend/admin-api: /admin/v1 sözleşme tipleri ve tipli istemci (admin)
 │  ├─ api-types/                        api/*.yaml'dan üretilen TS tipleri (console, admin, sdk-js)
+│  ├─ config-eslint/                    Uygulamaların ve paketlerin ortak ESLint ayarı
+│  ├─ config-typescript/                Uygulamaların ve paketlerin extend ettiği temel tsconfig
 │  └─ sdk-js/                           @modelvend/sdk: tasks.create, tasks.wait, tasks.stream
+│
+├─ runtimes/                            (sonra) Bizim model kodumuz: Python runtime'lar, revision olarak deploy edilir (bölüm 7)
 │
 ├─ catalog/                             Model ve app manifest'leri (YAML); migrate ile içe aktarılır
 │  ├─ manifest.schema.json              Manifest biçiminin şeması
@@ -164,7 +169,7 @@ modelvend/
 ├─ docs/
 ├─ scripts/                             gen-types, seed, …
 ├─ Makefile                             make dev | gen | test | lint | migrate | images
-└─ package.json                         npm workspaces: apps/*
+└─ package.json                         npm workspaces: apps/*, packages/*
 ```
 
 Frontend'de `packages/ui` yok, çünkü müşteri konsolu ile admin konsolu iki ayrı tasarım sistemi kullanıyor. Konsolda kendi token'ları ve bileşenleri var, admin'de postpane'den gelen shadcn kiti. Ortak bir UI paketi taşıma değil yeniden tasarım olurdu.
@@ -217,18 +222,18 @@ Aynı upstream model iki kez yayınlanabilir. Örneğin `kling/kling-3` açık o
 
 ### Sızıntı noktaları ve kapatılmaları
 
-| Nerede sızar             | Nasıl kapatılır                                                                                                                                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Yanıt gövdesi            | `api/public/*` yalnızca `redact` DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                     |
-| Hata mesajları           | Upstream hataları `tasks.UpstreamFailure` bizim kodlarımıza çevirir, `redact.PublicError` da domain hatalarını public biçime getirir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                 |
-| Girdi alanları           | Müşteri bizim şemamızı görür. Sağlayıcıya özgü parametre adlarına çeviri route'un `mapping` kısmında, içeride yapılır.                                                                                                                                                                                                    |
-| Çıktı URL'leri           | Çıktı her zaman `cdn.modelvend.ai/o/<task>/<n>.<ext>` adresine kopyalanır. Upstream URL'si dışarı çıkmaz.                                                                                                                                                                                                                 |
-| Dosya metadata'sı        | EXIF, XMP ve ID3 etiketleri temizlenir (örneğin `Software` alanı). C2PA ve SynthID gibi "yapay zekâ ile üretildi" işaretleri **silinmez**: AB Yapay Zekâ Yasası sentetik içeriğin işaretlenmesini istiyor ve sağlayıcı sözleşmeleri genelde bunları korumayı şart koşuyor. Gerekirse bunlara kendi C2PA kaydımız eklenir. |
-| HTTP header'ları         | Upstream header'larının hepsi düşürülür. Yanıtlarda yalnızca bizim header'larımız olur: `x-request-id`, `ratelimit-*`, `deprecation`, `sunset`.                                                                                                                                                                           |
-| ID'ler                   | Müşteri yalnızca `task_…` görür. Upstream ID'leri sadece admin'de görünür.                                                                                                                                                                                                                                                |
-| Webhook'lar              | Bizim imzamızla, bizim gövdemizle gider.                                                                                                                                                                                                                                                                                  |
-| Dokümanlar ve playground | Bizim şemamızdan üretilir; upstream parametre adı geçmez.                                                                                                                                                                                                                                                                 |
-| Fiyat ve fatura          | Satır kalemlerinde yalnızca bizim model ID'miz yer alır.                                                                                                                                                                                                                                                                  |
+| Nerede sızar             | Nasıl kapatılır                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Yanıt gövdesi            | `api/public/*` yalnızca `redact` DTO'larını serileştirir. Task, model ve app nesnelerinde sağlayıcı alanı yoktur. Tür sistemi iç struct'ın dışarı çıkmasını engeller.                                                                                                                                                                                 |
+| Hata mesajları           | Upstream hataları `tasks.UpstreamFailure` bizim kodlarımıza çevirir, `redact.PublicError` da domain hatalarını public biçime getirir: `invalid_input` (bizim alan adlarımızla), `content_policy`, `generation_failed`, `timeout`. Ham mesaj yalnızca admin'deki attempt kaydında görünür.                                                             |
+| Girdi alanları           | Müşteri bizim şemamızı görür. Girdi şemaya göre doğrulanır (`format` dahil, U+0000 içeren metinler 422 alır) ve şemanın tanımlamadığı üst düzey alanlar atılır. Sağlayıcıya özgü parametre adlarına çeviri route'un `mapping` kısmında, içeride yapılır; `transform` isteyen route'lar, transform'lar yazılana kadar gönderimden önce başarısız olur. |
+| Çıktı URL'leri           | Çıktıda, hangi anahtarın altında olursa olsun, değerin tamamı olan her http(s) ya da data URL'si `cdn.modelvend.ai/o/<task>/<n>.<ext>` adresine kopyalanır. Kopyalama özel ağlara ve metadata adreslerine gitmez (`platform/egress`). Daha uzun bir metnin içindeki URL'ler değiştirilmez.                                                            |
+| Dosya metadata'sı        | EXIF, XMP ve ID3 etiketleri temizlenir (örneğin `Software` alanı). C2PA ve SynthID gibi "yapay zekâ ile üretildi" işaretleri **silinmez**: AB Yapay Zekâ Yasası sentetik içeriğin işaretlenmesini istiyor ve sağlayıcı sözleşmeleri genelde bunları korumayı şart koşuyor. Gerekirse bunlara kendi C2PA kaydımız eklenir.                             |
+| HTTP header'ları         | Upstream header'larının hepsi düşürülür. Yanıtlarda yalnızca bizim header'larımız olur: `x-request-id`, `ratelimit-*`, `deprecation`, `sunset`.                                                                                                                                                                                                       |
+| ID'ler                   | Müşteri yalnızca `task_…` görür. Upstream ID'leri sadece admin'de görünür.                                                                                                                                                                                                                                                                            |
+| Webhook'lar              | Bizim imzamızla, bizim gövdemizle gider.                                                                                                                                                                                                                                                                                                              |
+| Dokümanlar ve playground | Bizim şemamızdan üretilir; upstream parametre adı geçmez.                                                                                                                                                                                                                                                                                             |
+| Fiyat ve fatura          | Satır kalemlerinde yalnızca bizim model ID'miz yer alır.                                                                                                                                                                                                                                                                                              |
 
 **Hukuki not:** Her sağlayıcının sözleşmesi yeniden satışa izin vermeyebilir; bazıları atıf şartı koyar ya da başka isimle sunmayı yasaklar. Bu yüzden admin'de sağlayıcı ve route başına `white_label_allowed` alanı ve bir lisans notu tutulur. `white_label` bir model yalnızca izin veren route'lara yönlenebilir. Yayına almadan önce sağlayıcı bazında hukuki kontrol gerekir.
 
@@ -334,7 +339,7 @@ POST /v1/tasks                  {"model": "modelvend/motion-pro@v1" | "app": "pr
 GET  /v1/tasks/{id}             Task nesnesi
 GET  /v1/tasks/{id}/events      SSE: status, progress, output
 POST /v1/tasks/{id}/cancel
-GET  /v1/tasks                  ?status=&model=&app=&cursor=
+GET  /v1/tasks                  ?status=&target=&cursor=  (target: model ID ya da app slug'ı)
 GET  /v1/models                 Katalog; /v1/models/{publisher}/{slug}[@version] şema ve fiyatla birlikte
 GET  /v1/apps                   /v1/apps/{slug} şema ve fiyatla birlikte
 POST /v1/uploads                Referans medya için imzalı yükleme URL'si
@@ -374,9 +379,212 @@ MCP sunucusu (`mcp.modelvend.ai/mcp`) aynı API anahtarıyla doğrulanır. Konso
 | `wait_for_task`              | Task bitene kadar (en fazla N saniye) bekler              |
 | `cancel_task`, `list_tasks`  |                                                           |
 
-**Adlandırma:** architecture.md, admin sözleşmesi ve konsol örnekleri bugün `generations` / `req_` ve "Requests" adlarını kullanıyor. Öneri, her yerde `tasks` / `task_` adına geçmek. Hem model çağrısını hem app çalıştırmasını aynı kelime anlatır.
+**Adlandırma:** Public API, MCP, architecture.md ve konsol örnekleri `tasks` / `task_` adını kullanır. Hem model çağrısını hem app çalıştırmasını aynı kelime anlatır. Admin sözleşmesi aynı kayıtları operatörlere "Requests" ekranında gösterir.
 
-## 7. Onaylanınca kurulacak iskelet
+## 7. Model yayınlama: kaynaklar, runtime'lar ve çoklu sağlayıcı
+
+> Durum: öneri. Model, sürüm ve route kavramları, şema doğrulama, YAML import ve routing stratejileri kodda var. `runtimes/`, deploy hattı, gerçek adapter'lar ve müşteri tarafı `provider` alanı henüz yok (bölümün sonunda liste var).
+
+### Her model aynı kalıba girer
+
+Bir modeli kimin çalıştırdığı fark etmez: 3. taraf bir API, bizim yazdığımız kod ya da birkaç modeli zincirleyen bir app. Hepsi aynı üç parçaya girer:
+
+| Parça     | Ne                                                                                                  | Kim görür          | Kodda                                 |
+| --------- | --------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------- |
+| **Model** | Kalıcı kimlik: `publisher/slug`, örneğin `modelvend/product-cutout`                                 | Geliştirici        | `catalog.Model`                       |
+| **Sürüm** | Değişmez yayın (`@v1`): girdi ve çıktı JSON Schema'sı, fiyat, routing politikası                    | Geliştirici        | `catalog.Version`, `catalog/schema`   |
+| **Route** | Sürümü kimin çalıştırdığı: sağlayıcı, upstream model, parametre eşlemesi, maliyet, öncelik, ağırlık | Yalnız biz (admin) | `catalog.Route`, `providers.Provider` |
+
+Geliştirici yalnızca model ID'sini ve şemayı görür. Worker her route'u aynı arayüzle çağırır (`Submit`, `Status`, `Cancel`), bu yüzden arkada fal mı, Replicate mi, bizim kodumuz mu çalıştığı geliştirici için de worker için de aynıdır.
+
+### Üç kaynak türü
+
+| Kaynak            | Ne yazarız                                                                                                                  | Route'un `upstream`'i                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **3. taraf API**  | Sağlayıcı başına bir kez Go adapter'ı (`providers/fal`, `providers/replicate`, …). Model başına kod yok; yalnızca manifest. | Sağlayıcının model ID'si: `fal-ai/birefnet` |
+| **Bizim kodumuz** | `runtimes/<slug>/` altında bir Python runtime. Container imajı olarak değişmez bir **revision** halinde deploy edilir.      | Runtime revision'ı: `product-cutout@rev-14` |
+| **App**           | Sabitlenmiş sürümleri zincirleyen bir release (bölüm 5). Kendi route'u yoktur; adımları birer model task'ıdır.              | Yok                                         |
+
+3. taraf modellerde bizim parametre adlarımızı sağlayıcınınkine route'un `mapping` alanı çevirir (`providers/mapping`). Eşlemeye sığmayan durumlarda route'un `transform` alanı, adı verilen küçük bir Go fonksiyonunu çağırır. Bizim runtime'larımız doğrudan bizim şemamızla çalıştığı için eşleme gerekmez.
+
+### Bizim kodumuz: runtimes/
+
+```
+runtimes/                               (sonra) Bizim model kodumuz; Go servisleri bunu import etmez, yalnız HTTP ile çağırır
+└─ product-cutout/
+   ├─ model.py                          load() modeli belleğe alır; predict(input) → output
+   ├─ requirements.txt
+   ├─ runtime.yaml                      GPU tipi, eşzamanlılık, keep_alive
+   └─ tests/                            Örnek girdilerle duman testi; girdi ve çıktı sürümün şemasına karşı doğrulanır
+```
+
+```yaml
+# runtimes/product-cutout/runtime.yaml
+name: product-cutout
+gpu: L4
+min_concurrency: 0 # 0: istek yokken makine kapalı (soğuk başlangıç kabul)
+max_concurrency: 4
+keep_alive: 300 # Son istekten sonra makinenin açık kalacağı saniye
+```
+
+**Runtime sözleşmesi (öneri).** Her runtime aynı HTTP arayüzünü sunar; `providers` içindeki adapter'ın üç metodu buna denk gelir:
+
+| Runtime ucu              | Adapter metodu | Not                                                           |
+| ------------------------ | -------------- | ------------------------------------------------------------- |
+| `POST /jobs`             | `Submit`       | Gövde bizim şemamızdaki girdi; yanıt job ID'si                |
+| `GET /jobs/{id}`         | `Status`       | `pending`, `succeeded` ya da `failed`; bitince çıktı ve birim |
+| `POST /jobs/{id}/cancel` | `Cancel`       | Elinden geldiğince durdurur                                   |
+| `GET /healthz`           |                | Ölçekleyici ve routing'in sağlık penceresi için               |
+
+Çıktıdaki medya runtime'ın verdiği URL'lerdir; worker bunları her sağlayıcıda olduğu gibi kendi depomuza kopyalar (`delivery/media`).
+
+**Nerede çalışır: iki aşama.** "Kendi kodumuz" ile "kendi GPU'muz" ayrı kararlardır.
+
+Runtime'larımızın route'larında sağlayıcı her zaman `modelvend`'dir. Kodun nerede çalıştığını bu sağlayıcı kaydının adapter'ı belirler. Böylece müşteri, açık modellerde bile kodumuzun hangi platformda çalıştığını görmez.
+
+1. **Aşama 1 (hemen): başkasının GPU'su.** Runtime'lar Baseten, Modal ya da fal serverless üzerinde deploy edilir. Platform başına bir adapter yazılır (`providers/baseten`, `providers/modal`) ve `modelvend` sağlayıcısının adapter'ı o olur. Runtime'ı bu platformların paketleme biçimine (Truss, Modal app, `fal.App`) saran ince bir katman gerekir; `model.py` aynı kalır.
+2. **Aşama 2 (hacim gelince): kendi GPU kümemiz.** Kubernetes üstünde GPU node'ları ve kuyruk uzunluğuna göre KEDA ile ölçekleme. `modelvend` sağlayıcısının adapter'ı `managed` olur ve kümedeki runtime'lara gider. Model kodu, manifest ve route'lar aynı kalır. `runtime.yaml`'daki `min_concurrency`, `max_concurrency` ve `keep_alive` burada uygulanır (fal'ın `fal.App` ayarlarının karşılığı).
+
+Geçiş sırasında iki sağlayıcı kaydı birlikte tutulabilir; ikisi de müşteriye `modelvend` olarak görünür ve route ağırlıklarıyla kademeli geçilir.
+
+**Revision'lar.** Her deploy değişmez bir revision üretir (`rev-14`). Rollback, route'u bir önceki revision'a çevirmektir; fal'daki `set-rev` gibi. Bir revision'ın girdi ve çıktı şeması, bağlandığı sürümün şemasıyla aynı olmak zorundadır; route'a bağlarken bu kontrol edilir. Şema değişiyorsa yeni sürüm açılır.
+
+### Yayınlama akışı
+
+Üç kaynak türü için de aynı:
+
+1. **Manifest:** `catalog/models/<publisher>/<slug>.yaml` yazılır ya da model admin konsolunda oluşturulur.
+2. **Draft:** `migrate catalog import` her zaman yeni bir draft sürüm oluşturur; canlı sürüme dokunmaz.
+3. **Runtime (yalnız bizim kodumuzda):** Runtime deploy edilir, çıkan revision route'a bağlanır.
+4. **Staging:** Sürümü yalnızca iç workspace'lerin anahtarları çağırabilir (`INTERNAL_WORKSPACES`). Admin'den ve kendi anahtarlarımızla gerçek isteklerle denenir.
+5. **Live ve default:** Admin'den promote edilir; istenirse modelin varsayılan sürümü yapılır.
+   - Canlı bir sürümün şeması ve fiyatı değişmez. Değişiklik yeni sürüm demektir.
+   - Route'lar canlıda değişebilir: öncelik, ağırlık, duraklatma, revision değişimi. Her değişiklik audit'e yazılır. Yeni bir route ya da revision'a kademeli geçiş `weight` ile yapılır.
+6. **Emeklilik:** Deprecated sürümün yanıtlarına `Deprecation` ve `Sunset` header'ları eklenir; yerine geçen sürüm gösterilir. Sunset tarihinden sonra sürüm retire edilir.
+
+Bizim runtime'ımız ana route, 3. taraf yedek olan bir model:
+
+```yaml
+# catalog/models/modelvend/product-cutout.yaml
+id: modelvend/product-cutout
+name: Product Cutout
+modality: image
+tasks: [background-removal]
+visibility: public
+disclosure: white_label
+versions:
+  - id: v1
+    input:
+      type: object
+      required: [image_url]
+      properties:
+        image_url: { type: string, format: uri }
+    output:
+      type: object
+      properties:
+        image: { $ref: "#/$defs/image" }
+    pricing:
+      unit: image
+      default_tier: default
+      tiers: [{ id: default, label: Standard, price: 0.02 }]
+    routing: { strategy: priority, fallbacks: true, max_attempts: 2 }
+    routes:
+      - provider: modelvend # Bizim runtime'ımız; nerede çalıştığını sağlayıcının adapter'ı belirler
+        upstream: product-cutout@rev-14
+        priority: 1
+        cost: 0.004
+      - provider: fal # Yedek: 3. taraf
+        upstream: fal-ai/birefnet
+        priority: 2
+        cost: 0.01
+        mapping:
+          image_url: image_url
+```
+
+### Geliştirici nasıl kullanır
+
+Kaynak türü ne olursa olsun çağrı aynıdır:
+
+```bash
+curl https://api.modelvend.ai/v1/tasks \
+  -H "Authorization: Bearer mv_live_…" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "modelvend/product-cutout@v1", "input": {"image_url": "https://…"}}'
+```
+
+- Yanıt bir task'tır (bölüm 6). Durum `GET /v1/tasks/{id}` ile sorgulanır, `/v1/tasks/{id}/events` SSE akışı ya da webhook ile izlenir. `Prefer: wait=30` ile istek 60 saniyeye kadar senkron bekler.
+- SDK: `mv.tasks.create({ model, input })`, `mv.tasks.wait(id)`, `mv.tasks.stream(id)`.
+- Şema `GET /v1/models/{publisher}/{slug}` ile alınır. Dokümanlar, playground formu ve SDK tipleri buradan üretilir.
+- Sürüm verilmezse modelin varsayılan sürümü çalışır. Üretimde sürümü sabitlemek (`@v1`) önerilir.
+- OpenAI uyumlu uçlar ve MCP aynı task motorunu kullanır.
+
+### Çoklu sağlayıcı
+
+**Varsayılan: müşteri seçmez.** Bir sürümün birden çok route'u vardır; hangisinin çalışacağına sürümün politikası karar verir (`internal/routing`):
+
+| Strateji   | Ne yapar                                                   | Durum                                                                            |
+| ---------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `priority` | En düşük öncelik numarası önce; eşitlerde tanım sırası     | Kodda                                                                            |
+| `cheapest` | En düşük maliyetli route önce; eşitlerde öncelik           | Kodda                                                                            |
+| `weighted` | Aynı öncelikteki route'lar arasında ağırlığa göre rastgele | Kodda                                                                            |
+| `fastest`  | Sağlık penceresindeki p50 gecikmeye göre                   | Kodda; worker henüz gecikme verisi vermediği için bugün `priority` gibi davranır |
+
+Duraklatılmış route'lar ve sağlayıcılar, devre kesicisi açık route'lar ve white-label modellerde yeniden satışa izin vermeyen sağlayıcılar baştan elenir. Bir route başarısız olursa sıradakine geçilir, ama yalnızca upstream işi kabul etmeden önce. Upstream işi kabul ettikten sonra başka sağlayıcıya geçmek aynı işi iki kez üretir ve iki kez ödetir; o durumda iş poll edilir ya da iptal edilir. OpenRouter da fallback'i yalnızca ilk token'dan önce yapıyor.
+
+**Müşterinin sağlayıcı seçmesi (sonra).** OpenRouter'daki gibi isteğe bir `provider` alanı eklenir:
+
+```json
+{
+  "model": "kling/kling-3",
+  "input": { "prompt": "…" },
+  "provider": { "only": ["fal"], "ignore": ["replicate"], "allow_fallbacks": false, "max_price": 0.5 }
+}
+```
+
+| Alan              | Ne yapar                                                                                                               |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `only`            | Yalnızca bu sağlayıcılar kullanılır                                                                                    |
+| `ignore`          | Bu sağlayıcılar hiç kullanılmaz                                                                                        |
+| `order`           | Sağlayıcılar bu sırayla denenir; sürümün politikasının yerine geçer                                                    |
+| `allow_fallbacks` | `false` ise ilk uygun sağlayıcı düşünce task başarısız olur                                                            |
+| `max_price`       | Müşteri fiyatı bunun üstündeyse task çalışmaz. Route başına fiyat seçilirse (bölüm 9, karar 7) pahalı route'lar elenir |
+
+- Sağlayıcı ID'leri bizim adlarımızdır (`fal`, `replicate`, `vertex`, `modelvend`). `GET /v1/models/{publisher}/{slug}/endpoints` bir modelin sağlayıcılarını listeler: sağlayıcı, bölge, uptime ve gecikme. Upstream model ID'leri ve maliyetler bu listede yoktur.
+- **Yalnızca `disclosure: open` modellerde.** `white_label` modellerde sağlayıcı adı hiçbir yüzeyde görünmez; bu modellerde `provider` alanı `invalid_request` ile reddedilir (bölüm 4).
+- Kendi runtime'larımız da bu listede bir sağlayıcıdır (`modelvend`). Ucuzsa varsayılan politika onu seçer; düşerse 3. taraf route'a geçilir.
+- Fiyat: Bugünkü tasarımda müşteri sürümün tek fiyatını öder; hangi route çalışırsa çalışsın fiyat aynıdır, fark marjda kalır. OpenRouter ise endpoint başına ayrı fiyat gösteriyor. Bu bölüm 9'da açık bir karar.
+
+Bu alan `api/public/rest` içinde okunur, `routing` içinde route listesine filtre olarak uygulanır. Sağlayıcı kaydında `white_label_allowed` ve `license_notes` alanları zaten var.
+
+### Kodda nerede
+
+| Ne                                          | Nerede                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| Model, sürüm, route, yaşam döngüsü          | `services/internal/catalog`                                               |
+| Şema doğrulama ve varsayılanlar             | `services/internal/catalog/schema`                                        |
+| Manifest içe aktarma                        | `services/internal/catalog/manifest`, `cmd/migrate catalog import`        |
+| Sağlayıcı adapter'ları ve eşleme            | `services/internal/providers/<ad>`, `services/internal/providers/mapping` |
+| Route seçimi                                | `services/internal/routing`                                               |
+| Gönderme, poll, fallback                    | `services/internal/tasks/jobs`                                            |
+| `/v1/models`, `/v1/tasks`, `provider` alanı | `services/internal/api/public/rest`                                       |
+| Yaşam döngüsü, route ve revision yönetimi   | `services/internal/api/admin` ve `apps/admin` (Models ekranı)             |
+| Bizim model kodumuz                         | `runtimes/<slug>/` (sonra)                                                |
+
+### Bugün ne var, ne yok
+
+- **Var:**
+  - model, sürüm ve route kavramları; sürüm durumları (`draft`, `staging`, `live`, …);
+  - şema doğrulama ve YAML import;
+  - `priority`, `cheapest`, `weighted` ve `fastest` routing stratejileri (`fastest` henüz gecikme verisi almıyor);
+  - sahte sağlayıcıyla (`providers/fake`) uçtan uca task akışı;
+  - admin konsolunda modelin sürüm, routing, şema ve fiyat sekmeleri (mock API ile).
+- **Yok:**
+  - gerçek adapter'lar (fal, Replicate, …);
+  - `runtimes/`, runtime sözleşmesi, deploy hattı ve `managed` adapter;
+  - müşteri tarafı `provider` alanı ve `/endpoints`;
+  - `fastest` stratejisini besleyecek sağlık penceresi ve devre kesici verisi.
+
+## 8. Onaylanınca kurulacak iskelet
 
 Konsol taşıma branch'i (`apps/console`, `apps/admin`, npm workspaces) temel alınır. İş mantığı yazılmaz; yalnızca yapı, bağlantılar ve birer çalışan örnek kurulur:
 
@@ -396,12 +604,15 @@ Konsol taşıma branch'i (`apps/console`, `apps/admin`, npm workspaces) temel al
 5. **Katalog:** `catalog/manifest.schema.json`, bir white-label model ve bir app örneği. `migrate catalog import` komutu bunları draft olarak içe aktarır.
 6. **Belgeler:** architecture.md ve admin sözleşmesinde task adlandırmasına geçiş; README'lerde yeni yapı.
 
-Gerçek sağlayıcı adapter'ları, faturalama, Stripe, rate limit ve webhook teslimatı sonraki adımlardır.
+Gerçek sağlayıcı adapter'ları, Stripe, rate limit ve webhook teslimatı sonraki adımlardır. Bakiye blokesi, tahsilat, anahtar scope'ları ve aylık harcama limiti kodda.
 
-## 8. Onay gereken kararlar
+## 9. Onay gereken kararlar
 
 1. **Backend dili:** Go (öneri) mi, TypeScript mi?
-2. **Adlandırma:** `tasks` / `task_` (öneri) mi, bugünkü `generations` / `req_` mi?
+2. **Adlandırma:** Karar verildi: `tasks` / `task_`. Kod, dokümanlar ve konsol örnekleri buna geçti.
 3. **Katalog kaynağı:** Veritabanı doğruluk kaynağı, `catalog/` YAML içe/dışa aktarma için (öneri). Alternatifi git'in tek kaynak olması.
 4. **Depolama:** Cloudflare R2 (öneri) mi, AWS S3 mü?
 5. **White-label hukuku:** Sağlayıcı bazında izin kontrolü kimde olacak? Admin'deki `white_label_allowed` alanı bunu zorunlu kılar.
+6. **Kendi runtime'larımız için ilk platform (bölüm 7, Aşama 1):** Baseten mi, Modal mı, fal serverless mi?
+7. **Sağlayıcı seçen müşterinin fiyatı:** Sürümün tek fiyatı (öneri) mı, route başına ayrı müşteri fiyatı mı?
+8. **White-label modellerde `provider` alanı:** Tamamen reddedilsin (öneri) mi, yoksa `sort: price | latency` gibi sağlayıcı adı içermeyen tercihlere izin verilsin mi?

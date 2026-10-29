@@ -1,8 +1,8 @@
 import { SlidersHorizontal } from "lucide-react";
+import { TIER_LIMITS, type Customer } from "@modelvend/admin-api/customers";
 import { InfoTip } from "@/components/shared/info-tip";
 import { Pill } from "@/components/shared/pill";
 import { Button } from "@/components/ui/button";
-import { TIER_LIMITS, type Customer } from "@/lib/api/customers";
 import { TIER_LABELS } from "@/lib/labels";
 import { formatLimit, LIMIT_DESCRIPTIONS, LIMIT_KEYS, LIMIT_LABELS } from "./limits";
 

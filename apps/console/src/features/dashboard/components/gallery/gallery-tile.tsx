@@ -8,9 +8,9 @@ import { playgroundHref } from "@/features/models/lib/links";
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import { modalityIcon } from "@/lib/modality";
-import { discounted } from "@/lib/pricing";
+import { costOf } from "@/lib/pricing";
 import type { GalleryShot } from "@/mocks/dashboard";
-import { getModel } from "@/mocks/models";
+import type { Model } from "@/types/model";
 
 export const gallerySizes = "(min-width: 1280px) 22vw, 50vw";
 
@@ -18,14 +18,25 @@ export const gallerySizes = "(min-width: 1280px) 22vw, 50vw";
  * One masonry tile. Each shot slowly zooms for `duration`, then `onDone` asks for
  * the next one, which crossfades in over the previous layer. Hover pauses the clock.
  */
-export function GalleryTile({ shot, tall, duration, onDone }: { shot: GalleryShot; tall: boolean; duration: number; onDone: () => void }) {
+export function GalleryTile({
+  shot,
+  model,
+  tall,
+  duration,
+  onDone,
+}: {
+  shot: GalleryShot;
+  model: Model;
+  tall: boolean;
+  duration: number;
+  onDone: () => void;
+}) {
   const [layers, setLayers] = useState([shot]);
   const [hovered, setHovered] = useState(false);
   if (layers.at(-1) !== shot) setLayers([...layers.slice(-1), shot]);
 
-  const model = getModel(shot.slug);
   const Icon = modalityIcon[model.modality];
-  const cost = discounted(model) * (shot.seconds ?? 1);
+  const cost = costOf(model, shot.seconds ?? 1);
 
   return (
     <Link

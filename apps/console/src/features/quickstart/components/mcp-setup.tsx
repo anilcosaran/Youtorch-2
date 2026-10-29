@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquareText, Wrench } from "lucide-react";
+import { Info, MessageSquareText, Wrench } from "lucide-react";
 import { CodeBlock } from "@/components/code/code-block";
 import { apiKeyEnv } from "@/components/code/snippets";
 import type { McpClient } from "../mcp-clients";
@@ -14,21 +14,26 @@ const keyLink = (
 );
 
 export function McpSetup({ client }: { client: McpClient }) {
+  if (client.unavailable !== undefined) {
+    return (
+      <div className="flex max-w-4xl items-start gap-3 rounded-[var(--radius-card)] border border-line bg-white/[0.02] p-4 text-[14.5px] text-fg/90">
+        <Info className="mt-0.5 size-4 shrink-0 text-muted" />
+        <p>
+          <span className="font-medium text-fg">{client.name} can&apos;t connect yet.</span> {client.unavailable}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <Timeline>
       <TimelineStep
         index={1}
         title="Connect"
         body={
-          client.needsKey ? (
-            <>
-              Create an {keyLink}, export it, then add {client.name} using the snippet below.
-            </>
-          ) : (
-            <>
-              {client.name} signs in with OAuth. No {keyLink} needed — follow the steps and paste the server URL.
-            </>
-          )
+          <>
+            Create an {keyLink}, export it, then add {client.name} using the snippet below. The MCP server takes the key as a bearer token.
+          </>
         }
       >
         <ol className="mb-3.5 space-y-1.5">
@@ -39,7 +44,7 @@ export function McpSetup({ client }: { client: McpClient }) {
             </li>
           ))}
         </ol>
-        {client.needsKey && <CodeBlock code={exportKey} title={`export ${apiKeyEnv}`} className="mb-3" />}
+        <CodeBlock code={exportKey} title={`export ${apiKeyEnv}`} className="mb-3" />
         <CodeBlock key={client.id} code={client.code} title={client.file} />
       </TimelineStep>
 

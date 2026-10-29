@@ -1,4 +1,4 @@
-import type { Permission } from "./api/auth";
+import type { Permission } from "@modelvend/admin-api/auth";
 
 /** The query parameter of the item open in the side panel: `?panel=request:<id>`. */
 export const PANEL_PARAM = "panel";
@@ -21,14 +21,17 @@ export const PANEL_PERMISSIONS: Record<PanelKind, Permission> = {
 
 const isKind = (value: string): value is PanelKind => (PANEL_KINDS as readonly string[]).includes(value);
 
-/** `request:<id>` → `{ kind: "request", id }`; null for anything else. */
+/**
+ * `request:<id>` → `{ kind: "request", id }`; null for anything else. An ID never holds a slash or "..", so a
+ * crafted link can't make it read as a path to another endpoint (the client encodes IDs as well).
+ */
 export function parsePanel(value: string | null | undefined): PanelRef | null {
   if (!value) return null;
   const at = value.indexOf(":");
   if (at <= 0) return null;
   const kind = value.slice(0, at);
   const id = value.slice(at + 1).trim();
-  if (!isKind(kind) || !id) return null;
+  if (!isKind(kind) || !id || /[/\\]|\.\./.test(id)) return null;
   return { kind, id };
 }
 

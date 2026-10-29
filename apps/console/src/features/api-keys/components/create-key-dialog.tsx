@@ -10,9 +10,14 @@ import { useConsole } from "@/providers/console-provider";
 import type { Environment } from "@/types/workspace";
 
 const envOptions: { value: Environment; label: string }[] = [
-  { value: "live", label: "Live · billed" },
-  { value: "test", label: "Test · free" },
+  { value: "live", label: "Live" },
+  { value: "test", label: "Test" },
 ];
+
+const envHints: Record<Environment, string> = {
+  live: "For production traffic.",
+  test: "For test traffic, kept apart from production. Billed the same as live keys.",
+};
 
 export function CreateKeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [secret, setSecret] = useState<string | null>(null);
@@ -23,9 +28,11 @@ export function CreateKeyDialog({ open, onClose }: { open: boolean; onClose: () 
   };
 
   return (
+    // While the secret is on screen only "Done" closes the dialog: it can't be shown again.
     <Dialog
       open={open}
       onClose={close}
+      dismissible={!secret}
       title={secret ? "Save your key" : "Create API key"}
       description={secret ? undefined : "Give the key a name you'll recognise in logs."}
     >
@@ -53,6 +60,7 @@ function CreateKeyForm({ onCreated, onCancel }: { onCreated: (secret: string) =>
       <div>
         <span className="mb-1.5 block text-[13px] text-muted">Mode</span>
         <Segmented value={env} onChange={setEnv} options={envOptions} />
+        <p className="mt-1.5 text-[12.5px] text-subtle">{envHints[env]}</p>
       </div>
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="ghost" onClick={onCancel}>
@@ -67,7 +75,17 @@ function CreateKeyForm({ onCreated, onCancel }: { onCreated: (secret: string) =>
 }
 
 function SecretReveal({ secret, onDone }: { secret: string; onDone: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+
+  const copySecret = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(secret);
+      setCopy("copied");
+    } catch {
+      setCopy("failed");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -76,21 +94,19 @@ function SecretReveal({ secret, onDone }: { secret: string; onDone: () => void }
         This is the only time the full key is shown. Store it in a secret manager, never in client-side code.
       </div>
       <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-canvas p-2 pl-3">
-        <code className="min-w-0 flex-1 truncate font-mono text-[13px]">{secret}</code>
-        <Button
-          size="sm"
-          variant={copied ? "secondary" : "primary"}
-          onClick={async () => {
-            await navigator.clipboard.writeText(secret);
-            setCopied(true);
-          }}
-        >
-          {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
+        <code className="min-w-0 flex-1 truncate font-mono text-[13px] select-all">{secret}</code>
+        <Button size="sm" variant={copy === "copied" ? "secondary" : "primary"} onClick={copySecret}>
+          {copy === "copied" ? <Check /> : <Copy />} {copy === "copied" ? "Copied" : "Copy"}
         </Button>
       </div>
+      {copy === "failed" && (
+        <p role="alert" className="text-[13px] text-down">
+          Couldn’t copy to the clipboard. Click the key to select it, then copy it with your keyboard.
+        </p>
+      )}
       <div className="flex justify-end">
         <Button variant="secondary" onClick={onDone}>
-          Done
+          Done, I’ve saved it
         </Button>
       </div>
     </div>

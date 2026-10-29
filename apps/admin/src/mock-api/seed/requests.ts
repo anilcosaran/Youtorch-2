@@ -1,5 +1,5 @@
-import type { BillingUnit, JsonSchema, Modality, ModelVersion, PriceTier, Route } from "@/lib/api/models";
-import type { Attempt, RequestDetail, RequestStatus } from "@/lib/api/requests";
+import type { BillingUnit, JsonSchema, Modality, ModelVersion, PriceTier, Route } from "@modelvend/admin-api/models";
+import type { Attempt, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
 import { byPriority, defaultTier } from "../catalog";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord, ProviderRecord } from "../types";
@@ -50,11 +50,15 @@ const SCRIPTS = [
   "Our quarterly results show growth across every region, led by a strong holiday season.",
 ];
 
+/**
+ * How requests fail. The customer is never charged for a failed request; `providerCharges` marks failures the
+ * provider still bills us for (it generated the output before its filter blocked it), which show as a cost.
+ */
 const ERRORS = [
-  { code: "upstream_timeout", message: "The provider didn't finish within the timeout.", weight: 3, fallback: true, billed: false },
-  { code: "provider_error", message: "The provider answered 500 (internal error).", weight: 2, fallback: true, billed: false },
-  { code: "content_policy", message: "The provider's safety filter blocked the output after it was generated.", weight: 2.5, fallback: false, billed: true },
-  { code: "invalid_input", message: "image_url couldn't be downloaded (HTTP 403 from the host).", weight: 2.5, fallback: false, billed: false },
+  { code: "upstream_timeout", message: "The provider didn't finish within the timeout.", weight: 3, fallback: true, providerCharges: false },
+  { code: "provider_error", message: "The provider answered 500 (internal error).", weight: 2, fallback: true, providerCharges: false },
+  { code: "content_policy", message: "The provider's safety filter blocked the output after it was generated.", weight: 2.5, fallback: false, providerCharges: true },
+  { code: "invalid_input", message: "image_url couldn't be downloaded (HTTP 403 from the host).", weight: 2.5, fallback: false, providerCharges: false },
 ] as const;
 
 const RESOLUTION: Record<string, [number, number]> = {
@@ -317,7 +321,9 @@ export function seedRequests(
       clock += latency;
     };
 
+    // Only a success is billed to the customer; the route that produced output is what the provider charged for.
     let billedRoute: Route | null = null;
+    let chargedRoute: Route | null = null;
     if (status === "succeeded") {
       if (fellBack && second) {
         const timedOut = random.chance(0.5);
@@ -329,6 +335,7 @@ export function seedRequests(
         runAttempt(first, "succeeded", null);
         billedRoute = first;
       }
+      chargedRoute = billedRoute;
       const files = modality === "image" && typeof input.num_images === "number" ? input.num_images : 1;
       events.push({ at: iso(clock), status: "succeeded", detail: `Output stored (${files} ${files === 1 ? "file" : "files"}).` });
     } else if (status === "failed" && failure) {
@@ -338,7 +345,7 @@ export function seedRequests(
         events.push({ at: iso(clock), status: "attempt", detail: `Attempt 1 failed; falling back to ${providerName(second.providerId)}.` });
         runAttempt(second, outcome, failure.code);
       }
-      if (failure.billed) billedRoute = first;
+      if (failure.providerCharges) chargedRoute = first;
       events.push({ at: iso(clock), status: "failed", detail: failure.message });
     } else if (status === "canceled") {
       runAttempt(first, "canceled", null);
@@ -368,8 +375,9 @@ export function seedRequests(
       latencyMs: finished ? end - createdAt : null,
       units,
       unit: pricing.unit,
-      price: billedRoute ? money(units * tier.price) : 0,
-      cost: billedRoute ? money(units * billedRoute.cost.price * scale) : 0,
+      // units × tier price × (1 − promo), as billing quotes it.
+      price: billedRoute ? money(units * tier.price * (1 - (pricing.promo ?? 0))) : 0,
+      cost: chargedRoute ? money(units * chargedRoute.cost.price * scale) : 0,
       errorCode: failure?.code ?? null,
       createdAt: iso(createdAt),
       mode,

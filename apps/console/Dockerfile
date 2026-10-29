@@ -12,13 +12,19 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 COPY apps/console/package.json apps/console/
+# Workspace packages the app depends on: npm links them, so their manifests must be here before npm ci.
+COPY packages/config-eslint/package.json packages/config-eslint/
+COPY packages/config-typescript/package.json packages/config-typescript/
 RUN npm ci --workspace apps/console
 
 FROM deps AS builder
+COPY packages/config-eslint packages/config-eslint
+COPY packages/config-typescript packages/config-typescript
 COPY apps/console apps/console
 # NEXT_PUBLIC_* values are inlined at build time.
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_MCP_URL
 ARG NEXT_PUBLIC_DOCS_URL
 RUN npm run build --workspace apps/console
 

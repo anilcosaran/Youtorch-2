@@ -4,6 +4,8 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Ban, Gauge, LoaderCircle, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { revokeApiKey, updateApiKey, type ApiKeyRow } from "@modelvend/admin-api/api-keys";
+import { errorMessage, type Page } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { ReasonDialog } from "@/components/shared/reason-dialog";
 import { Button } from "@/components/ui/button";
@@ -22,11 +24,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoneyInput, parseDollars } from "@/features/customers/money-input";
-import { revokeApiKey, updateApiKey, type ApiKeyRow } from "@/lib/api/api-keys";
-import { errorMessage, fieldErrors, type Page } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
+import { dollarsError, parseDollars } from "@/features/customers/money";
+import { MoneyInput } from "@/features/customers/money-input";
 import { usd } from "@/lib/format";
+import { formErrors } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 
 /**
  * After a change to a key: every list on screen shows it at once, then the
@@ -100,10 +102,12 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
   const limit = parseDollars(text);
   const invalid = limit !== null && !(limit > 0);
   const changed = !invalid && limit !== apiKey.spendLimit;
+  const problem =
+    fields.spendLimit ?? dollarsError(text) ?? (invalid ? "Enter an amount above $0 with at most two decimals." : undefined);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!changed) return;
+    if (!changed || busy) return;
     setBusy(true);
     setError(null);
     setFields({});
@@ -117,9 +121,9 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
       );
       onDone();
     } catch (err) {
-      const byField = fieldErrors(err);
-      setFields(byField);
-      if (!byField.spendLimit) setError(errorMessage(err));
+      const shown = formErrors(err, ["spendLimit"]);
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
   };
@@ -131,7 +135,7 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
         id="spend-limit"
         label="Monthly spend limit"
         hint={`Leave empty for no limit. It spent ${usd(apiKey.spend30d)} in the last 30 days.`}
-        error={fields.spendLimit ?? (invalid ? "Enter an amount above $0 with at most two decimals." : undefined)}
+        error={problem}
       >
         <MoneyInput
           id="spend-limit"
@@ -139,7 +143,7 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
           value={text}
           onChange={setText}
           placeholder="No limit"
-          invalid={invalid || Boolean(fields.spendLimit)}
+          invalid={Boolean(problem)}
         />
       </Field>
       <DialogFooter>

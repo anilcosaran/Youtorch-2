@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/brieeflabs/modelvend/services/internal/billing"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
 	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
@@ -36,6 +37,15 @@ func PublicError(err error) error {
 		err = httpx.Errorf(http.StatusNotFound, "task_not_found", "There's no task with that ID in this workspace.")
 	case errors.Is(err, tasks.ErrFinal):
 		err = httpx.Errorf(http.StatusConflict, "task_finished", "This task has already finished.")
+	case errors.Is(err, tasks.ErrKeyScope):
+		err = httpx.Errorf(http.StatusForbidden, "key_scope", "This API key can't run this model or app. Use a key whose scopes include it.")
+	case errors.Is(err, tasks.ErrIdempotencyKeyReused):
+		err = httpx.Errorf(http.StatusUnprocessableEntity, "idempotency_key_reused",
+			"This idempotency key was used for a different request in the last 24 hours. Send a new key for a new request.")
+	case errors.Is(err, billing.ErrInsufficientCredits):
+		err = httpx.Errorf(http.StatusPaymentRequired, "insufficient_credits", "Your balance doesn't cover this task. Add credits and try again.")
+	case errors.Is(err, billing.ErrSpendLimitReached):
+		err = httpx.Errorf(http.StatusPaymentRequired, "spend_limit_reached", "This API key has reached its monthly spend limit. Raise the limit or use another key.")
 	}
 	return err
 }

@@ -6,6 +6,10 @@ import { request } from "./client";
  * steps call, so a new model version never changes a live app by surprise;
  * shipping one means a new release. Deploying publishes a release, and a
  * rollback publishes an earlier one again.
+ *
+ * Pausing is a kill switch that only `resumeApp` lifts: deploying or rolling
+ * back a paused app makes that release the live release, but the app stays
+ * paused and runs keep failing with 503 `app_paused` until it is resumed.
  */
 
 export const APP_CATEGORIES = ["image", "video", "audio", "3d"] as const;
@@ -59,6 +63,8 @@ export interface AppSummary {
 
 export interface App extends AppSummary {
   description: string;
+  /** Why the app is paused, when it is. */
+  pausedReason: string | null;
   releases: AppRelease[];
 }
 
@@ -75,31 +81,42 @@ export type ReleaseUpdate = Partial<Pick<AppRelease, "steps" | "price" | "notes"
 
 export const listApps = () => request<AppSummary[]>("/apps");
 
-export const getApp = (slug: string) => request<App>(`/apps/${slug}`);
+const path = encodeURIComponent;
+
+export const getApp = (slug: string) => request<App>(`/apps/${path(slug)}`);
 
 /** 409 `fields.slug` when it is taken. The app starts as a draft with an empty release 1. */
 export const createApp = (body: NewApp) => request<App>("/apps", { method: "POST", body });
 
-export const updateApp = (slug: string, body: AppUpdate) => request<App>(`/apps/${slug}`, { method: "PATCH", body });
+/** Nothing changes unless every field is valid. */
+export const updateApp = (slug: string, body: AppUpdate) => request<App>(`/apps/${path(slug)}`, { method: "PATCH", body });
 
 /** A new draft release, copied from the live one when there is one. 409 when a draft exists. */
-export const createRelease = (slug: string) => request<App>(`/apps/${slug}/releases`, { method: "POST" });
+export const createRelease = (slug: string) => request<App>(`/apps/${path(slug)}/releases`, { method: "POST" });
 
+/** Only draft releases change; nothing changes unless every field is valid. */
 export const updateRelease = (slug: string, number: number, body: ReleaseUpdate) =>
-  request<App>(`/apps/${slug}/releases/${number}`, { method: "PATCH", body });
+  request<App>(`/apps/${path(slug)}/releases/${number}`, { method: "PATCH", body });
 
 /**
- * Deploys the release: it goes live and the previous live release is
- * superseded. 422 when a step names a model version that isn't live.
+ * Deploys the release: it becomes the live release and the previous one is
+ * superseded. A draft app goes live; a paused app stays paused (`status` and
+ * `pausedReason` don't change) until `resumeApp`. 422 `version_not_live` when
+ * a step names a model version that isn't live.
  */
 export const publishRelease = (slug: string, number: number) =>
-  request<App>(`/apps/${slug}/releases/${number}/publish`, { method: "POST" });
+  request<App>(`/apps/${path(slug)}/releases/${number}/publish`, { method: "POST" });
 
-/** Puts a superseded release live again. */
+/**
+ * Makes a superseded release the live release again; its steps may use
+ * deprecated versions, which still answer. Like a deploy, it leaves a paused
+ * app paused.
+ */
 export const rollbackApp = (slug: string, number: number) =>
-  request<App>(`/apps/${slug}/rollback`, { method: "POST", body: { release: number } });
+  request<App>(`/apps/${path(slug)}/rollback`, { method: "POST", body: { release: number } });
 
+/** New runs fail with 503 `app_paused` until `resumeApp`; deploys and rollbacks don't lift it. */
 export const pauseApp = (slug: string, reason: string) =>
-  request<App>(`/apps/${slug}/pause`, { method: "POST", body: { reason } });
+  request<App>(`/apps/${path(slug)}/pause`, { method: "POST", body: { reason } });
 
-export const resumeApp = (slug: string) => request<App>(`/apps/${slug}/resume`, { method: "POST" });
+export const resumeApp = (slug: string) => request<App>(`/apps/${path(slug)}/resume`, { method: "POST" });

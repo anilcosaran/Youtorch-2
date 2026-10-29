@@ -17,7 +17,7 @@ import { getStore } from "./store";
 import { isObject, type Body } from "./validate";
 
 /*
- * An in-memory admin API for development: the contract in `src/lib/api`,
+ * An in-memory admin API for development: the contract in `packages/admin-api`,
  * answered from seeded data that lives until the server restarts.
  */
 
@@ -43,6 +43,9 @@ const ROUTES: RouteDef[] = [
 
 async function readBody(request: Request): Promise<Body> {
   if (request.method === "GET" || request.method === "HEAD") return {};
+  // A form on another site can't send this type without asking first.
+  const type = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") fail(415, "unsupported_media_type", "Send changes as JSON (Content-Type: application/json).");
   const text = await request.text();
   if (text.trim() === "") return {};
   let body: unknown;

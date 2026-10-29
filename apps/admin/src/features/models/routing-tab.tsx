@@ -3,6 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Ellipsis, LoaderCircle, Pause, Pencil, Play, Plus, Trash } from "lucide-react";
+import {
+  deleteRoute,
+  ROUTING_STRATEGIES,
+  updateRoute,
+  updateVersion,
+  type Model,
+  type ModelVersion,
+  type Route,
+  type RoutingPolicy,
+  type RoutingStrategy,
+} from "@modelvend/admin-api/models";
+import { listProviders } from "@modelvend/admin-api/providers";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/states";
 import { useConfirm } from "@/components/shared/confirm";
@@ -21,22 +33,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { keys } from "@/lib/api/keys";
-import {
-  deleteRoute,
-  ROUTING_STRATEGIES,
-  updateRoute,
-  updateVersion,
-  type Model,
-  type ModelVersion,
-  type Route,
-  type RoutingPolicy,
-  type RoutingStrategy,
-} from "@/lib/api/models";
-import { listProviders } from "@/lib/api/providers";
-import { defaultTier, margin, marginTone } from "@/lib/catalog";
+import { defaultTier, marginTone, routeMargin, soldPrice } from "@/lib/catalog";
 import { integer, milliseconds, percent, unitPrice } from "@/lib/format";
-import { STRATEGY_DESCRIPTIONS, STRATEGY_LABELS, UNIT_SHORT } from "@/lib/labels";
+import { STRATEGY_DESCRIPTIONS, STRATEGY_LABELS, UNIT_LABELS, UNIT_SHORT } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { RouteDialog } from "./route-dialog";
@@ -270,7 +270,17 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
       header: "Margin",
       align: "right",
       cell: (r) => {
-        const share = r.cost.unit === version.pricing.unit ? margin(tier?.price, r.cost.price) : null;
+        if (r.cost.unit !== version.pricing.unit) {
+          return (
+            <span
+              className="font-medium text-status-warning"
+              title={`This route costs ${UNIT_SHORT[r.cost.unit]} but the version bills ${UNIT_SHORT[version.pricing.unit]}; enter its cost in the version's unit.`}
+            >
+              Other unit
+            </span>
+          );
+        }
+        const share = routeMargin(version.pricing, r.cost);
         return <span className={cn("tabular", TONE_TEXT[marginTone(share)])}>{share === null ? "—" : percent(share, 0)}</span>;
       },
     },
@@ -315,19 +325,31 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
   }
 
   const active = version.routes.filter((r) => r.status === "active").length;
+  const otherUnit = version.routes.filter((r) => r.cost.unit !== version.pricing.unit).length;
 
   return (
     <div className="flex flex-col gap-4">
       <VersionBar model={model} version={version} onPick={onPick}>
-        {editable && (
-          <Button size="sm" onClick={() => setEditing("new")}>
-            <Plus /> Add route
-          </Button>
-        )}
+        {editable &&
+          (can.viewProviders ? (
+            <Button size="sm" onClick={() => setEditing("new")} disabled={providers.isPending}>
+              <Plus /> Add route
+            </Button>
+          ) : (
+            // Picking a provider means seeing the providers; without that access there is nothing to pick from.
+            <span className="text-xs text-muted-foreground">Adding a route needs access to view providers.</span>
+          ))}
       </VersionBar>
       {version.status === "live" && active === 0 && (
         <p role="alert" className="rounded-lg bg-status-critical/10 px-3 py-2 text-sm text-status-critical">
           No active route: every request to this version fails. Add or resume a route.
+        </p>
+      )}
+      {otherUnit > 0 && (
+        <p role="status" className="rounded-lg bg-status-warning/10 px-3 py-2 text-sm">
+          {otherUnit === 1 ? "A route costs" : `${otherUnit} routes cost`} in another unit than {version.id} bills (per{" "}
+          {UNIT_LABELS[version.pricing.unit]}), so {otherUnit === 1 ? "its" : "their"} margin can&apos;t be shown and the version
+          can&apos;t be promoted until {otherUnit === 1 ? "it costs" : "each costs"} per {UNIT_LABELS[version.pricing.unit]}.
         </p>
       )}
       <PolicyForm key={`${version.id}:${JSON.stringify(version.routing)}`} model={model} version={version} />
@@ -335,7 +357,11 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
         <div className="flex items-center gap-2 border-b px-4 py-2.5">
           <h2 className="flex-1 text-sm font-semibold">Routes</h2>
           <span className="text-xs text-muted-foreground">
-            Margins at the default tier{tier ? ` (${tier.label}, ${unitPrice(tier.price)}${UNIT_SHORT[version.pricing.unit]})` : ""}
+            Margins at the default tier
+            {tier &&
+              ` (${tier.label}, ${unitPrice(soldPrice(version.pricing, tier.price))}${UNIT_SHORT[version.pricing.unit]}${
+                version.pricing.promo ? ` after the ${percent(version.pricing.promo, 0)} promo` : ""
+              })`}
           </span>
         </div>
         <DataTable

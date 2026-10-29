@@ -1,7 +1,11 @@
-import { discounted } from "@/lib/pricing";
+import { costOf } from "@/lib/pricing";
 import type { Flow, FlowStep } from "@/mocks/canvas";
-import { getModel } from "@/mocks/models";
+import { findModel } from "@/mocks/models";
 
-export const stepCost = (step: FlowStep) => (step.slug ? discounted(getModel(step.slug)) * (step.quantity ?? 1) : 0);
+/** Zero for prompt steps and for steps whose model has left the catalog. */
+export function stepCost(step: FlowStep) {
+  const model = step.slug ? findModel(step.slug) : undefined;
+  return model ? costOf(model, step.quantity ?? 1) : 0;
+}
 
 export const flowCost = (flow: Flow) => flow.steps.reduce((sum, step) => sum + stepCost(step), 0);

@@ -10,7 +10,7 @@ import {
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
-import type { Permission } from "@/lib/api/auth";
+import type { Permission } from "@modelvend/admin-api/auth";
 
 export interface NavItem {
   href: string;

@@ -1,4 +1,4 @@
-import type { Page } from "@/lib/api/client";
+import type { Page } from "@modelvend/admin-api/client";
 
 /** An API error: the status plus the `{ error: { code, message, fields? } }` body. */
 export class MockError extends Error {
@@ -18,6 +18,8 @@ export function fail(status: number, code: string, message: string, fields?: Rec
 }
 
 export const badRequest = (message: string, code = "bad_request"): never => fail(400, code, message);
+
+export const forbidden = (message: string): never => fail(403, "forbidden", message);
 
 export const notFound = (what: string): never => fail(404, "not_found", `No ${what} with this ID.`);
 

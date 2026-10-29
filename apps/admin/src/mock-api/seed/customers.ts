@@ -1,4 +1,4 @@
-import type { LedgerEntry, Limits, Tier } from "@/lib/api/customers";
+import type { LedgerEntry, Limits, Tier } from "@modelvend/admin-api/customers";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { CustomerRecord, ModelRecord } from "../types";
 import { DAY, HOUR, MINUTE, iso, money, round, startOfUtcDay, utcDay } from "../util";

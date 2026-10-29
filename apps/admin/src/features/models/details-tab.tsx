@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import { updateModel, VISIBILITIES, type Medium, type Model, type ModelUpdate, type Visibility } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Field } from "@/components/shared/field";
 import { TagInput } from "@/components/shared/tag-input";
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { updateModel, VISIBILITIES, type Medium, type Model, type ModelUpdate, type Visibility } from "@/lib/api/models";
+import { useConfirm } from "@/components/shared/confirm";
 import { slugify } from "@/lib/catalog";
 import { VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
 import { usePermissions } from "@/lib/session";
@@ -57,32 +58,76 @@ function MediaChoice({
   );
 }
 
+type Details = ReturnType<typeof detailsOf>;
+
+/** The editable part of a model, as the form holds it. */
+const detailsOf = (model: Model) => ({
+  name: model.name,
+  description: model.description,
+  tasks: model.tasks,
+  tags: model.tags,
+  license: model.license ?? "",
+  inputs: model.inputs,
+  outputs: model.outputs,
+  visibility: model.visibility,
+  featured: model.featured,
+});
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** private < unlisted < public: moving right shows the model to more customers. */
+const VISIBILITY_RANK: Record<Visibility, number> = { private: 0, unlisted: 1, public: 2 };
+
+const WIDEN_TEXT: Record<Visibility, string> = {
+  public: "It shows in the catalog, and every workspace can call its live versions.",
+  unlisted: "Every workspace that knows its ID can call its live versions; it stays out of the catalog.",
+  private: "",
+};
+
 /** The catalog entry: what customers read about the model and who may see it. */
 export function DetailsTab({ model }: { model: Model }) {
   const can = usePermissions();
   const run = useModelAction();
+  const confirm = useConfirm();
   const locked = !can.editCatalog;
-  const initial = {
-    name: model.name,
-    description: model.description,
-    tasks: model.tasks,
-    tags: model.tags,
-    license: model.license ?? "",
-    inputs: model.inputs,
-    outputs: model.outputs,
-    visibility: model.visibility,
-    featured: model.featured,
-  };
-  const [draft, setDraft] = useState(initial);
+  const current = detailsOf(model);
+  // `origin` is what the edits started from. While nothing is edited the form follows the server; once something
+  // is, a background refetch keeps the edits, and saving sends only the fields that were edited.
+  const [seen, setSeen] = useState<Details>(current);
+  const [origin, setOrigin] = useState<Details>(current);
+  const [draft, setDraft] = useState<Details>(current);
   const [saving, setSaving] = useState(false);
-  const changed = JSON.stringify(draft) !== JSON.stringify(initial);
-  const patch = (next: Partial<typeof draft>) => setDraft((d) => ({ ...d, ...next }));
+  const dirty = !same(draft, origin);
+  if (!same(seen, current)) {
+    setSeen(current);
+    if (!dirty) {
+      setOrigin(current);
+      setDraft(current);
+    }
+  }
+  const changedElsewhere = dirty && !same(origin, current);
+  const patch = (next: Partial<Details>) => setDraft((d) => ({ ...d, ...next }));
+  const widens = VISIBILITY_RANK[draft.visibility] > VISIBILITY_RANK[model.visibility];
 
   const save = async () => {
+    const edited = (Object.keys(draft) as (keyof Details)[]).filter((key) => !same(draft[key], origin[key]));
+    if (edited.length === 0) return;
+    if (draft.visibility !== origin.visibility && widens) {
+      const ok = await confirm({
+        title: `Make ${model.name} ${VISIBILITY_LABELS[draft.visibility].toLowerCase()}?`,
+        description: `${WIDEN_TEXT[draft.visibility]} It is ${VISIBILITY_LABELS[model.visibility].toLowerCase()} now.`,
+        action: `Make ${VISIBILITY_LABELS[draft.visibility].toLowerCase()}`,
+      });
+      if (!ok) return;
+    }
     setSaving(true);
-    const body: ModelUpdate = { ...draft, name: draft.name.trim(), license: draft.license.trim() || null };
-    // A saved model comes back with a new updatedAt, which remounts the form with its values.
-    await run(() => updateModel(model.id, body), "Details saved", "Couldn't save the details");
+    const values = { ...draft, name: draft.name.trim(), license: draft.license.trim() || null };
+    const body = Object.fromEntries(edited.map((key) => [key, values[key]])) as ModelUpdate;
+    const saved = await run(() => updateModel(model.id, body), "Details saved", "Couldn't save the details");
+    if (saved) {
+      setOrigin(detailsOf(saved));
+      setDraft(detailsOf(saved));
+    }
     setSaving(false);
   };
 
@@ -119,7 +164,15 @@ export function DetailsTab({ model }: { model: Model }) {
       </DetailSection>
       <div className="flex flex-col gap-4">
         <DetailSection title="Who sees it" bodyClassName="grid gap-4">
-          <Field id="details-visibility" label="Visibility" hint={VISIBILITY_DESCRIPTIONS[draft.visibility]}>
+          <Field
+            id="details-visibility"
+            label="Visibility"
+            hint={
+              can.publishCatalog
+                ? VISIBILITY_DESCRIPTIONS[draft.visibility]
+                : `${VISIBILITY_DESCRIPTIONS[draft.visibility]} Making it more visible needs the Publish permission.`
+            }
+          >
             <Select
               value={draft.visibility}
               onValueChange={(value) => patch({ visibility: value as Visibility })}
@@ -130,7 +183,8 @@ export function DetailsTab({ model }: { model: Model }) {
               </SelectTrigger>
               <SelectContent>
                 {VISIBILITIES.map((v) => (
-                  <SelectItem key={v} value={v}>
+                  // Widening is a release decision: publishers only (the server refuses it too).
+                  <SelectItem key={v} value={v} disabled={!can.publishCatalog && VISIBILITY_RANK[v] > VISIBILITY_RANK[model.visibility]}>
                     {VISIBILITY_LABELS[v]}
                   </SelectItem>
                 ))}
@@ -145,12 +199,25 @@ export function DetailsTab({ model }: { model: Model }) {
             <Switch checked={draft.featured} onCheckedChange={(featured) => patch({ featured })} disabled={locked} />
           </label>
         </DetailSection>
+        {!locked && changedElsewhere && (
+          <p role="status" className="rounded-lg bg-status-warning/10 px-3 py-2 text-xs">
+            These details changed elsewhere while you were editing. Saving keeps the other changes and sends only the fields
+            you edited; Discard shows the latest.
+          </p>
+        )}
         {!locked && (
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={!changed || saving} onClick={() => setDraft(initial)}>
+            <Button
+              variant="outline"
+              disabled={!dirty || saving}
+              onClick={() => {
+                setOrigin(current);
+                setDraft(current);
+              }}
+            >
               Discard
             </Button>
-            <Button disabled={!changed || saving || !draft.name.trim()} onClick={() => void save()}>
+            <Button disabled={!dirty || saving || !draft.name.trim()} onClick={() => void save()}>
               {saving && <LoaderCircle className="animate-spin" />}
               Save details
             </Button>

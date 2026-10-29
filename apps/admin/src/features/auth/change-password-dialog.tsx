@@ -3,6 +3,8 @@
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { changePassword } from "@modelvend/admin-api/auth";
+import { errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,8 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { changePassword } from "@/lib/api/auth";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
 
 const MIN_PASSWORD = 12;
 

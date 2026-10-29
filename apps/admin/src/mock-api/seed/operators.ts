@@ -1,13 +1,13 @@
-import type { Permission } from "@/lib/api/auth";
-import type { AccessPreset, PermissionInfo } from "@/lib/api/operators";
+import type { Permission } from "@modelvend/admin-api/auth";
+import type { AccessPreset, PermissionInfo } from "@modelvend/admin-api/operators";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { OperatorRecord } from "../types";
 import { DAY, HOUR, iso } from "../util";
 
-/** Every seeded operator signs in with this password. */
+/** Every seeded operator signs in with this password in development; a production build never takes it. */
 export const MOCK_PASSWORD = "modelvend-dev";
 
-/** The operator the mock is signed in as until someone signs in. */
+/** The operator a development browser is signed in as until it signs out. */
 export const DEFAULT_OPERATOR_ID = "op_anil";
 
 /** Grouped by area, in display order. */
@@ -119,7 +119,8 @@ export function withRequired(permissions: readonly Permission[]): Permission[] {
   return PERMISSIONS.filter((permission) => found.has(permission));
 }
 
-export function seedOperators(now: number): OperatorRecord[] {
+/** `password` is what every seeded operator signs in with (see `seedPassword` in session.ts). */
+export function seedOperators(now: number, password: string): OperatorRecord[] {
   return [
     {
       id: DEFAULT_OPERATOR_ID,
@@ -130,7 +131,8 @@ export function seedOperators(now: number): OperatorRecord[] {
       createdAt: iso(now - 420 * DAY),
       lastLoginAt: iso(now - 2 * HOUR),
       disabled: false,
-      password: MOCK_PASSWORD,
+      password,
+      sessionVersion: 0,
     },
     {
       id: "op_mara",
@@ -141,7 +143,8 @@ export function seedOperators(now: number): OperatorRecord[] {
       createdAt: iso(now - 300 * DAY),
       lastLoginAt: iso(now - 5 * HOUR),
       disabled: false,
-      password: MOCK_PASSWORD,
+      password,
+      sessionVersion: 0,
     },
     {
       id: "op_deniz",
@@ -152,7 +155,8 @@ export function seedOperators(now: number): OperatorRecord[] {
       createdAt: iso(now - 190 * DAY),
       lastLoginAt: iso(now - 26 * HOUR),
       disabled: false,
-      password: MOCK_PASSWORD,
+      password,
+      sessionVersion: 0,
     },
     {
       id: "op_jonas",
@@ -163,7 +167,8 @@ export function seedOperators(now: number): OperatorRecord[] {
       createdAt: iso(now - 28 * DAY),
       lastLoginAt: iso(now - 12 * DAY),
       disabled: true,
-      password: MOCK_PASSWORD,
+      password,
+      sessionVersion: 0,
     },
   ];
 }

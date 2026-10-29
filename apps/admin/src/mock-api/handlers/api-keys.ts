@@ -18,7 +18,8 @@ function listKeys({ store, query }: Context) {
   const items = store.apiKeys.filter((key) => {
     if ((env && key.env !== env) || (status && key.status !== status) || (customerId && key.customerId !== customerId)) return false;
     const customer = store.customers.find((c) => c.id === key.customerId);
-    return matchesQuery(q, key.name, key.prefix, customer?.name, customer?.workspace, customer?.email);
+    // The audit log links a key by its ID, so IDs match too.
+    return matchesQuery(q, key.id, key.name, key.prefix, customer?.name, customer?.workspace, customer?.email);
   });
   const page = paginate(items, query);
   return { ...page, items: page.items.map((key) => apiKeyView(store, key)) };
@@ -41,7 +42,11 @@ function update(ctx: Context) {
   const spendLimit = nullableNumber(ctx.body, "spendLimit", { above: 0 }) ?? null;
   if (key.status === "revoked") invalidState("Revoked keys can't change.");
   if (spendLimit !== key.spendLimit) {
-    audit(ctx, "api_key.update", "api_key", key.id, { prefix: key.prefix, spendLimit: { from: key.spendLimit, to: spendLimit } });
+    audit(ctx, "api_key.update", "api_key", key.id, {
+      prefix: key.prefix,
+      customerId: key.customerId,
+      spendLimit: { from: key.spendLimit, to: spendLimit },
+    });
     key.spendLimit = spendLimit;
   }
   return apiKeyView(ctx.store, key);

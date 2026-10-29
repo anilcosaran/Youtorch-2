@@ -5,7 +5,7 @@ import { Download, PenLine, SlidersHorizontal, Upload, type LucideIcon } from "l
 import { cn } from "@/lib/cn";
 import { formatPrice } from "@/lib/format";
 import type { App } from "@/mocks/apps";
-import { runPrice, type inputCopy } from "../lib/apps";
+import type { inputCopy } from "../lib/apps";
 import { AppShowcase } from "./app-media";
 
 export interface DropProps {
@@ -64,7 +64,7 @@ export function AppHero({
         </div>
         <p className="mt-3 text-[12.5px] text-subtle">
           {copy.hint}
-          {droppable && " · or drop it here"} · from <span className="text-fg tabular">{formatPrice(runPrice(app))}</span> per run
+          {droppable && " · or drop it here"} · <span className="text-fg tabular">{formatPrice(app.price)}</span> per run
         </p>
 
         <div

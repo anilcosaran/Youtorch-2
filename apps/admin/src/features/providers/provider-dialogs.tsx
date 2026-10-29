@@ -4,14 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { Field, FormError } from "@/components/shared/field";
-import { TagInput } from "@/components/shared/tag-input";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
+import { errorMessage } from "@modelvend/admin-api/client";
 import {
   ADAPTERS,
   createProvider,
@@ -21,23 +14,47 @@ import {
   type Adapter,
   type Provider,
   type ProviderKind,
-} from "@/lib/api/providers";
+} from "@modelvend/admin-api/providers";
+import { Field, FormError } from "@/components/shared/field";
+import { TagInput } from "@/components/shared/tag-input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ID_PART } from "@/lib/catalog";
 import { ADAPTER_LABELS, PROVIDER_KIND_DESCRIPTIONS, PROVIDER_KIND_LABELS } from "@/lib/labels";
+import { formErrors } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
 
 function useStoreProvider() {
   const queryClient = useQueryClient();
-  return (provider: Provider) =>
+  return (provider: Provider) => {
     queryClient.setQueryData<Provider[]>(keys.providers, (list) => {
       if (!list) return list;
       return list.some((p) => p.id === provider.id)
         ? list.map((p) => (p.id === provider.id ? provider : p))
         : [...list, provider];
     });
+    void queryClient.invalidateQueries({ queryKey: keys.audit });
+  };
 }
 
 /** A number field's value, or null when it is empty. */
 const optional = (text: string) => (text.trim() ? Number(text) : null);
+
+/** The URL as the server stores it, without trailing slashes. */
+const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, "");
+
+/** The host of an https:// URL, or the URL itself when it doesn't parse. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+const MIN_SECRET = 8;
 
 function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone: () => void }) {
   const store = useStoreProvider();
@@ -46,20 +63,36 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
   const [kind, setKind] = useState<ProviderKind>(provider?.kind ?? "aggregator");
   const [adapter, setAdapter] = useState<Adapter>(provider?.adapter ?? "http");
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "https://");
+  const [secret, setSecret] = useState("");
   const [regions, setRegions] = useState<string[]>(provider?.regions ?? ["global"]);
   const [concurrency, setConcurrency] = useState(provider?.limits.concurrency?.toString() ?? "");
   const [rpm, setRpm] = useState(provider?.limits.requestsPerMinute?.toString() ?? "");
+  // Moving an existing provider to another endpoint asks once more before saving.
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
 
+  // The stored key goes only to the endpoint it was entered for, so a move needs it again.
+  const moves = provider !== null && normalizeUrl(baseUrl) !== provider.baseUrl;
+  const needsSecret = moves && provider.credential.configured;
   const idError = id && !ID_PART.test(id) ? "Lowercase letters, digits, dots and dashes." : fields.id;
   const urlError = /^https:\/\/.+/.test(baseUrl) ? fields.baseUrl : "An https:// URL.";
-  const invalid = !id || !name.trim() || Boolean(idError) || Boolean(urlError);
+  const secretMissing = needsSecret && secret.trim().length < MIN_SECRET;
+  const invalid = !id || !name.trim() || Boolean(idError) || Boolean(urlError) || secretMissing;
+
+  const editUrl = (value: string) => {
+    setBaseUrl(value.trim());
+    setConfirming(false);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (invalid) return;
+    if (moves && !confirming) {
+      setConfirming(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -68,6 +101,7 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
         saved = await updateProvider(provider.id, {
           name: name.trim(),
           baseUrl,
+          ...(needsSecret ? { secret: secret.trim() } : {}),
           regions,
           limits: { concurrency: optional(concurrency), requestsPerMinute: optional(rpm) },
         });
@@ -76,12 +110,22 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
       }
       store(saved);
       toast.success(provider ? "Provider saved" : `${saved.name} added`, {
-        description: provider ? undefined : "Set its key, then add routes to it from a model's routing tab.",
+        description: provider
+          ? moves
+            ? `New attempts go to ${hostOf(saved.baseUrl)}.`
+            : undefined
+          : "Set its key, then add routes to it from a model's routing tab.",
       });
       onDone();
     } catch (err) {
-      setFields(fieldErrors(err));
-      setError(Object.keys(fieldErrors(err)).length ? null : errorMessage(err));
+      // Errors on fields this form has no place for (regions, limits) go in the form error.
+      const shown = formErrors(err, ["id", "name", "baseUrl", "secret"], {
+        "limits.concurrency": "Max in flight",
+        "limits.requestsPerMinute": "Requests per minute",
+      });
+      setFields(shown.fields);
+      setError(shown.message);
+      setConfirming(false);
       setBusy(false);
     }
   };
@@ -137,8 +181,30 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
         </div>
       )}
       <Field id="provider-url" label="Base URL" error={baseUrl.length > 8 ? urlError : fields.baseUrl}>
-        <Input id="provider-url" required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value.trim())} className="font-mono" />
+        <Input id="provider-url" required value={baseUrl} onChange={(e) => editUrl(e.target.value)} className="font-mono" />
       </Field>
+      {needsSecret && (
+        <Field
+          id="provider-move-secret"
+          label="API key"
+          hint={`The stored key stays with ${hostOf(provider.baseUrl)}. Enter the key to use with ${hostOf(normalizeUrl(baseUrl))}; it replaces the stored one.`}
+          error={fields.secret}
+        >
+          <Input
+            id="provider-move-secret"
+            type="password"
+            autoComplete="off"
+            required
+            value={secret}
+            onChange={(e) => {
+              setSecret(e.target.value);
+              setConfirming(false);
+            }}
+            className="font-mono"
+            aria-invalid={Boolean(fields.secret)}
+          />
+        </Field>
+      )}
       <Field id="provider-regions" label="Regions" hint="Where it runs: global, us, eu, apac.">
         <TagInput id="provider-regions" value={regions} onChange={setRegions} normalize={(t) => t.trim().toLowerCase()} />
       </Field>
@@ -152,13 +218,25 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
           </Field>
         </div>
       )}
+      {confirming && provider && (
+        <div role="alert" className="grid gap-1 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-sm">
+          <p className="font-medium">
+            Send {provider.name}&apos;s traffic to {hostOf(normalizeUrl(baseUrl))}?
+          </p>
+          <p className="text-muted-foreground">
+            Every attempt through its routes goes to <span className="font-mono break-all">{normalizeUrl(baseUrl)}</span>
+            {needsSecret ? ", with the key entered above" : ""}. Whoever runs that address sees our requests and customers&apos;
+            inputs, so check it before you save.
+          </p>
+        </div>
+      )}
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onDone}>
-          Cancel
+        <Button type="button" variant="outline" onClick={confirming ? () => setConfirming(false) : onDone}>
+          {confirming ? "Back" : "Cancel"}
         </Button>
-        <Button type="submit" disabled={busy || invalid}>
+        <Button type="submit" variant={confirming ? "destructive" : "default"} disabled={busy || invalid}>
           {busy && <LoaderCircle className="animate-spin" />}
-          {provider ? "Save" : "Add provider"}
+          {provider ? (confirming ? "Change endpoint" : "Save") : "Add provider"}
         </Button>
       </DialogFooter>
     </form>

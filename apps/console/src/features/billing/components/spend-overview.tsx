@@ -8,7 +8,6 @@ import type { BarDatum } from "@/components/charts/constants";
 import { Button } from "@/components/ui/button";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Segmented } from "@/components/ui/segmented";
-import { cn } from "@/lib/cn";
 import { formatUsd } from "@/lib/format";
 import { modalityColors, modalityLabel, modalityOrder } from "@/lib/modality";
 import { totalSpend, usageSeries } from "@/mocks/usage";
@@ -21,9 +20,6 @@ const periods = [
   { value: "30", label: "30D" },
   { value: "90", label: "90D" },
 ] as const;
-
-/** Share of gross spend returned as volume discounts and bonus credits. */
-const DISCOUNT_RATE = 0.06;
 
 export function SpendOverview() {
   const { sampleMode, setSampleMode } = useConsole();
@@ -45,8 +41,7 @@ export function SpendOverview() {
     };
   });
 
-  const gross = sampleMode ? series.reduce((s, d) => s + totalSpend(d), 0) : 0;
-  const discounts = gross * DISCOUNT_RATE;
+  const spend = sampleMode ? series.reduce((s, d) => s + totalSpend(d), 0) : 0;
   const byModality = modalityOrder.map((m) => ({
     label: modalityLabel[m],
     color: modalityColors[m],
@@ -57,13 +52,15 @@ export function SpendOverview() {
     <section className="mt-10">
       <SectionHeader
         title="Spend overview"
-        description="Usage is drawn from your prepaid balance in real time."
+        description={
+          sampleMode ? "Showing sample data, not your workspace's usage." : "Usage is drawn from your prepaid balance as tasks finish."
+        }
         action={<Segmented value={period} onChange={setPeriod} options={periods} size="sm" />}
       />
       <div className="grid gap-3 md:grid-cols-3">
         <Kpi label="Current invoice due" value={formatUsd(0)} note="Prepaid workspaces are never invoiced" />
-        <Kpi label={`Spend · last ${period} days`} value={formatUsd(gross - discounts)} note={`${formatUsd(gross)} before discounts`} />
-        <Kpi label="Discounts saved" value={formatUsd(discounts)} note="Volume and bonus credits" accent />
+        <Kpi label={`Spend · last ${period} days`} value={formatUsd(spend)} note="Charged to your balance" />
+        <Kpi label="Average per day" value={formatUsd(spend / Number(period))} note={`Over the last ${period} days`} />
       </div>
       <div className="mt-3 surface p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -82,11 +79,11 @@ export function SpendOverview() {
   );
 }
 
-function Kpi({ label, value, note, accent }: { label: string; value: string; note: string; accent?: boolean }) {
+function Kpi({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <div className="surface p-4">
       <p className="eyebrow">{label}</p>
-      <p className={cn("mt-1.5 text-[26px] font-semibold tracking-tight tabular", accent && "text-jade-400")}>{value}</p>
+      <p className="mt-1.5 text-[26px] font-semibold tracking-tight tabular">{value}</p>
       <p className="mt-0.5 text-[13px] text-subtle">{note}</p>
     </div>
   );

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
+import { createModel, MODALITIES, VISIBILITIES, type Modality, type Visibility } from "@modelvend/admin-api/models";
 import { Field, FormError } from "@/components/shared/field";
 import { TagInput } from "@/components/shared/tag-input";
 import { Button } from "@/components/ui/button";
@@ -11,10 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage, fieldErrors } from "@/lib/api/client";
-import { createModel, MODALITIES, modelHref, VISIBILITIES, type Modality, type Visibility } from "@/lib/api/models";
-import { ID_PART, slugify } from "@/lib/catalog";
+import { ID_PART, modelHref, slugify } from "@/lib/catalog";
 import { MODALITY_LABELS, VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
+import { formErrors } from "@/lib/notify";
 import { useApplyModel } from "./use-model-action";
 
 /** Tasks offered while typing; anything else can be typed too. */
@@ -68,8 +68,9 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
       onDone();
       router.push(modelHref(model.id));
     } catch (err) {
-      setFields(fieldErrors(err));
-      setError(Object.keys(fieldErrors(err)).length ? null : errorMessage(err));
+      const shown = formErrors(err, ["name", "publisher", "slug", "modality", "visibility", "tasks", "description"]);
+      setFields(shown.fields);
+      setError(shown.message);
       setBusy(false);
     }
   };
@@ -115,7 +116,7 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
         . The ID can&apos;t change later.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="model-modality" label="Modality">
+        <Field id="model-modality" label="Modality" error={error_("modality")}>
           <Select value={modality} onValueChange={(value) => setModality(value as Modality)}>
             <SelectTrigger id="model-modality" className="w-full">
               <SelectValue />
@@ -129,7 +130,7 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
             </SelectContent>
           </Select>
         </Field>
-        <Field id="model-visibility" label="Visibility" hint={VISIBILITY_DESCRIPTIONS[visibility]}>
+        <Field id="model-visibility" label="Visibility" hint={VISIBILITY_DESCRIPTIONS[visibility]} error={error_("visibility")}>
           <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
             <SelectTrigger id="model-visibility" className="w-full">
               <SelectValue />
@@ -144,10 +145,10 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
       </div>
-      <Field id="model-tasks" label="Tasks" hint={`Press Enter after each, e.g. ${TASK_HINTS[modality]}`}>
+      <Field id="model-tasks" label="Tasks" hint={`Press Enter after each, e.g. ${TASK_HINTS[modality]}`} error={error_("tasks")}>
         <TagInput id="model-tasks" value={tasks} onChange={setTasks} normalize={(text) => slugify(text)} />
       </Field>
-      <Field id="model-description" label="Description" hint="One or two sentences for the catalog.">
+      <Field id="model-description" label="Description" hint="One or two sentences for the catalog." error={error_("description")}>
         <Textarea id="model-description" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-20" />
       </Field>
       <DialogFooter>

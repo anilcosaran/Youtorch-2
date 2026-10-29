@@ -1,4 +1,4 @@
-import type { AppCategory, AppStatus, AppStep, ReleaseStatus } from "@/lib/api/apps";
+import type { AppCategory, AppStatus, AppStep, ReleaseStatus } from "@modelvend/admin-api/apps";
 import type { Random } from "../random";
 import type { AppRecord } from "../types";
 import { DAY, HOUR, iso, money } from "../util";

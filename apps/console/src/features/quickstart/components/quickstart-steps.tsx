@@ -2,11 +2,17 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { CodeBlock } from "@/components/code/code-block";
 import { snippetsFor, type Snippets } from "@/components/code/snippets";
-import { authSnippets, installSnippets, webhookSnippets } from "../snippets";
+import { authSnippets, installSnippets } from "../snippets";
 import { Timeline, TimelineStep } from "./timeline";
 
+const code = (text: string) => <code className="font-mono text-[13px] text-fg/90">{text}</code>;
+
 const steps: { title: string; body: ReactNode; code: Snippets }[] = [
-  { title: "Install", body: "Use the official SDK or call the REST API directly.", code: installSnippets },
+  {
+    title: "Install",
+    body: "Official SDKs are on the way. Until they ship, call the REST API with any HTTP client.",
+    code: installSnippets,
+  },
   {
     title: "Authenticate",
     body: (
@@ -15,20 +21,21 @@ const steps: { title: string; body: ReactNode; code: Snippets }[] = [
         <Link href="/api-keys?new=1" className="text-ember-300 underline-offset-2 hover:underline">
           API keys
         </Link>{" "}
-        page and expose it as an environment variable.
+        page and expose it as an environment variable. Every request sends it as a bearer token.
       </>
     ),
     code: authSnippets,
   },
   {
-    title: "Generate",
-    body: "Every model takes the same request shape. Change the model string to switch providers.",
+    title: "Run a task",
+    body: (
+      <>
+        Every model run is a task: {code("POST /v1/tasks")} with a model ID and an input that follows the model&apos;s schema. Short jobs
+        can finish inside the request with {code("Prefer: wait=30")}; longer renders come back queued, so poll {code("GET /v1/tasks/{id}")}{" "}
+        until the status is succeeded or failed. Webhooks are coming soon.
+      </>
+    ),
     code: snippetsFor(),
-  },
-  {
-    title: "Listen for results",
-    body: "Long renders finish asynchronously. Subscribe to a webhook instead of polling.",
-    code: webhookSnippets,
   },
 ];
 

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { LoaderCircle, Pencil } from "lucide-react";
+import { errorMessage } from "@modelvend/admin-api/client";
+import { updateVersion, type JsonSchema, type Model, type ModelVersion } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { FormError } from "@/components/shared/field";
 import { JsonView } from "@/components/shared/json-view";
@@ -9,9 +11,7 @@ import { Segmented } from "@/components/shared/segmented";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage } from "@/lib/api/client";
-import { updateVersion, type JsonSchema, type Model, type ModelVersion } from "@/lib/api/models";
-import { exampleInput, isEditable, parseSchema, schemaFields } from "@/lib/catalog";
+import { describeSchemaProblem, exampleInput, isEditable, parseSchema, schemaFields, schemaProblem } from "@/lib/catalog";
 import { usePermissions } from "@/lib/session";
 import { useApplyModel } from "./use-model-action";
 import { VersionBar } from "./version-picker";
@@ -51,6 +51,18 @@ function FieldTable({ schema }: { schema: JsonSchema }) {
   );
 }
 
+/** A stored schema that breaks the shape the catalog relies on, e.g. one saved before schemas were checked. */
+function SchemaWarning({ schema, editable }: { schema: JsonSchema; editable: boolean }) {
+  const problem = schemaProblem(schema);
+  if (!problem) return null;
+  return (
+    <p role="alert" className="mb-3 rounded-lg bg-status-critical/10 px-3 py-2 text-xs text-status-critical">
+      This schema isn&apos;t valid: {describeSchemaProblem(problem)} The table shows what can be read, and the version can&apos;t be
+      promoted until it is fixed{editable ? " with Edit JSON" : " in a new version"}.
+    </p>
+  );
+}
+
 type Which = "inputSchema" | "outputSchema";
 
 function SchemaEditor({
@@ -69,9 +81,12 @@ function SchemaEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const parsed = parseSchema(text);
+  // The same shape check the server makes, so a broken schema is caught before it is sent.
+  const problem = "error" in parsed ? null : schemaProblem(parsed.schema);
+  const unusable = "error" in parsed || problem !== null;
 
   const save = async () => {
-    if ("error" in parsed) return;
+    if ("error" in parsed || problem) return;
     setBusy(true);
     setError(null);
     try {
@@ -94,11 +109,12 @@ function SchemaEditor({
         className="h-[50vh] font-mono text-xs leading-relaxed md:text-xs"
       />
       {"error" in parsed && <p className="text-xs text-destructive">{parsed.error}</p>}
+      {problem && <p className="text-xs text-destructive">{describeSchemaProblem(problem)}</p>}
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button disabled={busy || "error" in parsed} onClick={() => void save()}>
+        <Button disabled={busy || unusable} onClick={() => void save()}>
           {busy && <LoaderCircle className="animate-spin" />}
           Save schema
         </Button>
@@ -131,6 +147,7 @@ export function SchemaTab({ model, version, onPick }: { model: Model; version: M
         )
       }
     >
+      <SchemaWarning schema={version[which]} editable={editable} />
       {view === "fields" ? <FieldTable schema={version[which]} /> : <JsonView value={version[which]} />}
     </DetailSection>
   );

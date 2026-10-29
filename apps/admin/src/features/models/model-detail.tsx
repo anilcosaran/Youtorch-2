@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { Copy, Ellipsis, History, OctagonPause, Play, SquareArrowOutUpRight } from "lucide-react";
+import { errorMessage } from "@modelvend/admin-api/client";
+import { getModel, pauseModel, resumeModel, type Model } from "@modelvend/admin-api/models";
 import { ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { copyText } from "@/components/shared/copy-field";
@@ -22,13 +24,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { errorMessage } from "@/lib/api/client";
-import { keys } from "@/lib/api/keys";
-import { getModel, pauseModel, resumeModel, type Model } from "@/lib/api/models";
 import { BRAND } from "@/lib/brand";
 import { pickVersion } from "@/lib/catalog";
 import { integer, percent, plural, usdCompact } from "@/lib/format";
 import { MODALITY_LABELS } from "@/lib/labels";
+import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { pick, useUrlState } from "@/lib/use-url-state";
 import { DetailsTab } from "./details-tab";
@@ -248,7 +248,8 @@ export function ModelDetail({ id }: { id: string }) {
                 {version && <SchemaTab model={data} version={version} onPick={(v) => set({ version: v })} />}
               </TabsContent>
               <TabsContent value="details">
-                <DetailsTab key={data.updatedAt} model={data} />
+                {/* Keyed by model only: a refetch must not wipe edits in progress. */}
+                <DetailsTab key={data.id} model={data} />
               </TabsContent>
             </Tabs>
           </>

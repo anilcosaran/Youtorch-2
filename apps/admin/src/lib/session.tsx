@@ -2,12 +2,12 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
+import { getMe, logout, type Operator, type Permission } from "@modelvend/admin-api/auth";
+import { errorMessage, isUnauthorized } from "@modelvend/admin-api/client";
 import { LoadFailedScreen } from "@/components/layout/loading-screen";
-import { getMe, logout, type Operator, type Permission } from "./api/auth";
-import { errorMessage, isUnauthorized } from "./api/client";
-import { keys } from "./api/keys";
 import { toastError } from "./notify";
 import { can, permissionsFor, type Permissions } from "./permissions";
+import { keys } from "./query-keys";
 
 interface Session {
   /** Null until the signed-in operator has loaded. */
@@ -24,7 +24,7 @@ const SessionContext = createContext<Session | null>(null);
 /**
  * Loads the signed-in operator while the screens load their own data, so the
  * console renders at once. A missing session sends the browser to /login and
- * back afterwards (see `lib/api/client.ts`).
+ * back afterwards (see `client.ts` in `packages/admin-api`).
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

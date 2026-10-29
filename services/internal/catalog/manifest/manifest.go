@@ -44,14 +44,45 @@ type Model struct {
 }
 
 type Version struct {
-	ID        string           `yaml:"id"`
-	Label     string           `yaml:"label"`
-	Changelog string           `yaml:"changelog"`
-	Input     map[string]any   `yaml:"input"`
-	Output    map[string]any   `yaml:"output"`
-	Pricing   catalog.Pricing  `yaml:"pricing"`
-	Routing   *catalog.Routing `yaml:"routing"`
-	Routes    []Route          `yaml:"routes"`
+	ID        string          `yaml:"id"`
+	Label     string          `yaml:"label"`
+	Changelog string          `yaml:"changelog"`
+	Input     map[string]any  `yaml:"input"`
+	Output    map[string]any  `yaml:"output"`
+	Pricing   catalog.Pricing `yaml:"pricing"`
+	Routing   *Routing        `yaml:"routing"`
+	Routes    []Route         `yaml:"routes"`
+}
+
+// Routing is a version's routing block. What it leaves out comes from
+// catalog.DefaultRouting, so `routing: {max_attempts: 3}` keeps fallbacks and
+// the timeout.
+type Routing struct {
+	Strategy       *string `yaml:"strategy"`
+	Fallbacks      *bool   `yaml:"fallbacks"`
+	MaxAttempts    *int    `yaml:"max_attempts"`
+	TimeoutSeconds *int    `yaml:"timeout_seconds"`
+}
+
+// Resolve is the routing a version gets, filled in from the defaults.
+func (r *Routing) Resolve() catalog.Routing {
+	out := catalog.DefaultRouting
+	if r == nil {
+		return out
+	}
+	if r.Strategy != nil {
+		out.Strategy = *r.Strategy
+	}
+	if r.Fallbacks != nil {
+		out.Fallbacks = *r.Fallbacks
+	}
+	if r.MaxAttempts != nil {
+		out.MaxAttempts = *r.MaxAttempts
+	}
+	if r.TimeoutSeconds != nil {
+		out.TimeoutSeconds = *r.TimeoutSeconds
+	}
+	return out
 }
 
 type Route struct {
@@ -287,10 +318,7 @@ func (im *Importer) importVersion(ctx context.Context, tx pgx.Tx, m Model, v Ver
 	case !errors.Is(err, pgx.ErrNoRows):
 		return err
 	}
-	routing := catalog.DefaultRouting
-	if v.Routing != nil {
-		routing = *v.Routing
-	}
+	routing := v.Routing.Resolve()
 	input, _ := json.Marshal(v.Input)
 	output, _ := json.Marshal(v.Output)
 	pricing, _ := json.Marshal(v.Pricing)

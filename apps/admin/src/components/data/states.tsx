@@ -1,8 +1,8 @@
 "use client";
 
 import { CircleAlert, Inbox, LoaderCircle, RotateCw, type LucideIcon } from "lucide-react";
+import { errorMessage } from "@modelvend/admin-api/client";
 import { Button } from "@/components/ui/button";
-import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 /** Nothing to show yet: one sentence about why, and optionally what to do. */

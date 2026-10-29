@@ -11,7 +11,7 @@ import type {
   UnitPrice,
   VersionStatus,
   Visibility,
-} from "@/lib/api/models";
+} from "@modelvend/admin-api/models";
 import { TYPICAL_UNITS, defaultRouting, defaultTier, withTierCosts } from "../catalog";
 import type { Random } from "../random";
 import type { ModelRecord, ProviderRecord } from "../types";
@@ -1060,7 +1060,8 @@ export function seedCatalog(now: number, random: Random, providers: ProviderReco
     const versionList = seed.versions.map((version) => buildVersion(seed, version, now, random, providers));
     const live = versionList.find((version) => version.isDefault) ?? null;
     const typical = TYPICAL_UNITS[seed.unit];
-    const price = live ? defaultTier(live.pricing).price : 0;
+    // What customers pay at the default tier, after the launch promo.
+    const price = live ? defaultTier(live.pricing).price * (1 - (live.pricing.promo ?? 0)) : 0;
     const pausedAt = seed.paused ? now - seed.paused.daysAgo * DAY - 3 * HOUR : null;
     const changes = versionList.flatMap((v) => [v.createdAt, v.releasedAt, v.deprecatedAt]).filter((at): at is string => at !== null);
     if (pausedAt !== null) changes.push(iso(pausedAt));

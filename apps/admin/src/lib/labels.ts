@@ -1,9 +1,9 @@
-import type { KeyEnv, KeyStatus } from "./api/api-keys";
-import type { AppCategory, AppStatus, ReleaseStatus } from "./api/apps";
-import type { CustomerStatus, LedgerKind, Tier } from "./api/customers";
-import type { BillingUnit, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "./api/models";
-import type { Adapter, HealthState, ProviderKind, ProviderStatus } from "./api/providers";
-import type { RequestStatus } from "./api/requests";
+import type { KeyEnv, KeyStatus } from "@modelvend/admin-api/api-keys";
+import type { AppCategory, AppStatus, ReleaseStatus } from "@modelvend/admin-api/apps";
+import type { CustomerStatus, LedgerKind, Tier } from "@modelvend/admin-api/customers";
+import type { BillingUnit, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "@modelvend/admin-api/models";
+import type { Adapter, HealthState, ProviderKind, ProviderStatus } from "@modelvend/admin-api/providers";
+import type { RequestStatus } from "@modelvend/admin-api/requests";
 
 export const MODALITY_LABELS: Record<Modality, string> = {
   image: "Image",
@@ -42,7 +42,7 @@ export const VERSION_STATUS_DESCRIPTIONS: Record<VersionStatus, string> = {
   draft: "Being set up. Nobody can call it.",
   staging: "Callable with internal keys only, for testing routes and schema.",
   live: "Callable by customers when pinned, or by default when it is the default version.",
-  deprecated: "Still answers, with Deprecation and Sunset headers, until its sunset date.",
+  deprecated: "Still answers, with Deprecation and Sunset headers, until its sunset date; it can be retired after that.",
   retired: "No longer answers: requests get 410, or go to its replacement.",
 };
 

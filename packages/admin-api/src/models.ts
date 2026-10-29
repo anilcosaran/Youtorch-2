@@ -20,7 +20,10 @@ export type Medium = "text" | "image" | "video" | "audio" | "3d";
 export const MODEL_STATES = ["active", "paused"] as const;
 export type ModelState = (typeof MODEL_STATES)[number];
 
-/** Public models are listed; unlisted ones answer but aren't listed; private ones answer allowlisted workspaces only. */
+/**
+ * Public models are listed; unlisted ones answer but aren't listed; private ones answer allowlisted workspaces
+ * only. Widening (private → unlisted → public) is a release decision and needs `catalog.publish`.
+ */
 export const VISIBILITIES = ["public", "unlisted", "private"] as const;
 export type Visibility = (typeof VISIBILITIES)[number];
 
@@ -46,7 +49,10 @@ export interface PriceTier {
   label: string;
   /** Sell price per unit. */
   price: number;
-  /** Upstream cost per unit for this tier, from the primary route. */
+  /**
+   * Upstream cost per unit for this tier, from the primary route; null without one, or when the primary route
+   * costs in another unit than the version bills.
+   */
   cost: number | null;
 }
 
@@ -57,7 +63,10 @@ export interface Pricing {
   tiers: PriceTier[];
   /** Charged per input unit when the model bills for reference media. */
   input: UnitPrice | null;
-  /** Launch discount (0–1) applied on top of every tier. */
+  /**
+   * Launch discount (0–1) taken off every tier: customers pay `units × tier price × (1 − promo)`, and margins
+   * are worked out on that. It doesn't apply to `input`.
+   */
   promo: number | null;
 }
 
@@ -95,7 +104,10 @@ export interface Route {
   priority: number;
   /** Share of traffic under the weighted strategy (0–100). */
   weight: number;
-  /** What the provider charges us per unit at the default tier. */
+  /**
+   * What the provider charges us per unit at the default tier. Its unit is the version's billing unit, except on
+   * a draft or staging version whose unit is being changed; such a version can't be promoted until they match.
+   */
   cost: UnitPrice;
   region: string;
   maxConcurrency: number | null;
@@ -229,6 +241,10 @@ export const getModel = (id: string) => request<Model>(`/models/${path(id)}`);
 /** 409 `fields.slug` when the ID is taken. The model starts with an empty draft version `v1`. */
 export const createModel = (body: NewModel) => request<Model>("/models", { method: "POST", body });
 
+/**
+ * Nothing changes unless every field is valid. 403 `forbidden` when it widens `visibility` (private → unlisted →
+ * public) and the operator lacks `catalog.publish`; narrowing needs only `catalog.edit`.
+ */
 export const updateModel = (id: string, body: ModelUpdate) => request<Model>(`/models/${path(id)}`, { method: "PATCH", body });
 
 /** Every version stops answering at once with 503 `model_paused`; nothing else changes. */
@@ -240,11 +256,24 @@ export const resumeModel = (id: string) => request<Model>(`/models/${path(id)}/r
 export const createVersion = (modelId: string, body: NewVersion) =>
   request<Model>(`/models/${path(modelId)}/versions`, { method: "POST", body });
 
-/** Schema and pricing change only on draft and staging versions; live ones get a new version. */
+/**
+ * Schema and pricing change only on draft and staging versions (422 `version_locked`); live ones get a new
+ * version. Nothing changes unless every field is valid.
+ * - A schema must be a JSON Schema object with `"type": "object"` at the top, `properties` an object of schema
+ *   objects, `required` a list of names it defines, and keywords such as `enum`, `items`, `minimum` and `pattern`
+ *   of the right kind: 422 with the field at fault, e.g. `inputSchema.properties.duration`.
+ * - Changing `pricing.unit` while a route costs in another unit than the new one is refused with 422
+ *   `unit_mismatch` (`pricing.unit`), since its number would silently mean something else. Enter those routes'
+ *   cost in the new unit first (draft and staging versions accept it), or remove them.
+ */
 export const updateVersion = (modelId: string, version: string, body: VersionUpdate) =>
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}`, { method: "PATCH", body });
 
-/** draft → staging → live. 422 when the version has no active route or no price. */
+/**
+ * draft → staging → live. 422 `invalid_schema` when a schema isn't usable (one copied with "from" or saved before
+ * schemas were checked), `unit_mismatch` when a route costs in another unit than the version bills, and, going
+ * live, `no_route` without an active route or `no_price` when a tier has no price.
+ */
 export const promoteVersion = (modelId: string, version: string, to: "staging" | "live") =>
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/promote`, { method: "POST", body: { to } });
 
@@ -255,23 +284,30 @@ export const setDefaultVersion = (modelId: string, version: string) =>
 export const deprecateVersion = (modelId: string, version: string, body: { sunsetAt: string; replacement: string | null }) =>
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/deprecate`, { method: "POST", body });
 
-/** The version stops answering (410, or a forward to its replacement). Can't be undone. */
+/**
+ * The version stops answering (410, or a forward to its replacement). Can't be undone, so it waits until
+ * nothing counts on the version any more: 422 `before_sunset` until its sunset date has passed (it keeps
+ * answering until then, as callers were told), `pinned_by_app` while a live app release pins it, and
+ * `is_replacement` while another deprecated version names it as its replacement.
+ */
 export const retireVersion = (modelId: string, version: string) =>
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/retire`, { method: "POST" });
 
+/**
+ * Once the version answers customers (live or deprecated) a new cost must be in its billing unit: 422
+ * `cost.unit`. Draft and staging versions take a cost in another unit, for a billing unit about to change.
+ */
 export const addRoute = (modelId: string, version: string, body: NewRoute) =>
   request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes`, { method: "POST", body });
 
+/** The cost unit rules of `addRoute` apply to a changed cost; an unchanged one is kept as it is. */
 export const updateRoute = (modelId: string, version: string, routeId: string, body: RouteUpdate) =>
-  request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes/${routeId}`, {
+  request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes/${encodeURIComponent(routeId)}`, {
     method: "PATCH",
     body,
   });
 
 export const deleteRoute = (modelId: string, version: string, routeId: string) =>
-  request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes/${routeId}`, {
+  request<Model>(`/models/${path(modelId)}/versions/${encodeURIComponent(version)}/routes/${encodeURIComponent(routeId)}`, {
     method: "DELETE",
   });
-
-/** Where a model's page lives in the console. */
-export const modelHref = (id: string, version?: string) => `/models/${id}${version ? `?version=${encodeURIComponent(version)}` : ""}`;

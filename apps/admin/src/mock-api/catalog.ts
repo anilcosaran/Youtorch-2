@@ -1,4 +1,5 @@
-import type { BillingUnit, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@/lib/api/models";
+import type { BillingUnit, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@modelvend/admin-api/models";
+import { UNIT_LABELS } from "@/lib/labels";
 import { round } from "./util";
 
 /** Typical units one request bills, for estimates such as revenue and app costs. */
@@ -50,17 +51,34 @@ export function defaultTier(pricing: Pricing): PriceTier {
   return pricing.tiers.find((tier) => tier.id === pricing.defaultTier) ?? pricing.tiers[0];
 }
 
-/** Each tier's cost: the primary route's cost scaled by the tier's price over the default tier's. */
+/**
+ * Each tier's cost: the primary route's cost scaled by the tier's price over the default tier's. Unknown (null)
+ * without a route, or when the primary route costs in another unit than the version bills.
+ */
 export function withTierCosts(pricing: Pricing, routes: Route[]): Pricing {
   const primary = primaryRoute({ routes });
+  const comparable = primary !== null && primary.cost.unit === pricing.unit ? primary : null;
   const base = defaultTier(pricing)?.price ?? 0;
   return {
     ...pricing,
     tiers: pricing.tiers.map((tier) => ({
       ...tier,
-      cost: primary ? round(base > 0 ? (primary.cost.price * tier.price) / base : primary.cost.price, 4) : null,
+      cost: comparable ? round(base > 0 ? (comparable.cost.price * tier.price) / base : comparable.cost.price, 4) : null,
     })),
   };
+}
+
+/** Routes whose cost is in another unit than the version bills, so their cost can't be set against its price. */
+export const mismatchedRoutes = (version: Pick<ModelVersion, "pricing" | "routes">) =>
+  version.routes.filter((route) => route.cost.unit !== version.pricing.unit);
+
+/** "per second", "per 1K characters" for messages. */
+export const perUnit = (unit: BillingUnit) => `per ${UNIT_LABELS[unit]}`;
+
+/** "fal and Replicate" for messages. */
+export function listNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 /** Versions that answer customers, so they need an active route. */
