@@ -6,6 +6,6 @@
   "exports": "./index.mjs",
   "peerDependencies": {
     "eslint": "^9",
-    "eslint-config-next": "16.4.0"
+    "eslint-config-next": "16.4.3"
   }
 }
