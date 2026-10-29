@@ -31,7 +31,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	d, err := bootstrap.Open(ctx, "adminapi", ":8081")
+	d, err := bootstrap.OpenBase(ctx, "adminapi", ":8081")
 	if err != nil {
 		return err
 	}

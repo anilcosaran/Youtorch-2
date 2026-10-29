@@ -1,5 +1,6 @@
-// Package bootstrap wires a process together: configuration, logging, the database,
-// the job queue client and the stores every binary shares.
+// Package bootstrap wires a process together: configuration, logging, the
+// database and metrics for every binary (OpenBase), and the job queue client
+// and the stores for the binaries that use them (Open).
 package bootstrap
 
 import (
@@ -26,12 +27,17 @@ import (
 // Version is the build's version, set with -ldflags "-X .../internal/bootstrap.Version=…".
 var Version = "dev"
 
-// Deps is what every process shares.
-type Deps struct {
+// Base is what every process shares.
+type Base struct {
 	Config  config.Config
 	Logger  *slog.Logger
 	DB      *pgxpool.Pool
 	Metrics *prometheus.Registry
+}
+
+// Deps adds the job queue client and the stores the gateway, MCP and the worker use.
+type Deps struct {
+	*Base
 	// Jobs is an insert-only queue client; the worker builds its own working one.
 	Jobs    *river.Client[pgx.Tx]
 	Catalog *catalog.Store
@@ -39,8 +45,9 @@ type Deps struct {
 	Keys    *keys.Store
 }
 
-// Open loads the configuration for process and connects everything.
-func Open(ctx context.Context, process, defaultAddr string) (*Deps, error) {
+// OpenBase loads the configuration for process, connects to the database and
+// sets up logging and metrics.
+func OpenBase(ctx context.Context, process, defaultAddr string) (*Base, error) {
 	cfg, err := config.Load(defaultAddr)
 	if err != nil {
 		return nil, err
@@ -56,30 +63,36 @@ func Open(ctx context.Context, process, defaultAddr string) (*Deps, error) {
 			return nil, err
 		}
 	}
-	jobs, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Logger: logger})
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("job queue client: %w", err)
-	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	return &Base{Config: cfg, Logger: logger, DB: pool, Metrics: registry}, nil
+}
+
+// Open is OpenBase plus the job queue client and the stores.
+func Open(ctx context.Context, process, defaultAddr string) (*Deps, error) {
+	b, err := OpenBase(ctx, process, defaultAddr)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := river.NewClient(riverpgxv5.New(b.DB), &river.Config{Logger: b.Logger})
+	if err != nil {
+		b.Close()
+		return nil, fmt.Errorf("job queue client: %w", err)
+	}
 
 	internal := map[string]bool{}
-	for _, id := range cfg.InternalWorkspaces {
+	for _, id := range b.Config.InternalWorkspaces {
 		internal[id] = true
 	}
-	cat := &catalog.Store{DB: pool}
-	store := &tasks.Store{DB: pool}
+	cat := &catalog.Store{DB: b.DB}
+	store := &tasks.Store{DB: b.DB}
 	return &Deps{
-		Config:  cfg,
-		Logger:  logger,
-		DB:      pool,
-		Metrics: registry,
+		Base:    b,
 		Jobs:    jobs,
 		Catalog: cat,
-		Tasks:   &tasks.Service{DB: pool, Store: store, Catalog: cat, Schemas: &schema.Cache{}, Jobs: jobs},
-		Keys:    &keys.Store{DB: pool, InternalWorkspaces: internal},
+		Tasks:   &tasks.Service{DB: b.DB, Store: store, Catalog: cat, Schemas: &schema.Cache{}, Jobs: jobs},
+		Keys:    &keys.Store{DB: b.DB, InternalWorkspaces: internal},
 	}, nil
 }
 
-func (d *Deps) Close() { d.DB.Close() }
+func (b *Base) Close() { b.DB.Close() }

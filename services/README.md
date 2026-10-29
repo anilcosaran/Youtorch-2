@@ -45,17 +45,23 @@ services/
 │  ├─ audit/  ratelimit/       Package docs only, for now
 │  │
 │  ├─ platform/                config, database (+ dbtest), egress, httpx, ids, logging
-│  └─ bootstrap/               Process setup every binary shares
+│  ├─ bootstrap/               Process setup every binary shares
+│  └─ boundaries/              A test that checks the import rules below
 └─ migrations/                 goose SQL, embedded into the binaries
 ```
 
 ### Import rules
 
-- `cmd/*` imports `bootstrap` and its own `api/*` package.
+`go test ./...` checks the first four rules (`internal/boundaries`, which also fails on a package it has no rule for); review
+keeps the last three.
+
+- `cmd/*` imports `bootstrap`, `platform` and the packages it serves from (the table above). The worker also picks the
+  provider adapters and the media store its jobs get, and `migrate` uses `keys` for `dev-seed`.
 - `api/*` imports contexts and `platform`. The public packages share only `redact`; `rest` also mounts `openaicompat` on its
   authenticated `/v1` router. `api/admin` and `api/public/*` never import each other.
-- Contexts import other contexts (without cycles) and `platform`, never `api/*` or `cmd/*`.
-- `platform/*` imports no other internal package, apart from `logging` reading `config` and `database` embedding `migrations`.
+- Contexts and `bootstrap` import contexts (without cycles) and `platform`, never `api/*` or `cmd/*`.
+- `platform/*` imports no other internal package, apart from `logging` reading `config`, `database` embedding `migrations`
+  and `dbtest` opening `database`.
 - Anything that fetches a URL we don't control uses `platform/egress`: http and https only, public addresses only
   (checked on the resolved IP when dialing, so redirects and DNS rebinding are covered), no proxy. `egress.Client`, which
   copies provider outputs, follows at most three redirects; webhook delivery, when it lands, follows none.
@@ -123,11 +129,8 @@ How a task pays, in short (the code is in `billing`, `tasks.Service.Create` and 
 
 These are left as they are; the layout above is where their fixes go.
 
-- `rest` and `mcpserver` call `tasks.Store.List` directly, because `tasks.Service` has no `List` yet. The worker's jobs also
-  work on `tasks.Store` rather than the service.
-- `bootstrap.Open` builds the same dependencies for every binary, so `adminapi` gets a task service and queue client it doesn't use.
+- The worker's jobs work on `tasks.Store` rather than `tasks.Service`.
 - `catalog/manifest` and `cmd/migrate/devseed.go` write catalog tables with raw SQL; `catalog.Store` only reads.
-- No linter enforces the import rules yet (depguard or go-arch-lint would).
 - Holds are an estimate: one unit at the default tier, the least a success can cost. Settlement charges the real units, so
   a task that makes more of them can take the balance below zero. Holds follow the input once tiers and units come from it.
 - Task creation takes the workspace row lock, so one workspace creates tasks one at a time. A busy workspace would need

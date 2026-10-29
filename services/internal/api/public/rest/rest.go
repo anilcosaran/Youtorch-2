@@ -200,7 +200,7 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, httpx.Errorf(http.StatusBadRequest, "invalid_request", "status must be queued, running, succeeded, failed or canceled."))
 		return
 	}
-	list, err := a.Tasks.Store.List(r.Context(), p.WorkspaceID, tasks.ListFilter{
+	list, err := a.Tasks.List(r.Context(), p.WorkspaceID, tasks.ListFilter{
 		Status: status, Target: q.Get("target"), Before: q.Get("cursor"), Limit: limit + 1,
 	})
 	if err != nil {
