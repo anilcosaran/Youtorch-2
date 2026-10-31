@@ -21,6 +21,7 @@ help:
 
 up:
 	$(COMPOSE) up -d --wait
+	$(COMPOSE) run --rm storage-init
 
 down:
 	$(COMPOSE) down
@@ -44,7 +45,7 @@ test-node:
 	npm run check
 
 gen:
-	@echo "Type generation arrives with api/*.yaml."
+	npm run gen --workspace packages/api-types
 
 chart:
 	helm lint $(CHART) -f $(CHART)/values-dev.yaml

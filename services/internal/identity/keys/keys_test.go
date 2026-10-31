@@ -6,25 +6,25 @@ import (
 )
 
 func TestGenerate(t *testing.T) {
-	secret, prefix, hash := Generate("live")
+	secret, prefix, hash := Generate()
 	if !WellFormed(secret) || !strings.HasPrefix(secret, prefix) || len(prefix) != 12 {
 		t.Fatalf("bad key %q prefix %q", secret, prefix)
 	}
 	if hash != Hash(secret) || len(hash) != 64 {
 		t.Fatalf("bad hash %q", hash)
 	}
-	other, _, _ := Generate("live")
+	other, _, _ := Generate()
 	if other == secret {
 		t.Fatal("keys must differ")
 	}
 }
 
 func TestWellFormed(t *testing.T) {
-	good, _, _ := Generate("test")
+	good, _, _ := Generate()
 	if !WellFormed(good) {
 		t.Fatal(good)
 	}
-	for _, bad := range []string{"", "sk-123", "mv_prod_" + strings.Repeat("a", 32), "mv_live_" + strings.Repeat("a", 31), "mv_live_" + strings.Repeat("-", 32)} {
+	for _, bad := range []string{"", "sk-123", "mv_live_" + strings.Repeat("a", 32), "mv_" + strings.Repeat("a", 31), "mv_" + strings.Repeat("-", 32)} {
 		if WellFormed(bad) {
 			t.Errorf("%q should be rejected", bad)
 		}

@@ -33,8 +33,9 @@ func Plan(model catalog.Model, version catalog.Version, routes []catalog.Route, 
 	switch version.Routing.Strategy {
 	case "cheapest":
 		sort.SliceStable(usable, func(i, j int) bool {
-			if usable[i].CostMicros != usable[j].CostMicros {
-				return usable[i].CostMicros < usable[j].CostMicros
+			a, b := usable[i].Cost(version.Pricing.DefaultTier), usable[j].Cost(version.Pricing.DefaultTier)
+			if a != b {
+				return a < b
 			}
 			return usable[i].Priority < usable[j].Priority
 		})

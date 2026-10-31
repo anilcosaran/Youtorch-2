@@ -34,8 +34,11 @@ func TestPublicTaskHasNoProviderDetails(t *testing.T) {
 			t.Errorf("public task leaks %q: %s", leak, s)
 		}
 	}
-	if !strings.Contains(s, `"cost":0.09`) || !strings.Contains(s, `"version":"v1"`) {
+	if !strings.Contains(s, `"amount_micros":90000`) || !strings.Contains(s, `"version":"v1"`) {
 		t.Errorf("expected price and version: %s", s)
+	}
+	if strings.Contains(s, `"cost"`) {
+		t.Errorf("the customer's amount must not be called cost: %s", s)
 	}
 }
 
@@ -47,17 +50,73 @@ func TestAppTasksHideTheirRelease(t *testing.T) {
 	}
 }
 
-func TestWhiteLabelModelsHideTheirAuthor(t *testing.T) {
-	r := catalog.Resolved{
-		Model:   catalog.Model{ID: "modelvend/motion-pro", Disclosure: catalog.WhiteLabel, Author: "Kling AI"},
-		Version: catalog.Version{ID: "v1"},
+func TestModelsNeverShowTheirAuthor(t *testing.T) {
+	for _, disclosure := range []catalog.Disclosure{catalog.WhiteLabel, catalog.Open} {
+		r := catalog.Resolved{
+			Model:   catalog.Model{ID: "modelvend/motion-pro", Disclosure: disclosure, Author: "Kling AI"},
+			Version: catalog.Version{ID: "v1"},
+		}
+		b, err := json.Marshal(PublicModel(r))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "Kling") {
+			t.Errorf("%s model shows its author: %s", disclosure, b)
+		}
 	}
-	if PublicModel(r).Author != "" {
-		t.Fatal("white-label model shows its author")
+}
+
+func TestPricesAreDecimalStringsAfterThePromo(t *testing.T) {
+	promo := 0.25
+	r := catalog.Resolved{Version: catalog.Version{ID: "v1", Pricing: catalog.Pricing{
+		Unit: "image", DefaultTier: "s", Promo: &promo,
+		Tiers: []catalog.Tier{{ID: "s", Label: "S", Price: 0.039}},
+		Input: &catalog.InputPrice{Unit: "image", Price: 0.002, Field: "refs"},
+	}}}
+	p := PublicModel(r).Pricing
+	if p.Tiers[0].Price != "0.02925" || p.Tiers[0].ListPrice != "0.039" {
+		t.Errorf("tier: %+v", p.Tiers[0])
 	}
-	r.Model.Disclosure = catalog.Open
-	if PublicModel(r).Author != "Kling AI" {
-		t.Fatal("open model should credit its author")
+	if p.Input == nil || p.Input.Price != "0.002" {
+		t.Errorf("input: %+v", p.Input)
+	}
+	r.Version.Pricing.Promo = nil
+	if tier := PublicModel(r).Pricing.Tiers[0]; tier.Price != "0.039" || tier.ListPrice != "" {
+		t.Errorf("without a promo: %+v", tier)
+	}
+}
+
+func TestTimesLeaveInUTCToTheSecond(t *testing.T) {
+	istanbul := time.FixedZone("TRT", 3*3600)
+	created := time.Date(2026, 10, 31, 12, 0, 0, 123_000_000, istanbul)
+	got := PublicTask(tasks.Task{ID: "task_x", Target: tasks.Target{Type: "model"}, CreatedAt: created}).CreatedAt
+	if got != "2026-10-31T09:00:00Z" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestListsLeaveOutInputAndOutput(t *testing.T) {
+	list := []tasks.Task{{ID: "task_b", Input: json.RawMessage(`{"prompt":"secret-b"}`)}, {ID: "task_a"}}
+	page := TaskPage(list, 1)
+	if len(page.Data) != 1 || page.NextCursor == nil || *page.NextCursor != "task_b" {
+		t.Fatalf("page: %+v", page)
+	}
+	b, _ := json.Marshal(page)
+	if strings.Contains(string(b), "secret-b") || strings.Contains(string(b), `"input"`) {
+		t.Fatalf("list carries input: %s", b)
+	}
+	if last := TaskPage(list, 2); last.NextCursor != nil || len(last.Data) != 2 {
+		t.Fatalf("last page: %+v", last)
+	}
+}
+
+func TestRetiredVersionNamesWhereToGo(t *testing.T) {
+	var he *httpx.Error
+	if !errors.As(PublicError(&catalog.RetiredError{Suggestion: "a/b@v2"}), &he) || he.Status != http.StatusGone || he.Code != "version_retired" || he.Replacement != "a/b@v2" {
+		t.Fatalf("got %+v", he)
+	}
+	if !errors.Is(&catalog.RetiredError{}, catalog.ErrGone) {
+		t.Fatal("a retired error should match ErrGone")
 	}
 }
 

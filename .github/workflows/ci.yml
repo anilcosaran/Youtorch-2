@@ -54,6 +54,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: The generated types match api/public.yaml
+        run: |
+          npm run gen --workspace packages/api-types
+          git diff --exit-code packages/api-types/src
 
   chart:
     runs-on: ubuntu-24.04

@@ -18,7 +18,7 @@ func authenticate(store *keys.Store) func(http.Handler) http.Handler {
 			case errors.Is(err, keys.ErrInvalid):
 				w.Header().Set("WWW-Authenticate", `Bearer realm="modelvend"`)
 				httpx.WriteJSON(w, http.StatusUnauthorized, map[string]any{"error": httpx.Errorf(http.StatusUnauthorized,
-					"unauthenticated", "Send a valid API key as Authorization: Bearer mv_live_….")})
+					"unauthenticated", "Send a valid API key as Authorization: Bearer mv_….")})
 			case errors.Is(err, keys.ErrSuspended):
 				httpx.WriteJSON(w, http.StatusForbidden, map[string]any{"error": httpx.Errorf(http.StatusForbidden,
 					"account_suspended", "This workspace is suspended. Contact support.")})

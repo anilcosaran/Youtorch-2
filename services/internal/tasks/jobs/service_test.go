@@ -294,12 +294,12 @@ func TestIdempotencyKeyExpiresAfterADay(t *testing.T) {
 func (e *env) key(t *testing.T, scopes []string, limit *int64) keys.Principal {
 	t.Helper()
 	ctx := context.Background()
-	secret, prefix, hash := keys.Generate("test")
+	secret, prefix, hash := keys.Generate()
 	if scopes == nil {
 		scopes = []string{}
 	}
-	if _, err := e.db.Exec(ctx, `insert into api_keys (workspace_id, name, prefix, secret_hash, env, scopes, spend_limit_micros)
-		values ($1, 'test', $2, $3, 'test', $4, $5)`, e.workspace, prefix, hash, scopes, limit); err != nil {
+	if _, err := e.db.Exec(ctx, `insert into api_keys (workspace_id, name, prefix, secret_hash, scopes, spend_limit_micros)
+		values ($1, 'test', $2, $3, $4, $5)`, e.workspace, prefix, hash, scopes, limit); err != nil {
 		t.Fatal(err)
 	}
 	p, err := (&keys.Store{DB: e.db}).Authenticate(ctx, secret)
@@ -376,15 +376,116 @@ func TestKeySpendLimit(t *testing.T) {
 	}
 }
 
-// Balance and limits apply to test keys like live ones; the env's keys are test keys.
-func TestTestKeysAreBilled(t *testing.T) {
-	e := setup(t, catalog.DefaultRouting)
-	p := e.key(t, nil, nil)
-	if p.Env != "test" {
-		t.Fatalf("key env %q", p.Env)
+// tiered gives the env's model two tiers picked by the input, reference media
+// charged on top, and a first route that costs differently at each tier.
+func (e *env) tiered(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := e.db.Exec(ctx, `update model_versions set
+		input_schema = '{"type": "object", "properties": {"prompt": {"type": "string"}, "resolution": {"type": "string", "enum": ["720p", "1080p"]}, "refs": {"type": "array"}}}',
+		pricing = '{"unit": "image", "default_tier": "1080p", "tier_field": "resolution",
+			"tiers": [{"id": "720p", "label": "720p", "price": 0.01}, {"id": "1080p", "label": "1080p", "price": 0.04}],
+			"input": {"unit": "image", "price": 0.002, "field": "refs"}}'`); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := e.create(t, params(p)); !errors.Is(err, billing.ErrInsufficientCredits) {
-		t.Fatalf("a test key ran a task without credits: %v", err)
+	if _, err := e.db.Exec(ctx, `update routes set tier_costs = '{"720p": 0.003, "1080p": 0.03}' where provider_id = 'first'`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTaskPaysForTheTierItsInputPicked(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	e.tiered(t)
+	e.fund(t, 1_000_000)
+
+	cheap := e.mustCreate(t, tasks.CreateParams{Input: json.RawMessage(`{"prompt": "a", "resolution": "720p"}`)})
+	if cheap.HoldMicros != 10_000 || cheap.Quote == nil || cheap.Quote.Tier != "720p" {
+		t.Fatalf("720p holds %d with quote %+v", cheap.HoldMicros, cheap.Quote)
+	}
+	cheap, _ = e.finish(t, cheap.ID)
+	if cheap.Status != tasks.Succeeded || cheap.PriceMicros != 10_000 || cheap.CostMicros != 3_000 {
+		t.Errorf("720p: %s at %d, costing us %d", cheap.Status, cheap.PriceMicros, cheap.CostMicros)
+	}
+
+	// Leaving the field out runs at the default tier, and costs us that tier's price.
+	fallback, _ := e.finish(t, e.mustCreate(t, tasks.CreateParams{Input: json.RawMessage(`{"prompt": "a"}`)}).ID)
+	if fallback.PriceMicros != 40_000 || fallback.CostMicros != 30_000 {
+		t.Errorf("default tier: %d, costing us %d", fallback.PriceMicros, fallback.CostMicros)
+	}
+}
+
+func TestReferenceMediaIsChargedOnTop(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	e.tiered(t)
+	e.fund(t, 1_000_000)
+	task := e.mustCreate(t, tasks.CreateParams{Input: json.RawMessage(`{"prompt": "a", "resolution": "720p", "refs": ["x", "y", "z"]}`)})
+	if task.HoldMicros != 16_000 {
+		t.Errorf("hold %d, want one unit and three references", task.HoldMicros)
+	}
+	task, _ = e.finish(t, task.ID)
+	if task.PriceMicros != 16_000 {
+		t.Errorf("charged %d", task.PriceMicros)
+	}
+}
+
+// A task pays what it was accepted at, whatever the catalog says by the time it finishes.
+func TestPriceIsFixedWhenTheTaskIsCreated(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	e.fund(t, 1_000_000)
+	open := gate(e.first)
+	task := e.mustCreate(t, tasks.CreateParams{})
+	if _, err := e.db.Exec(context.Background(), `update model_versions set
+		pricing = '{"unit": "image", "default_tier": "standard", "tiers": [{"id": "standard", "label": "Standard", "price": 9}]}'`); err != nil {
+		t.Fatal(err)
+	}
+	open()
+	task, _ = e.finish(t, task.ID)
+	if task.PriceMicros != price {
+		t.Errorf("charged %d, want the %d it was accepted at", task.PriceMicros, price)
+	}
+}
+
+func TestPausedModelRefusesNewTasksButCanBeRead(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	e.fund(t, 1_000_000)
+	if _, err := e.db.Exec(context.Background(), `update models set state = 'paused'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.create(t, tasks.CreateParams{}); !errors.Is(err, catalog.ErrPaused) {
+		t.Fatalf("got %v, want paused", err)
+	}
+	e.expectMoney(t, 1_000_000, 0)
+	ref, _ := catalog.ParseRef(model)
+	r, err := (&catalog.Store{DB: e.db}).Resolve(context.Background(), ref, catalog.Access{})
+	if err != nil || !r.Model.Paused {
+		t.Fatalf("reading a paused model: %+v %v", r.Model, err)
+	}
+}
+
+// A retired version answers 410 with where to go, and is never forwarded:
+// the replacement may cost more or take other input.
+func TestRetiredVersionIsNotForwarded(t *testing.T) {
+	e := setup(t, catalog.DefaultRouting)
+	e.fund(t, 1_000_000)
+	ctx := context.Background()
+	for _, sql := range []string{
+		`insert into model_versions (model_id, id, label, status, input_schema, output_schema, pricing, routing)
+			select model_id, 'v2', '2', 'live', input_schema, output_schema, pricing, routing from model_versions where id = 'v1'`,
+		`update models set default_version = 'v2'`,
+		`update model_versions set status = 'retired', replacement = 'v2' where id = 'v1'`,
+	} {
+		if _, err := e.db.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := e.create(t, tasks.CreateParams{Model: model + "@v1"})
+	var retired *catalog.RetiredError
+	if !errors.As(err, &retired) || retired.Suggestion != model+"@v2" {
+		t.Fatalf("got %v, want retired pointing at v2", err)
+	}
+	e.expectMoney(t, 1_000_000, 0)
+	if task := e.mustCreate(t, tasks.CreateParams{}); task.VersionID != "v2" {
+		t.Errorf("an unpinned call runs %s, want the default", task.VersionID)
 	}
 }
 

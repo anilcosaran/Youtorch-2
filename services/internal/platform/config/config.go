@@ -27,7 +27,7 @@ type Config struct {
 
 	// PublicAPIURL is the public origin of the gateway, e.g. https://api.modelvend.ai.
 	PublicAPIURL string
-	// InternalWorkspaces are our own workspaces: their keys reach private models and staging versions.
+	// InternalWorkspaces are our own workspaces: their keys reach private models.
 	InternalWorkspaces []string
 
 	Storage Storage

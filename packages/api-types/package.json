@@ -1,0 +1,19 @@
+{
+  "name": "@modelvend/api-types",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript types generated from the OpenAPI contracts in api/. Run npm run gen after changing them.",
+  "exports": {
+    "./public": "./src/public.ts"
+  },
+  "scripts": {
+    "gen": "openapi-typescript ../../api/public.yaml -o src/public.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck"
+  },
+  "devDependencies": {
+    "@modelvend/config-typescript": "*",
+    "openapi-typescript": "^7",
+    "typescript": "^5"
+  }
+}

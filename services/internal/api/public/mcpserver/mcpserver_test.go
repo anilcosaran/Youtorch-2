@@ -76,7 +76,7 @@ func TestKeyCheckFailuresAreGeneric(t *testing.T) {
 	var logs bytes.Buffer
 	s := &Server{Keys: &keys.Store{DB: pool}, Logger: slog.New(slog.NewTextHandler(&logs, nil))}
 
-	secret, _, _ := keys.Generate("live")
+	secret, _, _ := keys.Generate()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/json")

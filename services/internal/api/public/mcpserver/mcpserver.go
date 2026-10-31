@@ -165,9 +165,11 @@ func (s *Server) getModel(ctx context.Context, req *mcp.CallToolRequest, in mode
 }
 
 type createInput struct {
-	Model string         `json:"model,omitempty" jsonschema:"model ID to run; set this or app"`
-	App   string         `json:"app,omitempty" jsonschema:"app slug to run; set this or model"`
-	Input map[string]any `json:"input" jsonschema:"input matching the model's input schema"`
+	Model      string         `json:"model,omitempty" jsonschema:"model ID to run; set this or app"`
+	App        string         `json:"app,omitempty" jsonschema:"app slug to run; set this or model"`
+	Input      map[string]any `json:"input" jsonschema:"input matching the model's input schema"`
+	WebhookURL string         `json:"webhook_url,omitempty" jsonschema:"https URL to notify when the task finishes"`
+	Metadata   map[string]any `json:"metadata,omitempty" jsonschema:"your own values to keep with the task, up to 4 KB"`
 	// WaitSeconds blocks until the task finishes or the time runs out.
 	WaitSeconds    int    `json:"wait_seconds,omitempty" jsonschema:"seconds to wait for the result, up to 60"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"any unique string, up to 255 characters; retrying with the same key within 24 hours returns the same task instead of starting another"`
@@ -175,25 +177,31 @@ type createInput struct {
 
 func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in createInput) (*mcp.CallToolResult, any, error) {
 	p := principal(req)
-	if len(in.IdempotencyKey) > 255 || strings.ContainsRune(in.IdempotencyKey, 0) {
-		return s.result(ctx, nil, &httpx.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_request",
-			Message: "Some fields need another look.", Fields: map[string]string{"idempotency_key": "Idempotency keys can be up to 255 characters, without the null character."}})
-	}
 	input, err := json.Marshal(in.Input)
 	if err != nil {
 		return s.result(ctx, nil, err)
 	}
+	var metadata json.RawMessage
+	if in.Metadata != nil {
+		if metadata, err = json.Marshal(in.Metadata); err != nil {
+			return s.result(ctx, nil, err)
+		}
+	}
 	created, err := s.Tasks.Create(ctx, tasks.CreateParams{
 		WorkspaceID: p.WorkspaceID, KeyID: p.KeyID, Internal: p.Internal, Scopes: p.Scopes, SpendLimitMicros: p.SpendLimitMicros,
-		Model: in.Model, App: in.App, Input: input, IdempotencyKey: in.IdempotencyKey,
+		Model: in.Model, App: in.App, Input: input, WebhookURL: in.WebhookURL, Metadata: metadata, IdempotencyKey: in.IdempotencyKey,
 	})
 	if err != nil {
 		return s.result(ctx, nil, err)
 	}
 	t := created.Task
 	if wait := min(time.Duration(in.WaitSeconds)*time.Second, maxWait); wait > 0 {
-		if t, err = s.Tasks.Wait(ctx, p.WorkspaceID, t.ID, wait); err != nil {
-			return s.result(ctx, nil, err)
+		// The task exists and holds money by now, so a failed wait answers with
+		// the task: an error here would make the caller create another.
+		if waited, err := s.Tasks.Wait(ctx, p.WorkspaceID, t.ID, wait); err != nil {
+			s.Logger.ErrorContext(ctx, "waiting for a task", "task", t.ID, "error", err)
+		} else {
+			t = waited
 		}
 	}
 	return s.result(ctx, redact.PublicTask(t), nil)
@@ -238,21 +246,22 @@ func (s *Server) cancelTask(ctx context.Context, req *mcp.CallToolRequest, in ta
 
 type listInput struct {
 	Status string `json:"status,omitempty" jsonschema:"queued, running, succeeded, failed or canceled"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"how many, up to 50 (default 10)"`
+	Target string `json:"target,omitempty" jsonschema:"only tasks of this model ID or app slug"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"next_cursor of the previous page"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"how many, up to 100 (default 20)"`
 }
 
 func (s *Server) listTasks(ctx context.Context, req *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, any, error) {
-	limit := in.Limit
-	if limit <= 0 || limit > 50 {
-		limit = 10
-	}
-	list, err := s.Tasks.List(ctx, principal(req).WorkspaceID, tasks.ListFilter{Status: tasks.Status(in.Status), Limit: limit})
+	limit := tasks.PageLimit(in.Limit)
+	status, err := tasks.ParseStatus(in.Status)
 	if err != nil {
 		return s.result(ctx, nil, err)
 	}
-	out := make([]redact.Task, len(list))
-	for i, t := range list {
-		out[i] = redact.PublicTask(t)
+	list, err := s.Tasks.List(ctx, principal(req).WorkspaceID, tasks.ListFilter{
+		Status: status, Target: in.Target, Before: in.Cursor, Limit: limit + 1,
+	})
+	if err != nil {
+		return s.result(ctx, nil, err)
 	}
-	return s.result(ctx, map[string]any{"tasks": out}, nil)
+	return s.result(ctx, redact.TaskPage(list, limit), nil)
 }

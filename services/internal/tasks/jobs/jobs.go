@@ -399,10 +399,17 @@ func (d *Deps) succeed(ctx context.Context, r *run, rt catalog.Route, number int
 	if units <= 0 {
 		units = 1
 	}
-	// Tier selection by input lands with pricing; the default tier applies until then.
-	price, _ := billing.Charge(r.version.Pricing, "", units)
-	cost := billing.Cost(rt, units)
-	err = d.Tasks.SucceedAttempt(ctx, r.task.ID, number, output, units, r.version.Pricing.Unit, price, cost, time.Now())
+	quote := r.task.Quote
+	if quote == nil {
+		// Only a task from before quotes were recorded.
+		q, err := billing.NewQuote(r.version.Pricing, r.task.Input)
+		if err != nil {
+			return d.endAndFail(ctx, r.task.ID, number, "failed", &providers.UpstreamError{Kind: providers.Internal, Message: err.Error()})
+		}
+		quote = &q
+	}
+	err = d.Tasks.SucceedAttempt(ctx, r.task.ID, number, output, units, quote.Unit,
+		quote.Amount(units), billing.Cost(rt, quote.Tier, units), time.Now())
 	if errors.Is(err, tasks.ErrFinal) {
 		// Canceled while running: the output is dropped and nothing is charged.
 		return nil

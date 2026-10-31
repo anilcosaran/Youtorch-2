@@ -86,15 +86,18 @@ func (r *Routing) Resolve() catalog.Routing {
 }
 
 type Route struct {
-	Provider       string         `yaml:"provider"`
-	Upstream       string         `yaml:"upstream"`
-	Priority       int            `yaml:"priority"`
-	Weight         *int           `yaml:"weight"`
-	Cost           float64        `yaml:"cost"`
-	Region         string         `yaml:"region"`
-	MaxConcurrency *int           `yaml:"max_concurrency"`
-	Mapping        map[string]any `yaml:"mapping"`
-	Transform      string         `yaml:"transform"`
+	Provider string `yaml:"provider"`
+	Upstream string `yaml:"upstream"`
+	Priority int    `yaml:"priority"`
+	Weight   *int   `yaml:"weight"`
+	// Cost is what the provider charges per billing unit at every tier; Costs
+	// names each tier instead, and must name them all.
+	Cost           float64            `yaml:"cost"`
+	Costs          map[string]float64 `yaml:"costs"`
+	Region         string             `yaml:"region"`
+	MaxConcurrency *int               `yaml:"max_concurrency"`
+	Mapping        map[string]any     `yaml:"mapping"`
+	Transform      string             `yaml:"transform"`
 }
 
 type App struct {
@@ -256,12 +259,13 @@ func (v *Version) validate() error {
 			errs = append(errs, fmt.Errorf("tier %s has a negative price", t.ID))
 		}
 	}
+	errs = append(errs, v.validateTierField(), v.validateInputPrice())
 	for i, r := range v.Routes {
 		if r.Provider == "" || r.Upstream == "" {
 			errs = append(errs, fmt.Errorf("route %d needs provider and upstream", i+1))
 		}
-		if r.Cost < 0 {
-			errs = append(errs, fmt.Errorf("route %d has a negative cost", i+1))
+		if _, err := r.tierCosts(v.Pricing); err != nil {
+			errs = append(errs, fmt.Errorf("route %d: %w", i+1, err))
 		}
 		raw, _ := json.Marshal(r.Mapping)
 		if r.Mapping != nil {
@@ -271,6 +275,77 @@ func (v *Version) validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// validateTierField checks that the field picking the tier exists and that
+// every value its schema allows lands on a tier, so a valid input is always
+// priced.
+func (v *Version) validateTierField() error {
+	field := v.Pricing.TierField
+	if field == "" {
+		if len(v.Pricing.TierValues) > 0 {
+			return errors.New("pricing tier_values need a tier_field")
+		}
+		return nil
+	}
+	properties, _ := v.Input["properties"].(map[string]any)
+	property, ok := properties[field].(map[string]any)
+	if !ok {
+		return fmt.Errorf("pricing tier_field %q isn't in the input schema", field)
+	}
+	values, ok := property["enum"].([]any)
+	if !ok {
+		return fmt.Errorf("pricing tier_field %q needs an enum in the input schema", field)
+	}
+	var errs []error
+	for _, value := range values {
+		if _, err := v.Pricing.TierFor(map[string]any{field: value}); err != nil {
+			errs = append(errs, fmt.Errorf("pricing tier_field: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (v *Version) validateInputPrice() error {
+	in := v.Pricing.Input
+	if in == nil {
+		return nil
+	}
+	properties, _ := v.Input["properties"].(map[string]any)
+	if _, ok := properties[in.Field]; !ok {
+		return fmt.Errorf("pricing input field %q isn't in the input schema", in.Field)
+	}
+	if in.Unit == "" || in.Price < 0 {
+		return errors.New("pricing input needs a unit and a price that isn't negative")
+	}
+	return nil
+}
+
+// tierCosts is what the route charges at each tier of p.
+func (r Route) tierCosts(p catalog.Pricing) (map[string]float64, error) {
+	if r.Costs != nil && r.Cost != 0 {
+		return nil, errors.New("set cost or costs, not both")
+	}
+	out := make(map[string]float64, len(p.Tiers))
+	for _, t := range p.Tiers {
+		cost, ok := r.Costs[t.ID]
+		switch {
+		case r.Costs == nil:
+			cost = r.Cost
+		case !ok:
+			return nil, fmt.Errorf("costs doesn't name tier %s", t.ID)
+		}
+		if cost < 0 {
+			return nil, fmt.Errorf("tier %s has a negative cost", t.ID)
+		}
+		out[t.ID] = cost
+	}
+	for id := range r.Costs {
+		if _, ok := p.Tier(id); !ok || id == "" {
+			return nil, fmt.Errorf("costs names %q, which isn't a tier", id)
+		}
+	}
+	return out, nil
 }
 
 func (im *Importer) importModel(ctx context.Context, tx pgx.Tx, m Model) error {
@@ -341,6 +416,11 @@ func (im *Importer) importVersion(ctx context.Context, tx pgx.Tx, m Model, v Ver
 		if m.Disclosure == "white_label" && !whiteLabelAllowed {
 			im.report("  warning: %s doesn't allow white-label resale yet; the router skips this route until it does", r.Provider)
 		}
+		costs, err := r.tierCosts(v.Pricing)
+		if err != nil {
+			return fmt.Errorf("route %d: %w", i+1, err)
+		}
+		costsJSON, _ := json.Marshal(costs)
 		var mappingJSON []byte
 		if r.Mapping != nil {
 			mappingJSON, _ = json.Marshal(r.Mapping)
@@ -358,10 +438,10 @@ func (im *Importer) importVersion(ctx context.Context, tx pgx.Tx, m Model, v Ver
 			region = "global"
 		}
 		if _, err := tx.Exec(ctx, `
-			insert into routes (model_id, version_id, provider_id, upstream_model, priority, weight, cost_micros, region,
+			insert into routes (model_id, version_id, provider_id, upstream_model, priority, weight, tier_costs, region,
 				max_concurrency, mapping, transform)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, ''))`,
-			m.ID, v.ID, r.Provider, r.Upstream, priority, weight, billing.Micros(r.Cost), region, r.MaxConcurrency,
+			m.ID, v.ID, r.Provider, r.Upstream, priority, weight, costsJSON, region, r.MaxConcurrency,
 			mappingJSON, r.Transform); err != nil {
 			return fmt.Errorf("route %d: %w", i+1, err)
 		}
