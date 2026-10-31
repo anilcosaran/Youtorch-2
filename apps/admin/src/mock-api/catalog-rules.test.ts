@@ -125,6 +125,19 @@ describe("billing units", () => {
     expect((await admin.call("POST", `${VEO}/versions/v3/publish`, {})).status).toBe(200);
   });
 
+  it("drops a removed tier's cost, so bringing the ID back doesn't bring back the number", async () => {
+    const draft = await draftOfVeo();
+    const [kept, gone] = draft.pricing.tiers;
+    const { unit, tierValues, input, promo } = draft.pricing;
+    const pricing = { unit, defaultTier: kept.id, tierField: null, tierValues, input, promo, tiers: [{ id: kept.id, label: kept.label, price: kept.price }] };
+    const changed = await admin.edit("PATCH", VEO, "/versions/v3", { pricing });
+    expect(changed.status).toBe(200);
+    for (const route of versionOf(changed.body, "v3").routes) {
+      expect(route.tierCosts[kept.id]).toBeDefined();
+      expect(route.tierCosts[gone.id]).toBeUndefined();
+    }
+  });
+
   it("keeps tiers' costs apart, so margins differ by tier", async () => {
     const draft = await draftOfVeo();
     const [route] = draft.routes;
@@ -302,6 +315,23 @@ describe("publishing a version", () => {
   });
 });
 
+describe("disclosure", () => {
+  it("is a release decision that can't strand a live version", async () => {
+    const editor = await signedInWith(["catalog.view", "catalog.edit"]);
+    expect((await editor.edit("PATCH", VEO, "", { disclosure: "white_label" })).status).toBe(403);
+
+    const refused = await admin.edit<ErrorBody>("PATCH", VEO, "", { disclosure: "white_label" });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.code).toBe("white_label_not_allowed");
+    expect((await admin.call<Model>("GET", VEO)).body.disclosure).toBe("open");
+
+    store.providers.forEach((p) => {
+      if (p.id === "google") p.whiteLabelAllowed = true;
+    });
+    expect((await admin.edit("PATCH", VEO, "", { disclosure: "white_label" })).status).toBe(200);
+  });
+});
+
 describe("closing a model", () => {
   it("lets the default version be deprecated", async () => {
     const deprecated = await admin.call<Model>("POST", `${VEO}/versions/v2/deprecate`, { sunsetAt: inWeeks(6), replacement: null });
@@ -441,6 +471,24 @@ describe("apps", () => {
     expect(unpinned.body.error.fields?.["steps.0.model"]).toMatch(/publisher\/slug@version/);
   });
 
+  it("costs a step at the tier it runs at", async () => {
+    const version = stored("kling/kling-3", "v3");
+    const [cheap, dear] = version.pricing.tiers;
+    version.pricing.tierField = "resolution";
+    version.routes.forEach((route) => (route.tierCosts = { ...route.tierCosts, [cheap.id]: "0.01", [dear.id]: "1" }));
+    version.routes = version.routes.slice(0, 1);
+    await admin.call("POST", "/apps", { slug: "tiered", name: "Tiered", category: "video" });
+    const costOf = async (resolution: string) => {
+      const step = { id: "render", stage: "Rendering", model: "kling/kling-3@v3", input: { resolution, duration: 10 } };
+      const updated = await admin.call<App>("PATCH", "/apps/tiered/releases/1", { steps: [step], stages: ["Rendering"], outputMap: { video: "{{steps.render.output.video}}" }, priceMicros: 1_000_000 });
+      return updated.body.releases[0].costMicros;
+    };
+    expect(await costOf(cheap.id)).toBe(100_000);
+    expect(await costOf(dear.id)).toBe(10_000_000);
+    // The run's input decides, so it is held to the costliest.
+    expect(await costOf("{{input.resolution}}")).toBe(10_000_000);
+  });
+
   it("holds a release to the margin rule", async () => {
     await admin.call("POST", "/apps", { slug: "caption-maker", name: "Caption maker", category: "image" });
     await admin.call("PATCH", "/apps/caption-maker/releases/1", { ...release, priceMicros: 1 });
@@ -539,6 +587,27 @@ describe("customer limits", () => {
     expect(lowered.body.limits).toMatchObject({ dailySpendMicros: 50_000_000, requestsPerMinute: 120, queueSize: 50 });
     const audit = await admin.call<Page<AuditEntry>>("GET", `/audit?action=customer.update&targetId=${customer.id}`);
     expect(audit.body.items[0].detail).toMatchObject({ reason: "Asked by email", lowered: expect.arrayContaining(["dailySpendMicros", "requestsPerMinute"]) });
+  });
+
+  it("counts a higher smallest top-up as taking something away", async () => {
+    const record = store.customers[0];
+    record.limitOverrides = {};
+    const up = await admin.call("PATCH", `/customers/${record.id}`, { limits: { topUpMinMicros: 500_000_000 } });
+    expect(up.body.error.fields?.reason).toBeTruthy();
+    expect((await admin.call("PATCH", `/customers/${record.id}`, { limits: { topUpMinMicros: 1_000_000 } })).status).toBe(200);
+  });
+
+  it("cancels queued tasks and releases their holds on suspension", async () => {
+    const queued = store.tasks.find((t) => t.status === "running" && t.holdMicros > 0);
+    if (!queued) throw new Error("no unfinished task in the seed");
+    queued.status = "queued";
+    const record = store.customers.find((c) => c.id === queued.customer.id);
+    if (!record) throw new Error("seed changed");
+    const running = store.tasks.filter((t) => t.customer.id === record.id && t.status === "running").reduce((total, t) => total + t.holdMicros, 0);
+    const suspended = await admin.call<Customer>("POST", `/customers/${record.id}/suspend`, { reason: "Testing" });
+    expect(suspended.status).toBe(200);
+    expect(suspended.body.heldMicros).toBe(running);
+    expect(store.tasks.filter((t) => t.customer.id === record.id && t.status === "queued")).toEqual([]);
   });
 
   it("follows the platform default until a workspace has its own value", async () => {

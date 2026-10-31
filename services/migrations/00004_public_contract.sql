@@ -13,9 +13,13 @@ alter table api_keys drop column env;
 -- What the provider charges per billing unit at each tier, in decimal US
 -- dollars: {"720p": 0.056, "1080p": 0.084}. Micro-dollars can't hold token prices.
 alter table routes add column tier_costs jsonb not null default '{}';
-update routes r set tier_costs = jsonb_build_object(v.pricing ->> 'default_tier', r.cost_micros::numeric / 1000000)
+-- The one cost a route had goes to every tier, as a manifest's single `cost` does.
+update routes r set tier_costs = (
+    select coalesce(jsonb_object_agg(t ->> 'id', r.cost_micros::numeric / 1000000), '{}')
+    from jsonb_array_elements(v.pricing -> 'tiers') t
+  )
   from model_versions v
-  where v.model_id = r.model_id and v.id = r.version_id and v.pricing ->> 'default_tier' is not null;
+  where v.model_id = r.model_id and v.id = r.version_id;
 alter table routes drop column cost_micros;
 
 -- The prices a task was accepted at, so settlement charges those whatever

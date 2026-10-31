@@ -83,6 +83,15 @@ function suspend(ctx: Context) {
   if (customer.status === "suspended") conflict("The customer is already suspended.");
   customer.status = "suspended";
   customer.suspendedReason = why;
+  // Queued tasks are canceled and let go of their holds; running ones finish.
+  const at = new Date().toISOString();
+  for (const task of ctx.store.tasks) {
+    if (task.customer.id !== customer.id || task.status !== "queued") continue;
+    customer.heldMicros -= task.holdMicros;
+    task.status = "canceled";
+    task.holdMicros = 0;
+    task.events.push({ at, status: "canceled", detail: "Canceled: the workspace was suspended." });
+  }
   audit(ctx, "customer.suspend", "customer", customer.id, { reason: why });
   return customerView(ctx.store, customer);
 }

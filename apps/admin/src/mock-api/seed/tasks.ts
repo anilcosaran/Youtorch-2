@@ -424,7 +424,7 @@ export function seedTasks(
       continue;
     }
     // An app run is the customer's task; what the models did are its steps, which customers never see.
-    const step = { ...detail, id: random.id("task_", 16), parentId: id, amountMicros: 0, holdMicros: 0 };
+    const step = { ...detail, id: random.id("task_", 16), parentId: id, amountMicros: 0, holdMicros: 0, events: [...detail.events] };
     const earlier = run.others.map((other): TaskDetail => {
       const [modelId, versionId] = other.model.split("@");
       return { ...step, id: random.id("task_", 16), model: modelId, version: versionId, stage: other.stage ?? null, costMicros: Math.round(step.costMicros / 20), attemptList: [], attempts: 0, events: [] };

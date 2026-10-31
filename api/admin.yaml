@@ -414,7 +414,8 @@ paths:
       summary: Change a model's details
       description: |
         Widening `visibility` (private > unlisted > public) needs `catalog.publish`; narrowing needs only
-        `catalog.edit`. 409 `stale` when the model changed since `If-Match`.
+        `catalog.edit`. Changing `disclosure` needs `catalog.publish`, and answers 422 `white_label_not_allowed` when no
+        route of a version customers call could serve it. 409 `stale` when the model changed since `If-Match`.
       parameters:
         - { $ref: "#/components/parameters/IfMatch" }
       requestBody:
@@ -584,8 +585,8 @@ paths:
         Schemas and pricing change only on drafts (422 `version_locked`); a live version's price moves through a price
         change, and its schema through a new version. `pricing` needs `pricing.edit`.
 
-        Changing `pricing.unit` clears every route's tier costs, as their numbers meant another unit; publishing asks
-        for them again. 409 `stale` when the model changed since `If-Match`.
+        Changing `pricing.unit` clears every route's tier costs, as their numbers meant another unit, and removing a
+        tier removes its costs; publishing asks for them again. 409 `stale` when the model changed since `If-Match`.
       parameters:
         - { $ref: "#/components/parameters/IfMatch" }
       requestBody:
@@ -2803,7 +2804,7 @@ components:
           description: What one run costs the customer.
           $ref: "#/components/schemas/Micros"
         costMicros:
-          description: Upstream cost of one run at the steps' default tiers. Read-only.
+          description: Upstream cost of one run, at the tier each step pins or its costliest when the run's input decides. Read-only.
           $ref: "#/components/schemas/Micros"
         notes: { type: string }
         createdAt: { $ref: "#/components/schemas/Time" }

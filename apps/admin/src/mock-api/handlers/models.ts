@@ -315,6 +315,12 @@ function updateModel(ctx: Context) {
     if (media.some((m) => !(MEDIA as readonly string[]).includes(m))) invalid(field, `Use ${MEDIA.join(", ")}.`);
     next[field] = media as Medium[];
   }
+  if (disclosure && disclosure !== model.disclosure) {
+    if (!can(actor(ctx), "catalog.publish")) forbidden(`Changing how ${model.name} is disclosed needs the Publish permission (catalog.publish).`);
+    // The router skips routes whose provider doesn't allow white label, so this could leave nothing to run on.
+    const stranded = model.versionList.filter(answers).find((v) => usableRoutes(v, ctx.store.providers, disclosure).length === 0 && usableRoutes(v, ctx.store.providers, "open").length > 0);
+    if (stranded) invalidState(`No provider on ${stranded.id}'s routes allows white label, so every task would fail.`, "white_label_not_allowed");
+  }
   // Showing a model to more customers is a release decision, like putting a version live.
   if (visibility && VISIBILITY_RANK[visibility] > VISIBILITY_RANK[model.visibility] && !can(actor(ctx), "catalog.publish")) {
     forbidden(`Making ${model.name} ${visibility} needs the Publish permission (catalog.publish).`);
@@ -417,8 +423,13 @@ function updateVersion(ctx: Context) {
   const before = clone(version);
   Object.assign(version, next);
   if (next.pricing) {
-    // A route's costs are per billing unit, so a new unit makes their numbers mean something else.
-    if (next.pricing.unit !== before.pricing.unit) version.routes.forEach((route) => (route.tierCosts = {}));
+    // A route's costs are per billing unit, so a new unit makes their numbers mean something else. A tier that is
+    // gone takes its cost with it, so bringing back the ID doesn't bring back an old number.
+    const tiers = next.pricing.tiers.map((tier) => tier.id);
+    version.routes.forEach((route) => {
+      const kept = next.pricing?.unit === before.pricing.unit ? Object.entries(route.tierCosts).filter(([tier]) => tiers.includes(tier)) : [];
+      route.tierCosts = Object.fromEntries(kept);
+    });
     version.pricing = withTierCosts(next.pricing, version.routes);
   }
   const changed = changes(before, version, ["label", "changelog", "routing", "inputSchema", "outputSchema", "pricing"]);

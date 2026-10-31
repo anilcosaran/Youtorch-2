@@ -67,6 +67,10 @@ func inputUnits(value any) float64 {
 		return float64(len(v))
 	case float64:
 		return max(v, 0)
+	case bool:
+		if !v {
+			return 0
+		}
 	case string:
 		if v == "" {
 			return 0

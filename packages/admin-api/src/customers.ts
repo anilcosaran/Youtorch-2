@@ -56,9 +56,9 @@ export function limitsFor(defaults: Limits, overrides: LimitOverrides): Limits {
 /** Spend limits count null as no limit, so setting one where there was none takes something away. */
 const lowers = (from: number | null, to: number | null) => to !== null && (from === null || to < from);
 
-/** What a change of limits takes away; empty when it only raises or keeps them. */
+/** What a change of limits takes away; empty when it only gives more. A higher smallest top-up takes away too. */
 export function loweredLimits(from: Limits, to: Limits): LimitName[] {
-  return LIMIT_NAMES.filter((name) => lowers(from[name], to[name]));
+  return LIMIT_NAMES.filter((name) => (name === "topUpMinMicros" ? to[name] > from[name] : lowers(from[name], to[name])));
 }
 
 const path = encodeURIComponent;

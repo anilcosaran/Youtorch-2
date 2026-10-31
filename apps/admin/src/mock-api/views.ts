@@ -116,7 +116,21 @@ export function providerView(store: Store, provider: ProviderRecord): Provider {
   };
 }
 
-/** Upstream cost of one run: each step's typical units (or its fixed duration or image count) at the default tier's cost. */
+/**
+ * What one unit of a step costs: the tier its input pins, or the costliest when the run's input decides, so the
+ * margin rule can't pass a price only the cheap tier would cover.
+ */
+function stepUnitCost(version: ModelVersion, input: Record<string, unknown>): number {
+  const { pricing } = version;
+  const costs = withTierCosts(pricing, version.routes).tiers;
+  const value = pricing.tierField ? input[pricing.tierField] : undefined;
+  if (value === undefined || value === null) return Number(defaultTier({ ...pricing, tiers: costs }).cost ?? 0);
+  if (typeof value === "string" && value.includes("{{")) return Math.max(...costs.map((tier) => Number(tier.cost ?? 0)));
+  const id = pricing.tierValues[String(value)] ?? String(value);
+  return Number(costs.find((tier) => tier.id === id)?.cost ?? 0);
+}
+
+/** Upstream cost of one run: each step's typical units (or its fixed duration or image count) at the tier it runs at. */
 export function releaseView(store: Store, release: ReleaseRecord): AppRelease {
   let cost = 0;
   for (const step of release.steps) {
@@ -125,7 +139,7 @@ export function releaseView(store: Store, release: ReleaseRecord): AppRelease {
     const version = model ? findVersion(model, versionId) : null;
     if (!version) continue;
     const { unit } = version.pricing;
-    const tierCost = Number(defaultTier(withTierCosts(version.pricing, version.routes)).cost ?? 0);
+    const tierCost = stepUnitCost(version, step.input);
     const fixed = unit === "second" ? step.input.duration : unit === "image" ? step.input.num_images : undefined;
     cost += (typeof fixed === "number" ? fixed : TYPICAL_UNITS[unit]) * tierCost;
   }

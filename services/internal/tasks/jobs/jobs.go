@@ -173,8 +173,12 @@ func (w *DispatchWorker) Work(ctx context.Context, job *river.Job[tasks.Dispatch
 	for _, a := range r.attempts {
 		tried[a.RouteID] = true
 	}
+	tier := r.version.Pricing.DefaultTier
+	if r.task.Quote != nil {
+		tier = r.task.Quote.Tier
+	}
 	var lastErr *providers.UpstreamError
-	for _, rt := range routing.Plan(r.model, r.version, r.routes, nil, nil) {
+	for _, rt := range routing.Plan(r.model, r.version, r.routes, tier, nil, nil) {
 		if tried[rt.ID] {
 			continue
 		}

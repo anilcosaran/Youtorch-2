@@ -105,3 +105,17 @@ func TestLimitAllows(t *testing.T) {
 		t.Fatal("limit")
 	}
 }
+
+func TestFalseInputFieldIsNotCharged(t *testing.T) {
+	p := catalog.Pricing{Unit: "image", DefaultTier: "standard", Tiers: []catalog.Tier{{ID: "standard", Price: 1}},
+		Input: &catalog.InputPrice{Unit: "image", Price: 0.5, Field: "reference"}}
+	for input, want := range map[string]float64{`{"reference": false}`: 0, `{"reference": true}`: 1} {
+		q, err := NewQuote(p, json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.InputUnits != want {
+			t.Errorf("%s: %v input units, want %v", input, q.InputUnits, want)
+		}
+	}
+}
