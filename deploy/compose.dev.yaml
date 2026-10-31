@@ -1,0 +1,91 @@
+# Local dependencies for development; `make up` starts them.
+# Host ports are high and bound to 127.0.0.1 so they don't clash with other projects. deploy/dev.env points at them.
+name: modelvend-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: modelvend
+      POSTGRES_PASSWORD: modelvend
+      POSTGRES_DB: modelvend
+    ports:
+      - 127.0.0.1:55440:5432
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U modelvend -d modelvend]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - 127.0.0.1:56379:6379
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # S3-compatible, like Bunny Storage in the cluster. The anonymous identity lets anyone read, as the CDN does there.
+  storage:
+    image: chrislusf/seaweedfs:4.48
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=9000
+      - -s3.config=/etc/seaweedfs/s3.json
+    configs:
+      - source: storage-identities
+        target: /etc/seaweedfs/s3.json
+    ports:
+      - 127.0.0.1:59000:9000
+    volumes:
+      - storage:/data
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9000/healthz]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # One-shot, so it stays out of `up --wait`, which counts any exit as a failure. `make up` runs it.
+  storage-init:
+    image: chrislusf/seaweedfs:4.48
+    profiles: [init]
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - sh
+      - -c
+      - >
+        echo "s3.bucket.list" | weed shell -master=storage:9333 -filer=storage:8888 | grep -q modelvend-media ||
+        echo "s3.bucket.create -name modelvend-media" | weed shell -master=storage:9333 -filer=storage:8888
+
+  mail:
+    image: axllent/mailpit:v1.27
+    ports:
+      - 127.0.0.1:51025:1025
+      - 127.0.0.1:58025:8025
+
+configs:
+  storage-identities:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "modelvend",
+            "credentials": [{ "accessKey": "modelvend", "secretKey": "modelvend-dev" }],
+            "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+          },
+          { "name": "anonymous", "actions": ["Read"] }
+        ]
+      }
+
+volumes:
+  postgres:
+  storage:

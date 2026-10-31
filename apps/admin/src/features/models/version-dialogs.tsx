@@ -109,7 +109,7 @@ export function NewVersionDialog({ model, open, onOpenChange }: { model: Model; 
         <DialogHeader>
           <DialogTitle>New version of {model.name}</DialogTitle>
           <DialogDescription>
-            It starts as a draft nobody can call. Promote it to staging to test it with internal keys, then put it live.
+            It starts as a draft nobody can call. Set up its schema, price and routes, then put it live.
           </DialogDescription>
         </DialogHeader>
         {open && <NewVersionForm model={model} onDone={() => onOpenChange(false)} />}
@@ -130,7 +130,8 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
   const apply = useApplyModel();
   const replacements = model.versionList.filter((v) => v.status === "live" && v.id !== version.id);
   const [sunset, setSunset] = useState(() => dateFromToday(90));
-  const [replacement, setReplacement] = useState(model.defaultVersion ?? replacements[0]?.id ?? NONE);
+  // The version being deprecated may be the default itself, and it can't replace itself.
+  const [replacement, setReplacement] = useState(replacements.find((v) => v.id === model.defaultVersion)?.id ?? replacements[0]?.id ?? NONE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -146,7 +147,7 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
         replacement: replacement === NONE ? null : replacement,
       });
       apply(updated);
-      toast.success(`${version.id} is deprecated`, { description: `It keeps answering until ${sunset}, then it can be retired.` });
+      toast.success(`${version.id} is deprecated`, { description: `It keeps answering, and can be retired after ${sunset}.` });
       onDone();
     } catch (err) {
       const shown = formErrors(err, ["sunsetAt", "replacement"]);
@@ -168,7 +169,7 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
         >
           <Input id="sunset" type="date" required value={sunset} min={dateFromToday(1)} onChange={(e) => setSunset(e.target.value)} />
         </Field>
-        <Field id="replacement" label="Replacement" hint="Named in the Deprecation header and used after retirement." error={fields.replacement}>
+        <Field id="replacement" label="Replacement" hint="Suggested to callers once it is retired. Calls are never forwarded to it." error={fields.replacement}>
           <Select value={replacement} onValueChange={setReplacement}>
             <SelectTrigger id="replacement" className="w-full">
               <SelectValue />
@@ -185,9 +186,9 @@ function DeprecateForm({ model, version, onDone }: { model: Model; version: Mode
         </Field>
       </div>
       <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-        Until the sunset date, responses carry <code className="font-mono">Deprecation</code> and{" "}
-        <code className="font-mono">Sunset</code> headers and workspaces that called it in the last 30 days get an email. It can
-        only be retired after the sunset date, once no live app release pins it.
+        From now on responses carry <code className="font-mono">Deprecation</code> and{" "}
+        <code className="font-mono">Sunset</code> headers. The sunset date allows retiring it and doesn&apos;t retire it: that stays
+        your decision, once no live app release pins it and no other deprecated version suggests it.
       </p>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
@@ -210,7 +211,7 @@ export function DeprecateDialog({ model, version, onClose }: { model: Model; ver
         <DialogHeader>
           <DialogTitle>Deprecate {version?.id}?</DialogTitle>
           <DialogDescription>
-            It keeps answering until the sunset date, so pinned callers have time to move, and can&apos;t be retired before then.
+            It keeps answering, so pinned callers have time to move, and can&apos;t be retired before the sunset date.
           </DialogDescription>
         </DialogHeader>
         {version && <DeprecateForm model={model} version={version} onDone={onClose} />}

@@ -1,0 +1,1283 @@
+openapi: 3.1.0
+info:
+  title: Modelvend Console API
+  version: "1"
+  x-phase: 3
+  description: |
+    What the customer console calls, with a session rather than an API key. Roles apply here, and the playground calls
+    the same task service as the public API, so nothing here is a secret console key.
+
+    Nothing is served yet. Accounts and the console's screens come in phase 3 of docs/roadmap.md, payments in phase 4,
+    as each operation's `x-phase` says. Tasks and models are the public API's shapes, so field names are snake_case as
+    there, and money follows the same rule: unit prices are decimal strings, amounts are whole micro-dollars.
+
+    Every call about a workspace sends `X-Workspace-Id`; the console keeps the active one in a cookie, never in the URL.
+    Not being a member answers 404. A role that doesn't allow the call answers 403 `forbidden`.
+
+    | Calls | Owner | Admin | Developer | Billing |
+    | ----- | ----- | ----- | --------- | ------- |
+    | Delete the workspace, transfer ownership | yes | | | |
+    | Invite, remove and change members | yes | yes | | |
+    | Create and revoke keys (a Developer only their own) | yes | yes | yes | |
+    | List keys, by prefix | yes | yes | yes | yes |
+    | Playground and task history | yes | yes | yes | |
+    | Webhook and workspace settings | yes | yes | | |
+    | Card, top-up, receipts, auto-reload | yes | yes | | yes |
+    | Usage and spend | yes | yes | yes | yes |
+servers:
+  - url: https://app.modelvend.ai/console/v1
+security:
+  - session: []
+
+paths:
+  /auth/signup:
+    post:
+      x-phase: 3
+      operationId: signUp
+      summary: Create an account
+      description: |
+        Opens a personal workspace and sends a verification email. An unverified person can enter the console, but can't
+        create keys, top up or receive gift credit. Answers the same whether or not the email is taken, so it doesn't
+        tell which.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignUp" }
+      responses:
+        "202": { description: Check your email. }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/login:
+    post:
+      x-phase: 3
+      operationId: login
+      summary: Sign in with a password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Login" }
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/google:
+    post:
+      x-phase: 3
+      operationId: loginWithGoogle
+      summary: Sign in with Google
+      description: |
+        On a verified email it joins an existing account. An unverified password sign-up with that email is canceled,
+        so nobody can hold an account for an address they don't own.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoogleLogin" }
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      x-phase: 3
+      operationId: logout
+      summary: End this session
+      security: []
+      responses:
+        "204": { description: Signed out. }
+  /auth/verify-email:
+    post:
+      x-phase: 3
+      operationId: verifyEmail
+      summary: Confirm an email address
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenBody" }
+      responses:
+        "204": { description: Verified. }
+        "422": { $ref: "#/components/responses/Error" }
+  /auth/password/forgot:
+    post:
+      x-phase: 3
+      operationId: forgotPassword
+      summary: Send a password reset email
+      description: Answers the same whether or not the account exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailBody" }
+      responses:
+        "202": { description: Check your email. }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/password/reset:
+    post:
+      x-phase: 3
+      operationId: resetPassword
+      summary: Set a new password
+      description: Ends all of the person's sessions. API keys aren't affected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPassword" }
+      responses:
+        "204": { description: Changed. }
+        "422": { $ref: "#/components/responses/Error" }
+  /me:
+    get:
+      x-phase: 3
+      operationId: getMe
+      summary: The signed-in person and their workspaces
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      x-phase: 3
+      operationId: updateMe
+      summary: Change your name or email
+      description: A new email takes over once verified; the old address hears about it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeUpdate" }
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      x-phase: 3
+      operationId: deleteMe
+      summary: Delete your account
+      description: |
+        422 `sole_owner` while you are the only Owner of a workspace. Personal data is anonymized; invoices are kept for
+        as long as the law requires.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /workspaces:
+    post:
+      x-phase: 3
+      operationId: createWorkspace
+      summary: Open another workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewWorkspace" }
+      responses:
+        "201":
+          description: The workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /workspace:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: getWorkspace
+      summary: The active workspace
+      responses:
+        "200":
+          description: The workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      x-phase: 3
+      operationId: updateWorkspace
+      summary: Change the workspace's settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUpdate" }
+      responses:
+        "200":
+          description: The workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      x-phase: 3
+      operationId: deleteWorkspace
+      summary: Delete the workspace
+      description: |
+        422 `tasks_running` while a task runs, `negative_balance` while the balance is below zero. Keys are revoked. It
+        can be restored for 30 days. Remaining credit isn't refunded outside the 14-day rule; financial records stay.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /workspace/transfer:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    post:
+      x-phase: 3
+      operationId: transferWorkspace
+      summary: Hand the workspace to another member
+      description: Only to a verified current member. The old Owner becomes an Admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransferWorkspace" }
+      responses:
+        "204": { description: Transferred. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /members:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: listMembers
+      summary: The workspace's members
+      responses:
+        "200":
+          description: Every member.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /members/{user_id}:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { name: user_id, in: path, required: true, schema: { type: string } }
+    patch:
+      x-phase: 3
+      operationId: updateMember
+      summary: Change a member's role
+      description: An Admin can't change an Owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemberUpdate" }
+      responses:
+        "200":
+          description: The member.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      x-phase: 3
+      operationId: removeMember
+      summary: Remove a member, or leave
+      description: |
+        Their access ends at once and the keys they created are revoked; their running tasks finish and are charged. 422
+        `last_owner` for the last Owner, who transfers or deletes first.
+      responses:
+        "204": { description: Removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /members/{user_id}/keys:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { name: user_id, in: path, required: true, schema: { type: string } }
+    get:
+      x-phase: 3
+      operationId: listMemberKeys
+      summary: The keys that would be revoked with this member
+      description: The removal screen shows them with their last use, so production isn't cut by surprise.
+      responses:
+        "200":
+          description: The member's active keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /invites:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: listInvites
+      summary: Open invitations
+      responses:
+        "200":
+          description: Every open invitation.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Invite" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      x-phase: 3
+      operationId: createInvite
+      summary: Invite someone
+      description: Valid for 7 days, once, for that email only. 409 when they are already a member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewInvite" }
+      responses:
+        "201":
+          description: The invitation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invite" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /invites/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { $ref: "#/components/parameters/Id" }
+    delete:
+      x-phase: 3
+      operationId: cancelInvite
+      summary: Cancel an invitation
+      responses:
+        "204": { description: Canceled. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /invites/accept:
+    post:
+      x-phase: 3
+      operationId: acceptInvite
+      summary: Join a workspace
+      description: 422 `email_mismatch` when you are signed in with another email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenBody" }
+      responses:
+        "200":
+          description: The workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /keys:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: listKeys
+      summary: The workspace's API keys, newest first
+      description: Revoked keys stay listed.
+      responses:
+        "200":
+          description: Every key.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      x-phase: 3
+      operationId: createKey
+      summary: Create an API key
+      description: The secret comes back once. 403 `email_not_verified` until the person's email is verified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewKey" }
+      responses:
+        "201":
+          description: The key and its secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /keys/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { $ref: "#/components/parameters/Id" }
+    patch:
+      x-phase: 3
+      operationId: updateKey
+      summary: Change a key's name, scopes or spend limit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyUpdate" }
+      responses:
+        "200":
+          description: The key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /keys/{id}/revoke:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      x-phase: 3
+      operationId: revokeKey
+      summary: Revoke a key, at once and for good
+      responses:
+        "200":
+          description: The key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /models:
+    get:
+      x-phase: 3
+      operationId: listModels
+      summary: The catalog, as the public API lists it
+      responses:
+        "200":
+          description: A page of models.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/ModelList" }
+        "401": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}:
+    parameters:
+      - { name: publisher, in: path, required: true, schema: { type: string } }
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      x-phase: 3
+      operationId: getModel
+      summary: One model, with a quote for the workspace
+      parameters:
+        - { $ref: "#/components/parameters/Workspace" }
+        - name: version
+          in: query
+          description: A version ID. Without it, the default.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /tasks:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    post:
+      x-phase: 3
+      operationId: createTask
+      summary: Run a model or an app from the playground
+      description: The same task service, rules and errors as `POST /v1/tasks`; only the sign-in differs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "public.yaml#/components/schemas/CreateTask" }
+      responses:
+        "200":
+          description: The task has finished.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/Task" }
+        "202":
+          description: The task is queued or running.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      x-phase: 3
+      operationId: listTasks
+      summary: The workspace's tasks, newest first
+      parameters:
+        - { name: status, in: query, schema: { $ref: "public.yaml#/components/schemas/TaskStatus" } }
+        - { name: target, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: A page of tasks.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/TaskList" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /tasks/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      x-phase: 3
+      operationId: getTask
+      summary: One task
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /tasks/{id}/cancel:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      x-phase: 3
+      operationId: cancelTask
+      summary: Cancel a task
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "public.yaml#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /usage:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: getUsage
+      summary: Tasks and spend per day and model
+      description: |
+        Task based. Refused requests (402, 429) count only as totals; there is no request log. A task refund comes off
+        the day it was refunded.
+      parameters:
+        - { name: range, in: query, schema: { type: string, enum: ["7d", "30d", "90d"] } }
+      responses:
+        "200":
+          description: The usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Usage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /limits:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: getLimits
+      summary: The limits in force
+      responses:
+        "200":
+          description: The limits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Limits" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      x-phase: 3
+      operationId: setOwnSpendLimit
+      summary: Set a lower monthly spend limit for yourself
+      description: It can't exceed the limit an operator set. Asking for higher limits happens by email, not here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OwnSpendLimit" }
+      responses:
+        "200":
+          description: The limits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Limits" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /webhook:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: getWebhook
+      summary: The workspace's webhook
+      responses:
+        "200":
+          description: The webhook; null URL when none is set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      x-phase: 3
+      operationId: setWebhook
+      summary: Set the webhook URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookUpdate" }
+      responses:
+        "200":
+          description: The webhook.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /webhook/rotate-secret:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    post:
+      x-phase: 3
+      operationId: rotateWebhookSecret
+      summary: Replace the signing secret
+      description: The new secret comes back once. See api/webhooks.yaml for how deliveries are signed.
+      responses:
+        "200":
+          description: The secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookSecret" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /webhook/deliveries:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: listWebhookDeliveries
+      summary: Recent deliveries, newest first
+      description: Deliveries retry for 24 hours and then stop, and show here as failed.
+      responses:
+        "200":
+          description: Recent deliveries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /announcements:
+    get:
+      x-phase: 3
+      operationId: listAnnouncements
+      summary: Site announcements to show now
+      responses:
+        "200":
+          description: The current announcements.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Announcement" }
+        "401": { $ref: "#/components/responses/Error" }
+  /balance:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: getBalance
+      summary: The balance and what is available of it
+      description: "`available_micros` is what a new task can hold. Below zero, new tasks answer 402 until a top-up clears it."
+      responses:
+        "200":
+          description: The balance.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Balance" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /ledger:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 3
+      operationId: listLedger
+      summary: Every movement of credit, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: A page of entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LedgerPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /top-ups/quote:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    post:
+      x-phase: 4
+      operationId: quoteTopUp
+      summary: What a top-up comes to, before paying
+      description: The card fee, tax, any debt it clears first, and any bonus. The console shows this, and never works it out itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopUpRequest" }
+      responses:
+        "200":
+          description: The breakdown.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TopUpQuote" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /top-ups:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    post:
+      x-phase: 4
+      operationId: createTopUp
+      summary: Start a payment
+      description: |
+        Credit is added only by the payment provider's webhook, never by the return page. A retry with the same
+        `Idempotency-Key` is the same payment. 403 `email_not_verified` until the email is verified.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 255 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopUpRequest" }
+      responses:
+        "201":
+          description: Where to pay.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TopUpCheckout" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /auto-reload:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 4
+      operationId: getAutoReload
+      summary: The auto-reload setting
+      responses:
+        "200":
+          description: The setting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoReload" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      x-phase: 4
+      operationId: setAutoReload
+      summary: Change the auto-reload setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutoReload" }
+      responses:
+        "200":
+          description: The setting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoReload" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /receipts:
+    parameters:
+      - { $ref: "#/components/parameters/Workspace" }
+    get:
+      x-phase: 4
+      operationId: listReceipts
+      summary: A receipt and tax invoice per top-up
+      description: There is no monthly invoice.
+      responses:
+        "200":
+          description: Every receipt, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Receipt" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-mv_console_session
+  parameters:
+    Workspace:
+      name: X-Workspace-Id
+      in: header
+      required: true
+      description: The active workspace. The signed-in person must be a member.
+      schema: { type: string }
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    Error:
+      description: See `error.code`.
+      content:
+        application/json:
+          schema: { $ref: "public.yaml#/components/schemas/ErrorResponse" }
+  schemas:
+    SignUp:
+      type: object
+      required: [email, password, name]
+      properties:
+        email: { type: string }
+        password: { type: string, minLength: 12 }
+        name: { type: string, maxLength: 80 }
+    Login:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+    GoogleLogin:
+      type: object
+      required: [id_token]
+      properties:
+        id_token: { type: string }
+    TokenBody:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    EmailBody:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string }
+    ResetPassword:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string }
+        password: { type: string, minLength: 12 }
+    Role:
+      type: string
+      enum: [owner, admin, developer, billing]
+    Me:
+      type: object
+      required: [id, email, name, email_verified, workspaces]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        email_verified: { type: boolean }
+        workspaces:
+          type: array
+          items:
+            type: object
+            required: [id, name, role]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              role: { $ref: "#/components/schemas/Role" }
+    MeUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        email: { type: string }
+        password:
+          type: string
+          minLength: 12
+          description: Other sessions end.
+        current_password:
+          type: string
+          description: Required to change the email or the password.
+    NewWorkspace:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+    Workspace:
+      type: object
+      required: [id, name, status, role, customer_type, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status:
+          type: string
+          description: A suspended workspace is read-only; its keys answer 403 `account_suspended`.
+          enum: [active, suspended]
+        role: { $ref: "#/components/schemas/Role" }
+        customer_type: { type: string, enum: [individual, company] }
+        created_at: { type: string, format: date-time }
+    WorkspaceUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        customer_type: { type: string, enum: [individual, company] }
+    TransferWorkspace:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string }
+    Member:
+      type: object
+      required: [user_id, name, email, role, joined_at]
+      properties:
+        user_id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        joined_at: { type: string, format: date-time }
+    MemberUpdate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          description: Ownership moves only through a transfer.
+          enum: [admin, developer, billing]
+    NewInvite:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string }
+        role:
+          type: string
+          enum: [admin, developer, billing]
+    Invite:
+      type: object
+      required: [id, email, role, expires_at, created_at]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    ApiKey:
+      type: object
+      required: [id, name, prefix, status, scopes, spend_limit_micros, created_by, created_at, last_used_at, revoked_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: The first characters of the key. The rest was shown once and isn't kept.
+        status: { type: string, enum: [active, revoked] }
+        scopes:
+          type: array
+          description: Model IDs or app slugs it may call; empty for everything.
+          items: { type: string }
+        spend_limit_micros: { type: [integer, "null"] }
+        created_by:
+          description: Null once the member who made it is deleted.
+          type: [object, "null"]
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, "null"], format: date-time }
+        revoked_at: { type: [string, "null"], format: date-time }
+    NewKey:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+        scopes:
+          type: array
+          items: { type: string }
+        spend_limit_micros: { type: [integer, "null"], minimum: 1 }
+    KeyUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        scopes:
+          type: array
+          items: { type: string }
+        spend_limit_micros: { type: [integer, "null"], minimum: 1 }
+    CreatedKey:
+      type: object
+      required: [key, secret]
+      properties:
+        key: { $ref: "#/components/schemas/ApiKey" }
+        secret:
+          type: string
+          description: "`mv_…`, shown only now."
+    Usage:
+      type: object
+      required: [days, models, refused]
+      properties:
+        days:
+          type: array
+          items:
+            type: object
+            required: [day, tasks, failed, spend_micros]
+            properties:
+              day: { type: string }
+              tasks: { type: integer }
+              failed: { type: integer }
+              spend_micros: { type: integer }
+        models:
+          type: array
+          items:
+            type: object
+            required: [model, tasks, units, unit, spend_micros]
+            properties:
+              model: { type: string }
+              tasks: { type: integer }
+              units: { type: number }
+              unit: { type: string }
+              spend_micros: { type: integer }
+        refused:
+          type: object
+          description: Requests refused before a task existed, over the range.
+          required: [insufficient_credits, rate_limited, queue_full, spend_limit]
+          properties:
+            insufficient_credits: { type: integer }
+            rate_limited: { type: integer }
+            queue_full: { type: integer }
+            spend_limit: { type: integer }
+    Limits:
+      type: object
+      required:
+        - requests_per_minute
+        - concurrency
+        - queue_size
+        - queue_wait_seconds
+        - daily_spend_micros
+        - monthly_spend_micros
+        - own_monthly_spend_micros
+        - sub_accounts
+        - top_up_min_micros
+        - top_up_max_micros
+      properties:
+        requests_per_minute: { type: integer }
+        concurrency: { type: integer }
+        queue_size: { type: integer }
+        queue_wait_seconds: { type: integer }
+        daily_spend_micros: { type: [integer, "null"] }
+        monthly_spend_micros: { type: [integer, "null"] }
+        own_monthly_spend_micros:
+          type: [integer, "null"]
+          description: The lower limit the workspace set for itself.
+        sub_accounts: { type: integer }
+        top_up_min_micros: { type: integer }
+        top_up_max_micros: { type: integer }
+    OwnSpendLimit:
+      type: object
+      required: [own_monthly_spend_micros]
+      properties:
+        own_monthly_spend_micros: { type: [integer, "null"], minimum: 1 }
+    Webhook:
+      type: object
+      required: [url, secret_hint]
+      properties:
+        url: { type: [string, "null"] }
+        secret_hint: { type: [string, "null"] }
+    WebhookUpdate:
+      type: object
+      required: [url]
+      properties:
+        url: { type: [string, "null"] }
+    WebhookSecret:
+      type: object
+      required: [secret]
+      properties:
+        secret: { type: string }
+    WebhookDelivery:
+      type: object
+      required: [id, task_id, event, status, attempts, last_status_code, next_attempt_at, created_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        event: { type: string }
+        status: { type: string, enum: [pending, delivered, failed] }
+        attempts: { type: integer }
+        last_status_code: { type: [integer, "null"] }
+        next_attempt_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+    Announcement:
+      type: object
+      required: [id, title, body]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        body: { type: string }
+    CreditLot:
+      type: object
+      description: Credit expires in parts, and the earliest to expire is spent first.
+      required: [kind, remaining_micros, expires_at]
+      properties:
+        kind: { type: string, enum: [purchased, gift, bonus] }
+        remaining_micros: { type: integer }
+        expires_at: { type: string, format: date-time }
+    Balance:
+      type: object
+      required: [balance_micros, held_micros, available_micros, lots]
+      properties:
+        balance_micros:
+          type: integer
+          description: Can be below zero, when a task cost more than its hold.
+        held_micros:
+          type: integer
+          description: Held for unfinished tasks.
+        available_micros: { type: integer }
+        lots:
+          type: array
+          items: { $ref: "#/components/schemas/CreditLot" }
+    LedgerEntry:
+      type: object
+      required: [id, kind, amount_micros, note, at]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [top_up, grant, usage, refund, adjustment, expire, fee] }
+        amount_micros: { type: integer }
+        note: { type: string }
+        at: { type: string, format: date-time }
+    LedgerPage:
+      type: object
+      required: [object, data, next_cursor]
+      properties:
+        object: { type: string, enum: [list] }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/LedgerEntry" }
+        next_cursor: { type: [string, "null"] }
+    TopUpRequest:
+      type: object
+      required: [amount_micros]
+      properties:
+        amount_micros: { type: integer, minimum: 1 }
+    TopUpQuote:
+      type: object
+      required: [amount_micros, fee_micros, tax_micros, total_micros, debt_micros, bonus_micros, credit_micros, credit_expires_at]
+      properties:
+        amount_micros: { type: integer }
+        fee_micros: { type: integer }
+        tax_micros: { type: integer }
+        total_micros:
+          type: integer
+          description: What the card is charged.
+        debt_micros:
+          type: integer
+          description: What goes to a balance below zero first.
+        bonus_micros: { type: integer }
+        credit_micros:
+          type: integer
+          description: What lands in the balance.
+        credit_expires_at: { type: string, format: date-time }
+    TopUpCheckout:
+      type: object
+      required: [id, checkout_url]
+      properties:
+        id: { type: string }
+        checkout_url: { type: string }
+    AutoReload:
+      type: object
+      required: [enabled, threshold_micros, amount_micros]
+      properties:
+        enabled: { type: boolean }
+        threshold_micros: { type: integer, minimum: 1 }
+        amount_micros: { type: integer, minimum: 1 }
+    Receipt:
+      type: object
+      required: [id, amount_micros, fee_micros, tax_micros, receipt_url, invoice_url, paid_at]
+      properties:
+        id: { type: string }
+        amount_micros: { type: integer }
+        fee_micros: { type: integer }
+        tax_micros: { type: integer }
+        receipt_url: { type: string }
+        invoice_url: { type: [string, "null"] }
+        paid_at: { type: string, format: date-time }

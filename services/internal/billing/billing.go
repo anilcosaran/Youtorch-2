@@ -8,11 +8,11 @@
 // and is refused when balance - held doesn't cover it. When the task finishes,
 // in the same transaction as its final status, the hold is released and, if
 // it succeeded, its price is taken from the balance and posted to the ledger.
-// Test keys are billed like live ones.
 package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -25,28 +25,80 @@ import (
 // Micros converts dollars to micro-dollars, rounding half away from zero.
 func Micros(dollars float64) int64 { return int64(math.Round(dollars * 1e6)) }
 
-// Charge is what the customer pays for units at a tier, after any promo.
-// Failed tasks and queue time are never charged; callers only charge successes.
-func Charge(p catalog.Pricing, tierID string, units float64) (int64, bool) {
-	tier, ok := p.Tier(tierID)
-	if !ok {
-		return 0, false
-	}
-	price := tier.Price
-	if p.Promo != nil && *p.Promo > 0 && *p.Promo < 1 {
-		price *= 1 - *p.Promo
-	}
-	return Micros(price * units), true
+// Quote is the prices a task was accepted at, fixed when it is created: the
+// tier its input picked, that tier's price after any promo, and the reference
+// media it sent. Failed tasks and queue time are never charged; callers only
+// charge successes.
+type Quote struct {
+	Tier       string  `json:"tier"`
+	Unit       string  `json:"unit"`
+	UnitPrice  float64 `json:"unit_price"`
+	InputUnit  string  `json:"input_unit,omitempty"`
+	InputUnits float64 `json:"input_units,omitempty"`
+	InputPrice float64 `json:"input_price,omitempty"`
 }
 
-// Estimate is what a new task holds: the price of one unit at the default
-// tier, the least a success can cost. It stays an estimate until units and
-// tier come from the input; settlement charges what the task really used.
-func Estimate(p catalog.Pricing) (int64, bool) { return Charge(p, "", 1) }
+// NewQuote prices an input, which must already match the version's schema.
+func NewQuote(p catalog.Pricing, input json.RawMessage) (Quote, error) {
+	var fields map[string]any
+	if len(input) > 0 {
+		if err := json.Unmarshal(input, &fields); err != nil {
+			return Quote{}, fmt.Errorf("billing: reading input: %w", err)
+		}
+	}
+	tier, err := p.TierFor(fields)
+	if err != nil {
+		return Quote{}, err
+	}
+	q := Quote{Tier: tier.ID, Unit: p.Unit, UnitPrice: p.Net(tier.Price)}
+	if p.Input != nil {
+		if count := inputUnits(fields[p.Input.Field]); count > 0 {
+			q.InputUnit, q.InputUnits, q.InputPrice = p.Input.Unit, count, p.Input.Price
+		}
+	}
+	return q, nil
+}
 
-// Cost is what the provider charges us for units on a route.
-func Cost(r catalog.Route, units float64) int64 {
-	return int64(math.Round(float64(r.CostMicros) * units))
+func inputUnits(value any) float64 {
+	switch v := value.(type) {
+	case nil:
+		return 0
+	case []any:
+		return float64(len(v))
+	case float64:
+		return max(v, 0)
+	case bool:
+		if !v {
+			return 0
+		}
+	case string:
+		if v == "" {
+			return 0
+		}
+	}
+	return 1
+}
+
+// Amount is what the customer pays for units.
+func (q Quote) Amount(units float64) int64 {
+	return Micros(q.UnitPrice*units + q.InputPrice*q.InputUnits)
+}
+
+// Hold is what a new task sets aside: one unit and its reference media, and at
+// least the smallest amount for a priced task, however small a unit is. It
+// stays an estimate until units come from the input; settlement charges what
+// the task really used.
+func (q Quote) Hold() int64 {
+	amount := q.Amount(1)
+	if amount == 0 && (q.UnitPrice > 0 || q.InputPrice > 0) {
+		return 1
+	}
+	return amount
+}
+
+// Cost is what the provider charges us for units at a tier on a route.
+func Cost(r catalog.Route, tier string, units float64) int64 {
+	return Micros(r.Cost(tier) * units)
 }
 
 var (

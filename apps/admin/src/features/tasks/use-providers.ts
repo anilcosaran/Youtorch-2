@@ -7,7 +7,7 @@ import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 
 /**
- * Providers by ID, for operators who may see them. Requests name providers
+ * Providers by ID, for operators who may see them. Tasks name providers
  * by ID; without access (or until the list loads) the ID stands in.
  */
 export function useProviders() {

@@ -5,6 +5,7 @@
 !package-lock.json
 !apps/admin
 !packages/admin-api
+!packages/api-types
 !packages/config-eslint
 !packages/config-typescript
 **/node_modules

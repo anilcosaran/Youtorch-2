@@ -173,8 +173,12 @@ func (w *DispatchWorker) Work(ctx context.Context, job *river.Job[tasks.Dispatch
 	for _, a := range r.attempts {
 		tried[a.RouteID] = true
 	}
+	tier := r.version.Pricing.DefaultTier
+	if r.task.Quote != nil {
+		tier = r.task.Quote.Tier
+	}
 	var lastErr *providers.UpstreamError
-	for _, rt := range routing.Plan(r.model, r.version, r.routes, nil, nil) {
+	for _, rt := range routing.Plan(r.model, r.version, r.routes, tier, nil, nil) {
 		if tried[rt.ID] {
 			continue
 		}
@@ -399,10 +403,17 @@ func (d *Deps) succeed(ctx context.Context, r *run, rt catalog.Route, number int
 	if units <= 0 {
 		units = 1
 	}
-	// Tier selection by input lands with pricing; the default tier applies until then.
-	price, _ := billing.Charge(r.version.Pricing, "", units)
-	cost := billing.Cost(rt, units)
-	err = d.Tasks.SucceedAttempt(ctx, r.task.ID, number, output, units, r.version.Pricing.Unit, price, cost, time.Now())
+	quote := r.task.Quote
+	if quote == nil {
+		// Only a task from before quotes were recorded.
+		q, err := billing.NewQuote(r.version.Pricing, r.task.Input)
+		if err != nil {
+			return d.endAndFail(ctx, r.task.ID, number, "failed", &providers.UpstreamError{Kind: providers.Internal, Message: err.Error()})
+		}
+		quote = &q
+	}
+	err = d.Tasks.SucceedAttempt(ctx, r.task.ID, number, output, units, quote.Unit,
+		quote.Amount(units), billing.Cost(rt, quote.Tier, units), time.Now())
 	if errors.Is(err, tasks.ErrFinal) {
 		// Canceled while running: the output is dropped and nothing is charged.
 		return nil

@@ -94,3 +94,50 @@ func TestPartialRoutingKeepsDefaults(t *testing.T) {
 		t.Errorf("fallbacks: false: got %+v", got)
 	}
 }
+
+func validVersion() Version {
+	return Version{
+		ID: "v1",
+		Input: map[string]any{"type": "object", "properties": map[string]any{
+			"resolution": map[string]any{"type": "string", "enum": []any{"720p", "1080p"}},
+			"refs":       map[string]any{"type": "array"},
+		}},
+		Output: map[string]any{"type": "object"},
+		Pricing: catalog.Pricing{Unit: "second", DefaultTier: "1080p", TierField: "resolution",
+			Tiers: []catalog.Tier{{ID: "720p", Label: "720p", Price: 0.05}, {ID: "1080p", Label: "1080p", Price: 0.08}}},
+		Routes: []Route{{Provider: "kling", Upstream: "kling-v3", Costs: map[string]float64{"720p": 0.03, "1080p": 0.06}}},
+	}
+}
+
+func TestValidatePricingFields(t *testing.T) {
+	v := validVersion()
+	if err := v.validate(); err != nil {
+		t.Fatalf("a valid version was refused: %v", err)
+	}
+	for name, change := range map[string]func(*Version){
+		"tier field not in the schema": func(v *Version) { v.Pricing.TierField = "quality" },
+		"schema value with no tier":    func(v *Version) { v.Pricing.Tiers = v.Pricing.Tiers[1:] },
+		"tier values without a field":  func(v *Version) { v.Pricing.TierField = ""; v.Pricing.TierValues = map[string]string{"a": "720p"} },
+		"input field not in the schema": func(v *Version) {
+			v.Pricing.Input = &catalog.InputPrice{Unit: "image", Price: 0.01, Field: "images"}
+		},
+		"cost missing a tier": func(v *Version) { v.Routes[0].Costs = map[string]float64{"720p": 0.03} },
+		"cost of no tier":     func(v *Version) { v.Routes[0].Costs["4k"] = 0.1 },
+		"negative cost":       func(v *Version) { v.Routes[0].Costs["720p"] = -1 },
+		"both cost and costs": func(v *Version) { v.Routes[0].Cost = 0.03 },
+	} {
+		v := validVersion()
+		change(&v)
+		if err := v.validate(); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+func TestRouteCostAppliesToEveryTier(t *testing.T) {
+	v := validVersion()
+	costs, err := Route{Cost: 0.04}.tierCosts(v.Pricing)
+	if err != nil || costs["720p"] != 0.04 || costs["1080p"] != 0.04 {
+		t.Fatalf("costs %v: %v", costs, err)
+	}
+}

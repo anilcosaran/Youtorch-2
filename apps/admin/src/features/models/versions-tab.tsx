@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { ArrowRight, ArrowUpRight, Braces, CircleDollarSign, Ellipsis, Plus, Route, Star } from "lucide-react";
+import { toast } from "sonner";
 import {
-  promoteVersion,
+  publishVersion,
   retireVersion,
   setDefaultVersion,
   VERSION_STATUSES,
@@ -15,6 +16,7 @@ import { EmptyState } from "@/components/data/states";
 import { useConfirm } from "@/components/shared/confirm";
 import { InfoTip } from "@/components/shared/info-tip";
 import { Pill } from "@/components/shared/pill";
+import { PublishDialog } from "@/components/shared/publish-dialog";
 import { VersionStatusPill } from "@/components/shared/status";
 import { DateTime } from "@/components/shared/time";
 import { Button } from "@/components/ui/button";
@@ -32,9 +34,9 @@ import { usePermissions } from "@/lib/session";
 import { useNow } from "@/lib/use-now";
 import { DeprecateDialog, NewVersionDialog } from "./version-dialogs";
 import type { ModelTab } from "./model-detail";
-import { useModelAction } from "./use-model-action";
+import { useApplyModel, useModelAction, useRefreshModel } from "./use-model-action";
 
-/** Draft → Staging → Live → Deprecated → Retired, with what each step means. */
+/** Draft → Live → Deprecated → Retired, with what each step means. */
 function Lifecycle() {
   return (
     <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-lg border bg-card px-4 py-3 text-xs" aria-label="Version lifecycle">
@@ -56,51 +58,37 @@ function RowActions({
   model,
   version,
   onManage,
+  onPublish,
   onDeprecate,
 }: {
   model: Model;
   version: ModelVersion;
   onManage: (versionId: string, tab: ModelTab) => void;
+  onPublish: (version: ModelVersion) => void;
   onDeprecate: (version: ModelVersion) => void;
 }) {
   const can = usePermissions();
   const confirm = useConfirm();
-  const run = useModelAction();
+  const run = useModelAction(model.id);
   const now = useNow();
   const isDefault = version.id === model.defaultVersion;
-  const activeRoutes = version.routes.filter((r) => r.status === "active").length;
-  // Retiring waits for the sunset date callers were given, and for versions that forward to this one.
+  // Retiring waits for the sunset date callers were given, for other versions to stop suggesting this one, and for
+  // another version to take over as the default. The server also refuses while a live app release pins it.
   const beforeSunset = version.sunsetAt !== null && Date.parse(version.sunsetAt) > now.getTime();
-  const forwarding = model.versionList.filter((v) => v.id !== version.id && v.status === "deprecated" && v.replacement === version.id);
+  const suggesting = model.versionList.filter((v) => v.id !== version.id && v.status === "deprecated" && v.replacement === version.id);
+  const otherLive = model.versionList.some((v) => v.id !== version.id && v.status === "live");
   const retireBlocked = beforeSunset
-    ? `It keeps answering until its sunset date, ${dateOnly(version.sunsetAt ?? "")}; retire it after that.`
-    : forwarding.length > 0
-      ? `${forwarding.map((v) => v.id).join(", ")} ${forwarding.length === 1 ? "sends its" : "send their"} callers here once retired. Retire ${forwarding.length === 1 ? "it" : "them"} first.`
-      : null;
-
-  const promote = async (to: "staging" | "live") => {
-    if (to === "live") {
-      const becomesDefault = model.defaultVersion === null;
-      const ok = await confirm({
-        title: `Put ${version.id} live?`,
-        description: becomesDefault
-          ? `Customers can call it right away, and it becomes the default because ${model.name} has none yet.`
-          : `Customers can call it by pinning ${model.id}@${version.id}. Unpinned requests keep getting ${model.defaultVersion} until you make this the default.`,
-        action: "Put live",
-      });
-      if (!ok) return;
-    }
-    await run(
-      () => promoteVersion(model.id, version.id, to),
-      to === "live" ? `${version.id} is live` : `${version.id} is on staging`,
-      "Couldn't promote the version",
-    );
-  };
+    ? `It can be retired once its sunset date, ${dateOnly(version.sunsetAt ?? "")}, has passed. It keeps answering until you do.`
+    : isDefault && otherLive
+      ? `${version.id} is the default. Make a live version the default first.`
+      : suggesting.length > 0
+        ? `${suggesting.map((v) => v.id).join(", ")} ${suggesting.length === 1 ? "suggests" : "suggest"} this version as the replacement. Retire ${suggesting.length === 1 ? "it" : "them"} first.`
+        : null;
 
   const makeDefault = async () => {
     const ok = await confirm({
       title: `Make ${version.id} the default?`,
-      description: `Unpinned requests to ${model.id} get ${version.id} from now on. Callers pinned to ${model.defaultVersion ?? "another version"} aren't affected.`,
+      description: `Unpinned tasks on ${model.id} get ${version.id} from now on. Callers pinned to ${model.defaultVersion ?? "another version"} aren't affected.`,
       action: "Make default",
     });
     if (ok) await run(() => setDefaultVersion(model.id, version.id), `${version.id} is the default`, "Couldn't change the default");
@@ -109,11 +97,9 @@ function RowActions({
   const retire = async () => {
     const ok = await confirm({
       title: `Retire ${version.id}?`,
-      description: `${
-        version.replacement
-          ? `Requests pinned to it go to ${version.replacement} from now on.`
-          : "Requests pinned to it fail with 410 Gone from now on."
-      } It can't be retired while a live app release pins it. This can't be undone.`,
+      description: `Calls get 410 version_retired from now on${
+        version.replacement ? `, with ${version.replacement} as the suggested version; they are never forwarded to it` : ""
+      }. It can't be retired while a live app release pins it. This can't be undone.`,
       action: "Retire",
       destructive: true,
     });
@@ -124,23 +110,20 @@ function RowActions({
   if (can.publishCatalog) {
     if (version.status === "draft") {
       lifecycle.push(
-        <DropdownMenuItem key="staging" onSelect={() => void promote("staging")}>
-          <ArrowUpRight /> Promote to staging
+        <DropdownMenuItem key="live" onSelect={() => onPublish(version)}>
+          <ArrowUpRight /> Put live…
         </DropdownMenuItem>,
       );
     }
-    if (version.status === "draft" || version.status === "staging") {
+    if (version.status === "live") {
+      if (!isDefault) {
+        lifecycle.push(
+          <DropdownMenuItem key="default" onSelect={() => void makeDefault()}>
+            <Star /> Make default
+          </DropdownMenuItem>,
+        );
+      }
       lifecycle.push(
-        <DropdownMenuItem key="live" onSelect={() => void promote("live")} disabled={activeRoutes === 0}>
-          <ArrowUpRight /> {activeRoutes === 0 ? "Put live (needs an active route)" : "Put live"}
-        </DropdownMenuItem>,
-      );
-    }
-    if (version.status === "live" && !isDefault) {
-      lifecycle.push(
-        <DropdownMenuItem key="default" onSelect={() => void makeDefault()}>
-          <Star /> Make default
-        </DropdownMenuItem>,
         <DropdownMenuItem key="deprecate" onSelect={() => onDeprecate(version)}>
           Deprecate…
         </DropdownMenuItem>,
@@ -182,9 +165,6 @@ function RowActions({
           </DropdownMenuItem>
           {lifecycle.length > 0 && <DropdownMenuSeparator />}
           {lifecycle}
-          {version.status === "live" && isDefault && can.publishCatalog && (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Make another version the default to deprecate this one.</p>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </span>
@@ -194,8 +174,22 @@ function RowActions({
 /** Every version of the model, newest first, with what can happen to each next. */
 export function VersionsTab({ model, onManage }: { model: Model; onManage: (versionId: string, tab: ModelTab) => void }) {
   const can = usePermissions();
+  const apply = useApplyModel();
+  const refresh = useRefreshModel();
   const [creating, setCreating] = useState(false);
+  const [publishing, setPublishing] = useState<ModelVersion | null>(null);
   const [deprecating, setDeprecating] = useState<ModelVersion | null>(null);
+
+  const publish = async (version: ModelVersion, reason: string | undefined) => {
+    try {
+      apply(await publishVersion(model.id, version.id, reason ? { reason } : {}));
+      setPublishing(null);
+      toast.success(`${version.id} is live`);
+    } catch (error) {
+      refresh(model.id);
+      throw error;
+    }
+  };
 
   const columns: Column<ModelVersion>[] = [
     {
@@ -248,7 +242,7 @@ export function VersionsTab({ model, onManage }: { model: Model; onManage: (vers
         );
       },
     },
-    { id: "requests", header: "Requests 24h", align: "right", cell: (v) => <span className="tabular">{integer(v.requests24h)}</span> },
+    { id: "tasks", header: "Tasks 24h", align: "right", cell: (v) => <span className="tabular">{integer(v.tasks24h)}</span> },
     { id: "released", header: "Released", cell: (v) => <DateTime value={v.releasedAt} time={false} /> },
     {
       id: "sunset",
@@ -257,7 +251,7 @@ export function VersionsTab({ model, onManage }: { model: Model; onManage: (vers
         v.sunsetAt ? (
           <span className="flex flex-col leading-tight">
             <DateTime value={v.sunsetAt} time={false} />
-            {v.replacement && <span className="text-xs text-muted-foreground">→ {v.replacement}</span>}
+            {v.replacement && <span className="text-xs text-muted-foreground">Suggests {v.replacement}</span>}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -268,7 +262,7 @@ export function VersionsTab({ model, onManage }: { model: Model; onManage: (vers
       header: <span className="sr-only">Actions</span>,
       align: "right",
       className: "w-12",
-      cell: (v) => <RowActions model={model} version={v} onManage={onManage} onDeprecate={setDeprecating} />,
+      cell: (v) => <RowActions model={model} version={v} onManage={onManage} onPublish={setPublishing} onDeprecate={setDeprecating} />,
     },
   ];
 
@@ -295,6 +289,18 @@ export function VersionsTab({ model, onManage }: { model: Model; onManage: (vers
         />
       </div>
       <NewVersionDialog model={model} open={creating} onOpenChange={setCreating} />
+      <PublishDialog
+        open={publishing !== null}
+        onOpenChange={(open) => !open && setPublishing(null)}
+        title={`Put ${publishing?.id ?? "this version"} live?`}
+        description={
+          model.defaultVersion === null
+            ? `Customers can call it right away, and it becomes the default because ${model.name} has none yet.`
+            : `Customers can call it by pinning ${model.id}@${publishing?.id ?? ""}. Unpinned tasks keep getting ${model.defaultVersion} until you make this the default.`
+        }
+        action="Put live"
+        onPublish={(reason) => (publishing ? publish(publishing, reason) : Promise.resolve())}
+      />
       <DeprecateDialog model={model} version={deprecating} onClose={() => setDeprecating(null)} />
     </div>
   );

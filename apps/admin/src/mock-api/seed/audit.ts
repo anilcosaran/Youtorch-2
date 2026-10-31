@@ -43,13 +43,10 @@ function catalogEvents(now: number, models: ModelRecord[], operatorByName: (name
       const by = operatorByName(version.createdBy);
       if (recent(version.createdAt)) {
         events.push({ at: Date.parse(version.createdAt), operatorId: by, action: "version.create", targetType: "version", targetId: target, detail: { label: version.label } });
-        if (version.status === "staging") {
-          events.push({ at: Date.parse(version.createdAt) + 20 * HOUR, operatorId: by, action: "version.promote", targetType: "version", targetId: target, detail: { from: "draft", to: "staging" } });
-        }
       }
       if (recent(version.releasedAt)) {
         const at = Date.parse(version.releasedAt);
-        events.push({ at, operatorId: by, action: "version.promote", targetType: "version", targetId: target, detail: { from: "staging", to: "live" } });
+        events.push({ at, operatorId: by, action: "version.publish", targetType: "version", targetId: target, detail: {} });
         if (version.isDefault) {
           const previous = model.versionList.find((v) => v.replacement === version.id && v.status === "deprecated");
           events.push({ at: at + 30 * MINUTE, operatorId: by, action: "version.default", targetType: "version", targetId: target, detail: { from: previous?.id ?? null, to: version.id } });
@@ -75,7 +72,7 @@ function catalogEvents(now: number, models: ModelRecord[], operatorByName: (name
             targetId: `${target}/${route.id}`,
             detail: {
               status: { from: "active", to: route.status },
-              reason: route.status === "draining" ? "Moving traffic off Replicate before the contract ends." : "Provider returning 5xx on long scripts.",
+              reason: route.status === "draining" ? "Moving traffic off this region before the contract ends." : "Provider returning 5xx on long scripts.",
             },
           });
         }
@@ -95,7 +92,7 @@ function appEvents(now: number, apps: AppRecord[], operatorByName: (name: string
         events.push({ at: Date.parse(release.createdAt), operatorId: by, action: "app.release.create", targetType: "app", targetId: app.slug, detail: { release: release.number } });
       }
       if (release.publishedAt && Date.parse(release.publishedAt) > now - WINDOW) {
-        events.push({ at: Date.parse(release.publishedAt), operatorId: by, action: "app.release.publish", targetType: "app", targetId: app.slug, detail: { release: release.number, price: release.price } });
+        events.push({ at: Date.parse(release.publishedAt), operatorId: by, action: "app.release.publish", targetType: "app", targetId: app.slug, detail: { release: release.number, priceMicros: release.priceMicros } });
       }
     }
     if (app.status === "paused") {
@@ -116,18 +113,14 @@ function providerEvents(now: number, providers: ProviderRecord[]): SeedEvent[] {
     if (created > now - WINDOW) {
       events.push({ at: created, operatorId: "op_anil", action: "provider.create", targetType: "provider", targetId: provider.id, detail: { name: provider.name, kind: provider.kind } });
     }
-    const rotated = provider.credential.rotatedAt ? Date.parse(provider.credential.rotatedAt) : null;
-    if (rotated !== null && provider.credential.source === "console" && rotated > now - WINDOW) {
-      events.push({ at: rotated + MINUTE, operatorId: "op_anil", action: "provider.credential", targetType: "provider", targetId: provider.id, detail: { hint: provider.credential.hint } });
-    }
   }
   events.push({
     at: now - 6 * DAY - 3 * HOUR,
     operatorId: "op_mara",
     action: "provider.update",
     targetType: "provider",
-    targetId: "byteplus",
-    detail: { limits: { from: { concurrency: 80, requestsPerMinute: 2000 }, to: { concurrency: 120, requestsPerMinute: 2000 } } },
+    targetId: "kling",
+    detail: { limits: { from: { concurrency: 150, requestsPerMinute: 1000 }, to: { concurrency: 200, requestsPerMinute: 1000 } } },
   });
   return events;
 }

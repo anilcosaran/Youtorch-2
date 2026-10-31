@@ -1,7 +1,7 @@
 // Package dbtest gives integration tests a fresh, migrated database of their
 // own. Tests that use it are skipped unless TEST_DATABASE_URL points at a
 // Postgres server where the user may create databases (the dev compose
-// stack: postgres://modelvend:modelvend@localhost:5432/postgres).
+// stack: see TEST_DATABASE_URL in deploy/dev.env).
 package dbtest
 
 import (

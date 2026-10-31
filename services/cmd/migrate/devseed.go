@@ -27,9 +27,10 @@ func devSeed(ctx context.Context, pool *pgxpool.Pool, devKey string) error {
 	statements := []string{
 		`insert into providers (id, name, kind, adapter, status, base_url, regions, white_label_allowed, license_notes) values
 			('fake', 'Fake (development)', 'managed', 'fake', 'active', 'memory://fake', '{global}', true, 'Test fixture.'),
-			('fal', 'fal', 'aggregator', 'fal', 'disabled', 'https://queue.fal.run', '{us,eu}', false, ''),
-			('replicate', 'Replicate', 'aggregator', 'replicate', 'disabled', 'https://api.replicate.com/v1', '{us}', false, ''),
-			('kling', 'Kling', 'first_party', 'http', 'disabled', 'https://api.klingai.com', '{apac}', false, '')
+			('google', 'Google', 'first_party', 'google', 'disabled', 'https://us-central1-aiplatform.googleapis.com/v1', '{us-central1}', false, ''),
+			('openai', 'OpenAI', 'first_party', 'openai', 'disabled', 'https://api.openai.com/v1', '{us}', false, ''),
+			('elevenlabs', 'ElevenLabs', 'first_party', 'elevenlabs', 'disabled', 'https://api.elevenlabs.io/v1', '{us}', false, ''),
+			('kling', 'Kling', 'first_party', 'kling', 'disabled', 'https://api.klingai.com', '{apac}', false, '')
 		on conflict (id) do nothing`,
 		`insert into models (id, publisher, slug, name, description, modality, tasks, inputs, outputs, visibility,
 			disclosure, author, default_version)
@@ -48,11 +49,11 @@ func devSeed(ctx context.Context, pool *pgxpool.Pool, devKey string) error {
 			'{"unit": "image", "default_tier": "standard", "tiers": [{"id": "standard", "label": "Standard", "price": 0.01}]}',
 			'{"strategy": "priority", "fallbacks": true, "max_attempts": 2, "timeout_seconds": 60}', now())
 		on conflict (model_id, id) do nothing`,
-		`insert into routes (model_id, version_id, provider_id, upstream_model, priority, cost_micros, mapping)
-		select 'modelvend/dev-echo', 'v1', 'fake', 'echo', 1, 4000,
+		`insert into routes (model_id, version_id, provider_id, upstream_model, priority, tier_costs, mapping)
+		select 'modelvend/dev-echo', 'v1', 'fake', 'echo', 1, '{"standard": 0.004}',
 			'{"prompt": "prompt", "num_images": {"from": "num_images", "default": 1}}'
 		where not exists (select 1 from routes where model_id = 'modelvend/dev-echo' and version_id = 'v1')`,
-		`insert into workspaces (id, name, tier, balance_micros) values ('` + DevWorkspace + `', 'Dev workspace', 'standard', 100000000)
+		`insert into workspaces (id, name, balance_micros) values ('` + DevWorkspace + `', 'Dev workspace', 100000000)
 		on conflict (id) do nothing`,
 	}
 	for _, sql := range statements {
@@ -61,10 +62,10 @@ func devSeed(ctx context.Context, pool *pgxpool.Pool, devKey string) error {
 		}
 	}
 
-	secret, prefix, hash := keys.Generate("test")
+	secret, prefix, hash := keys.Generate()
 	if devKey != "" {
 		if !keys.WellFormed(devKey) {
-			return fmt.Errorf("DEV_API_KEY must look like mv_test_<32 letters and digits>")
+			return fmt.Errorf("DEV_API_KEY must look like mv_<32 letters and digits>")
 		}
 		secret, prefix, hash = devKey, devKey[:12], keys.Hash(devKey)
 	}
@@ -74,7 +75,7 @@ func devSeed(ctx context.Context, pool *pgxpool.Pool, devKey string) error {
 	}
 	created := false
 	if existing == 0 || devKey != "" {
-		_, err := tx.Exec(ctx, `insert into api_keys (workspace_id, name, prefix, secret_hash, env) values ($1, 'dev', $2, $3, 'test')
+		_, err := tx.Exec(ctx, `insert into api_keys (workspace_id, name, prefix, secret_hash) values ($1, 'dev', $2, $3)
 			on conflict (secret_hash) do nothing`, DevWorkspace, prefix, hash)
 		if err != nil {
 			return err

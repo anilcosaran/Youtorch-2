@@ -2,10 +2,11 @@ import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
 import type { App, AppRelease } from "@modelvend/admin-api/apps";
 import type { AuditEntry } from "@modelvend/admin-api/audit";
 import type { Operator } from "@modelvend/admin-api/auth";
-import type { Customer, Limits } from "@modelvend/admin-api/customers";
+import type { Customer, LedgerEntry, LimitOverrides } from "@modelvend/admin-api/customers";
 import type { Model } from "@modelvend/admin-api/models";
 import type { Provider } from "@modelvend/admin-api/providers";
-import type { RequestDetail } from "@modelvend/admin-api/requests";
+import type { Settings } from "@modelvend/admin-api/settings";
+import type { TaskDetail } from "@modelvend/admin-api/tasks";
 import type { Random } from "./random";
 
 /*
@@ -25,8 +26,8 @@ export interface OperatorRecord extends Operator {
   sessionVersion: number;
 }
 
-/** `routes`, `models` and `requests24h` come from the catalog. */
-export type ProviderRecord = Omit<Provider, "routes" | "models" | "requests24h">;
+/** `routes`, `models` and `tasks24h` come from the catalog. */
+export type ProviderRecord = Omit<Provider, "routes" | "models" | "tasks24h">;
 
 /**
  * `versions`, `providers` and `price` are derived; in `versionList`,
@@ -34,17 +35,21 @@ export type ProviderRecord = Omit<Provider, "routes" | "models" | "requests24h">
  */
 export type ModelRecord = Omit<Model, "versions" | "providers" | "price">;
 
-/** `cost` is computed from the steps. */
-export type ReleaseRecord = Omit<AppRelease, "cost">;
+/** `costMicros` is computed from the steps. */
+export type ReleaseRecord = Omit<AppRelease, "costMicros">;
 
-export type AppRecord = Omit<App, "liveRelease" | "draftRelease" | "models" | "price" | "releases"> & {
+export type AppRecord = Omit<App, "liveRelease" | "draftRelease" | "models" | "priceMicros" | "releases"> & {
   pausedReason: string | null;
   releases: ReleaseRecord[];
 };
 
-/** `keys` counts active keys; `limits` and `overrides` come from the tier and `limitOverrides`. */
-export type CustomerRecord = Omit<Customer, "keys" | "limits" | "overrides"> & {
-  limitOverrides: Partial<Limits>;
+/** `keys` counts active keys; `limits` and `overrides` come from the settings and `limitOverrides`. */
+export type CustomerRecord = Omit<Customer, "keys" | "members" | "limits" | "overrides"> & {
+  limitOverrides: LimitOverrides;
+  /** Newest first. */
+  ledger: LedgerEntry[];
+  /** Every member's email, which a search matches. The owner's is first. */
+  memberEmails: string[];
 };
 
 export type ApiKeyRecord = Omit<ApiKeyRow, "customer"> & { customerId: string };
@@ -64,8 +69,9 @@ export interface Store {
   customers: CustomerRecord[];
   /** Newest first. */
   apiKeys: ApiKeyRecord[];
-  /** Newest first. */
-  requests: RequestDetail[];
+  /** Newest first, with app steps among them. */
+  tasks: TaskDetail[];
+  settings: Settings;
   /** Failed sign-ins per email (times, oldest first), for throttling. */
   loginFailures: Map<string, number[]>;
   /** Sessions signed out before they expired: session ID to its expiry. */

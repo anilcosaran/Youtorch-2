@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { createModel, MODALITIES, VISIBILITIES, type Modality, type Visibility } from "@modelvend/admin-api/models";
+import { createModel, DISCLOSURES, MODALITIES, VISIBILITIES, type Disclosure, type Modality, type Visibility } from "@modelvend/admin-api/models";
 import { Field, FormError } from "@/components/shared/field";
 import { TagInput } from "@/components/shared/tag-input";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ID_PART, modelHref, slugify } from "@/lib/catalog";
-import { MODALITY_LABELS, VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
+import { DISCLOSURE_DESCRIPTIONS, DISCLOSURE_LABELS, MODALITY_LABELS, VISIBILITY_DESCRIPTIONS, VISIBILITY_LABELS } from "@/lib/labels";
 import { formErrors } from "@/lib/notify";
+import { usePermissions } from "@/lib/session";
 import { useApplyModel } from "./use-model-action";
 
 /** Tasks offered while typing; anything else can be typed too. */
@@ -28,6 +29,7 @@ const TASK_HINTS: Record<Modality, string> = {
 
 function NewModelForm({ onDone }: { onDone: () => void }) {
   const router = useRouter();
+  const can = usePermissions();
   const apply = useApplyModel();
   const [name, setName] = useState("");
   const [publisher, setPublisher] = useState("");
@@ -37,6 +39,8 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
   const [tasks, setTasks] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("private");
+  const [disclosure, setDisclosure] = useState<Disclosure>("open");
+  const [author, setAuthor] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -62,13 +66,15 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
         tasks,
         description: description.trim(),
         visibility,
+        disclosure,
+        author: author.trim(),
       });
       apply(model);
-      toast.success(`${model.name} created`, { description: "Set up draft v1, then promote it to go live." });
+      toast.success(`${model.name} created`, { description: "Set up draft v1, then publish it to go live." });
       onDone();
       router.push(modelHref(model.id));
     } catch (err) {
-      const shown = formErrors(err, ["name", "publisher", "slug", "modality", "visibility", "tasks", "description"]);
+      const shown = formErrors(err, ["name", "publisher", "slug", "modality", "visibility", "disclosure", "author", "tasks", "description"]);
       setFields(shown.fields);
       setError(shown.message);
       setBusy(false);
@@ -84,7 +90,7 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
         <Input id="model-name" autoFocus required value={name} onChange={(e) => setName(e.target.value)} placeholder="Kling 3.0" />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="model-publisher" label="Publisher" hint="Who made it, e.g. kling or google" error={error_("publisher")}>
+        <Field id="model-publisher" label="Publisher" hint="The name callers see, e.g. kling or google" error={error_("publisher")}>
           <Input
             id="model-publisher"
             required
@@ -130,19 +136,44 @@ function NewModelForm({ onDone }: { onDone: () => void }) {
             </SelectContent>
           </Select>
         </Field>
-        <Field id="model-visibility" label="Visibility" hint={VISIBILITY_DESCRIPTIONS[visibility]} error={error_("visibility")}>
+        <Field
+          id="model-visibility"
+          label="Visibility"
+          hint={can.publishCatalog ? VISIBILITY_DESCRIPTIONS[visibility] : `${VISIBILITY_DESCRIPTIONS[visibility]} Making it wider needs the Publish permission.`}
+          error={error_("visibility")}
+        >
           <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
             <SelectTrigger id="model-visibility" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {VISIBILITIES.map((v) => (
+              {/* Starting wider than private is a release decision: publishers only (the server refuses it too). */}
+              {VISIBILITIES.filter((v) => v === "private" || can.publishCatalog).map((v) => (
                 <SelectItem key={v} value={v}>
                   {VISIBILITY_LABELS[v]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+        </Field>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="model-disclosure" label="Disclosure" hint={DISCLOSURE_DESCRIPTIONS[disclosure]} error={error_("disclosure")}>
+          <Select value={disclosure} onValueChange={(value) => setDisclosure(value as Disclosure)}>
+            <SelectTrigger id="model-disclosure" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DISCLOSURES.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {DISCLOSURE_LABELS[d]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id="model-author" label="Author" hint="Who really made it. Customers see the publisher, never this." error={error_("author")}>
+          <Input id="model-author" value={author} onChange={(e) => setAuthor(e.target.value)} />
         </Field>
       </div>
       <Field id="model-tasks" label="Tasks" hint={`Press Enter after each, e.g. ${TASK_HINTS[modality]}`} error={error_("tasks")}>

@@ -4,7 +4,7 @@ import { conflict, fail, invalid, invalidState, notFound } from "../http";
 import { route, type Context, type RouteDef } from "../router";
 import type { ProviderRecord, Store } from "../types";
 import { clone } from "../util";
-import { has, idField, nested, nullableNumber, oneOf, reason, stringList, text, within, type Body } from "../validate";
+import { bool, has, idField, nested, nullableNumber, oneOf, reason, stringList, text, within, type Body } from "../validate";
 import { providerView } from "../views";
 
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]*$/;
@@ -52,15 +52,16 @@ function createProvider(ctx: Context) {
     name,
     kind,
     adapter,
-    // Nothing can reach it until it has a credential and is resumed.
+    // Nothing can reach it until it has a credential and is enabled.
     status: "disabled",
     baseUrl,
     regions,
-    credential: { configured: false, hint: null, source: null, rotatedAt: null },
+    whiteLabelAllowed: bool(body, "whiteLabelAllowed") ?? false,
+    licenseNotes: text(body, "licenseNotes", { max: 2000 }) ?? "",
+    credential: { configured: false, hint: null },
     limits: { concurrency: null, requestsPerMinute: null },
-    health: { state: "operational", successRate24h: null, p50Ms: null, incidents7d: 0, checkedAt: null },
-    cost30d: 0,
-    balance: null,
+    health: { state: "operational", successRate24h: null, p50Ms: null, checkedAt: null },
+    cost30dMicros: 0,
     createdAt: at,
     updatedAt: at,
   };
@@ -79,7 +80,7 @@ function readSecret(body: Body): string {
 /** Stores a new secret; only its hint is kept in the clear. */
 function storeCredential(ctx: Context, provider: ProviderRecord, secret: string) {
   const hint = `…${secret.slice(-4)}`;
-  provider.credential = { configured: true, hint, source: "console", rotatedAt: new Date().toISOString() };
+  provider.credential = { configured: true, hint };
   audit(ctx, "provider.credential", "provider", provider.id, { hint });
 }
 
@@ -99,6 +100,8 @@ function updateProvider(ctx: Context) {
   }
   const secret = hasSecret ? readSecret(body) : undefined;
   const regions = readRegions(body, false);
+  const whiteLabelAllowed = bool(body, "whiteLabelAllowed");
+  const licenseNotes = text(body, "licenseNotes", { max: 2000 });
   const limits = has(body, "limits") ? nested(body, "limits") : null;
   const { concurrency, rpm } = limits
     ? within("limits", () => ({
@@ -111,9 +114,11 @@ function updateProvider(ctx: Context) {
   if (baseUrl !== undefined) provider.baseUrl = baseUrl;
   if (secret !== undefined) storeCredential(ctx, provider, secret);
   if (regions) provider.regions = regions;
+  if (whiteLabelAllowed !== undefined) provider.whiteLabelAllowed = whiteLabelAllowed;
+  if (licenseNotes !== undefined) provider.licenseNotes = licenseNotes;
   if (concurrency !== undefined) provider.limits.concurrency = concurrency;
   if (rpm !== undefined) provider.limits.requestsPerMinute = rpm;
-  const changed = changes(before, provider, ["name", "baseUrl", "regions", "limits"]);
+  const changed = changes(before, provider, ["name", "baseUrl", "regions", "limits", "whiteLabelAllowed", "licenseNotes"]);
   if (Object.keys(changed).length > 0) audit(ctx, "provider.update", "provider", provider.id, changed);
   return done(ctx, provider);
 }
@@ -130,11 +135,27 @@ function pauseProvider(ctx: Context) {
 
 function resumeProvider(ctx: Context) {
   const provider = findProvider(ctx.store, ctx.params.id);
-  if (provider.status === "active") conflict("The provider is already active.");
-  if (!provider.credential.configured) invalidState("Set a credential before turning the provider on.", "no_credential");
-  const from = provider.status;
+  if (provider.status !== "paused") conflict("The provider isn't paused.");
   provider.status = "active";
-  audit(ctx, "provider.resume", "provider", provider.id, { from });
+  audit(ctx, "provider.resume", "provider", provider.id);
+  return done(ctx, provider);
+}
+
+function enableProvider(ctx: Context) {
+  const provider = findProvider(ctx.store, ctx.params.id);
+  if (provider.status !== "disabled") conflict("The provider isn't disabled.");
+  if (!provider.credential.configured) invalidState("Set a credential before turning the provider on.", "no_credential");
+  provider.status = "active";
+  audit(ctx, "provider.enable", "provider", provider.id);
+  return done(ctx, provider);
+}
+
+function disableProvider(ctx: Context) {
+  const provider = findProvider(ctx.store, ctx.params.id);
+  const why = reason(ctx.body);
+  if (provider.status === "disabled") conflict("The provider is already disabled.");
+  provider.status = "disabled";
+  audit(ctx, "provider.disable", "provider", provider.id, { reason: why });
   return done(ctx, provider);
 }
 
@@ -165,6 +186,8 @@ export const providerRoutes: RouteDef[] = [
   route("PATCH", "/providers/:id", "providers.edit", updateProvider),
   route("POST", "/providers/:id/pause", "providers.edit", pauseProvider),
   route("POST", "/providers/:id/resume", "providers.edit", resumeProvider),
+  route("POST", "/providers/:id/enable", "providers.edit", enableProvider),
+  route("POST", "/providers/:id/disable", "providers.edit", disableProvider),
   route("PUT", "/providers/:id/credential", "providers.edit", setCredential),
   // Calls out with the stored credential and writes health, so it is a change.
   route("POST", "/providers/:id/check", "providers.edit", checkProvider),

@@ -10,7 +10,8 @@ export function Segmented<T extends string>({
   label,
   disabled = false,
 }: {
-  value: T;
+  /** Null while nothing is picked yet. */
+  value: T | null;
   onChange: (value: T) => void;
   options: { value: T; label: string }[];
   label: string;

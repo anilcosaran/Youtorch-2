@@ -111,7 +111,7 @@ const COLUMNS: Column<ModelSummary>[] = [
         "—"
       ),
   },
-  { id: "requests", header: "Requests 24h", align: "right", cell: (row) => <span className="tabular">{integer(row.requests24h)}</span> },
+  { id: "tasks", header: "Tasks 24h", align: "right", cell: (row) => <span className="tabular">{integer(row.tasks24h)}</span> },
   {
     id: "errors",
     header: "Errors",
@@ -125,7 +125,7 @@ const COLUMNS: Column<ModelSummary>[] = [
         </span>
       ),
   },
-  { id: "revenue", header: "Revenue 30d", align: "right", cell: (row) => <span className="tabular">{usdCompact(row.revenue30d)}</span> },
+  { id: "revenue", header: "Revenue 30d", align: "right", cell: (row) => <span className="tabular">{usdCompact(row.revenue30dMicros)}</span> },
   { id: "updated", header: "Updated", cell: (row) => <RelativeTime value={row.updatedAt} /> },
 ];
 

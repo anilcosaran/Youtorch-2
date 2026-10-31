@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { Copy, Ellipsis, History, OctagonPause, Play, SquareArrowOutUpRight } from "lucide-react";
+import { Copy, Ellipsis, History, OctagonPause, Play } from "lucide-react";
 import { errorMessage } from "@modelvend/admin-api/client";
 import { getModel, pauseModel, resumeModel, type Model } from "@modelvend/admin-api/models";
 import { ErrorState } from "@/components/data/states";
@@ -19,12 +19,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BRAND } from "@/lib/brand";
 import { pickVersion } from "@/lib/catalog";
 import { integer, percent, plural, usdCompact } from "@/lib/format";
 import { MODALITY_LABELS } from "@/lib/labels";
@@ -35,7 +33,7 @@ import { DetailsTab } from "./details-tab";
 import { PricingTab } from "./pricing-tab";
 import { RoutingTab } from "./routing-tab";
 import { SchemaTab } from "./schema-tab";
-import { useApplyModel, useModelAction } from "./use-model-action";
+import { useApplyModel, useModelAction, useRefreshModel } from "./use-model-action";
 import { VersionsTab } from "./versions-tab";
 
 const TABS = ["versions", "routing", "pricing", "schema", "details"] as const;
@@ -52,17 +50,18 @@ const TAB_LABELS: Record<ModelTab, string> = {
 function Actions({ model }: { model: Model }) {
   const can = usePermissions();
   const confirm = useConfirm();
-  const run = useModelAction();
+  const run = useModelAction(model.id);
   const apply = useApplyModel();
+  const refresh = useRefreshModel();
   const [pausing, setPausing] = useState(false);
 
   const resume = async () => {
     const ok = await confirm({
       title: `Resume ${model.name}?`,
-      description: "Live and deprecated versions answer again at once.",
+      description: "It takes new tasks again at once, and the ones still queued can start.",
       action: "Resume",
     });
-    if (ok) await run(() => resumeModel(model.id), `${model.name} is answering again`, "Couldn't resume the model");
+    if (ok) await run(() => resumeModel(model.id), `${model.name} is taking tasks again`, "Couldn't resume the model");
   };
 
   return (
@@ -94,19 +93,13 @@ function Actions({ model }: { model: Model }) {
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <a href={`${BRAND.consoleUrl}/models/${model.slug}`} target="_blank" rel="noreferrer">
-              <SquareArrowOutUpRight /> Open in the console
-            </a>
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <ReasonDialog
         open={pausing}
         onOpenChange={setPausing}
         title={`Pause ${model.name}?`}
-        description="Every version stops answering at once with 503 model_paused. Queued requests still finish. Use it when a model misbehaves or every provider is down."
+        description="New tasks get 503 model_paused. Running tasks finish; queued ones wait, and fail with queue_timeout after the queue wait limit unless you resume it. The model stays readable. Use it when a model misbehaves or every provider is down."
         label="Reason"
         placeholder="Shown to operators and in the audit log"
         required
@@ -114,9 +107,13 @@ function Actions({ model }: { model: Model }) {
         destructive
         describeError={errorMessage}
         onSubmit={async (reason) => {
-          const updated = await pauseModel(model.id, reason);
-          apply(updated);
-          setPausing(false);
+          try {
+            apply(await pauseModel(model.id, reason));
+            setPausing(false);
+          } catch (error) {
+            refresh(model.id);
+            throw error;
+          }
         }}
       />
     </>
@@ -132,16 +129,16 @@ function Tiles({ model }: { model: Model }) {
         label="Default version"
         value={<span className="font-mono">{model.defaultVersion ?? "—"}</span>}
         hint={defaultVersion ? `${defaultVersion.label} · ${plural(live, "live version")}` : "Nothing live yet"}
-        info="What unpinned requests get. Callers pin another with publisher/slug@version."
+        info="What unpinned tasks get. Callers pin another with publisher/slug@version."
       />
-      <StatTile label="Requests 24h" value={integer(model.requests24h)} hint={`${plural(model.versions.total, "version")}`} />
+      <StatTile label="Tasks 24h" value={integer(model.tasks24h)} hint={`${plural(model.versions.total, "version")}`} />
       <StatTile
         label="Error rate 24h"
         value={model.errorRate24h === null ? "—" : percent(model.errorRate24h)}
         tone={model.errorRate24h !== null && model.errorRate24h > 0.05 ? "attention" : undefined}
-        hint="Requests that failed after every fallback"
+        hint="Tasks that failed after every fallback"
       />
-      <StatTile label="Revenue 30d" value={usdCompact(model.revenue30d)} hint="What customers paid, all versions" />
+      <StatTile label="Revenue 30d" value={usdCompact(model.revenue30dMicros)} hint="Purchased-credit usage minus refunds, all versions" />
     </div>
   );
 }
@@ -213,8 +210,11 @@ export function ModelDetail({ id }: { id: string }) {
             </div>
             {data.state === "paused" && (
               <div role="status" className="rounded-lg border border-status-critical/40 bg-status-critical/10 px-4 py-3 text-sm">
-                <p className="font-medium">Paused: every request gets 503 model_paused</p>
+                <p className="font-medium">Paused: new tasks get 503 model_paused</p>
                 {data.pausedReason && <p className="mt-0.5 text-muted-foreground">{data.pausedReason}</p>}
+                <p className="mt-0.5 text-muted-foreground">
+                  Running tasks finish. Queued ones wait, and fail with queue_timeout after the queue wait limit unless you resume it.
+                </p>
               </div>
             )}
             <Tiles model={data} />

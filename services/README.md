@@ -96,7 +96,7 @@ Every setting is one environment variable, read by `internal/platform/config`.
 | `MIGRATE_ON_START`                         | `false`                 | Run migrations when a process starts                                   |
 | `REDIS_URL`                                | unset                   | Optional until rate limits and health counters land                    |
 | `PUBLIC_API_URL`                           | `http://localhost:8080` | Public origin of the gateway                                           |
-| `INTERNAL_WORKSPACES`                      | unset                   | Comma-separated; their keys reach private models and staging versions  |
+| `INTERNAL_WORKSPACES`                      | unset                   | Comma-separated; their keys reach private models                       |
 | `STORAGE_ENDPOINT`, `STORAGE_BUCKET`       | unset                   | Required outside development                                           |
 | `STORAGE_REGION`                           | `auto`                  |                                                                        |
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | unset                   |                                                                        |
@@ -111,7 +111,10 @@ Every setting is one environment variable, read by `internal/platform/config`.
 
 How a task pays, in short (the code is in `billing`, `tasks.Service.Create` and `tasks.Store`):
 
-- **Hold.** Creating a task locks the workspace row and holds one unit at the version's default tier. When
+- **Quote.** Creating a task fixes its prices in `tasks.quote` (`billing.Quote`): the tier its input picked through
+  `pricing.tier_field`, that tier's price after any promo, and the reference media it sent. Settlement charges these,
+  whatever changes in the catalog meanwhile.
+- **Hold.** Creating a task locks the workspace row and holds one unit at the quote, plus its reference media. When
   `balance_micros - held_micros` doesn't cover it, the call fails with 402 `insufficient_credits` and nothing is written.
   The hold is added to `workspaces.held_micros` and recorded on the task (`tasks.hold_micros`).
 - **Settlement** happens in the transaction that gives the task its final status. A success posts a `usage` ledger entry
@@ -120,7 +123,7 @@ How a task pays, in short (the code is in `billing`, `tasks.Service.Create` and 
 - **Keys.** A key with `scopes` may only create tasks for the models (`publisher/slug`, or `publisher/slug@version`) and
   apps listed, else 403 `key_scope`. A key with `spend_limit_micros` refuses with 402 `spend_limit_reached` when this
   UTC month's spend (the price of its succeeded tasks plus the holds of its unfinished ones, by creation date) and the
-  new hold would pass the limit. Test keys are billed and limited like live keys.
+  new hold would pass the limit.
 - **Idempotency keys** return the task they created for 24 hours, without holding again. The same key with a different
   request (model, app, input, webhook URL or metadata) answers 422 `idempotency_key_reused`. After 24 hours the key starts
   a new task; the old task's `idempotency_key` is cleared. MCP's `create_task` takes the key as `idempotency_key`.
@@ -131,8 +134,8 @@ These are left as they are; the layout above is where their fixes go.
 
 - The worker's jobs work on `tasks.Store` rather than `tasks.Service`.
 - `catalog/manifest` and `cmd/migrate/devseed.go` write catalog tables with raw SQL; `catalog.Store` only reads.
-- Holds are an estimate: one unit at the default tier, the least a success can cost. Settlement charges the real units, so
-  a task that makes more of them can take the balance below zero. Holds follow the input once tiers and units come from it.
+- Holds are an estimate: one unit at the input's tier, the least a success can cost. Settlement charges the real units, so
+  a task that makes more of them can take the balance below zero. Holds follow the input once units come from it.
 - Task creation takes the workspace row lock, so one workspace creates tasks one at a time. A busy workspace would need
   the hold counter moved to Redis (docs/architecture.md, section 10.2).
 - Key scopes and spend limits are only checked when a task is created; reading models and tasks isn't scoped.

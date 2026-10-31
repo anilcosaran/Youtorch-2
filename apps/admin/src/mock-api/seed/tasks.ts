@@ -1,11 +1,13 @@
 import type { BillingUnit, JsonSchema, Modality, ModelVersion, PriceTier, Route } from "@modelvend/admin-api/models";
-import type { Attempt, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
+import type { AppStep } from "@modelvend/admin-api/apps";
+import type { Attempt, TaskDetail, TaskRow, TaskStatus } from "@modelvend/admin-api/tasks";
 import { byPriority, defaultTier } from "../catalog";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord, ProviderRecord } from "../types";
-import { DAY, HOUR, MINUTE, iso, money, round } from "../util";
+import { DAY, HOUR, MINUTE, dollars, iso, round, toMicros } from "../util";
 import type { SeedEvent } from "./audit";
 import { domainOf } from "./customers";
+import { taskRow } from "../views";
 
 const COUNT = 500;
 
@@ -51,7 +53,7 @@ const SCRIPTS = [
 ];
 
 /**
- * How requests fail. The customer is never charged for a failed request; `providerCharges` marks failures the
+ * How tasks fail. The customer is never charged for a failed task; `providerCharges` marks failures the
  * provider still bills us for (it generated the output before its filter blocked it), which show as a cost.
  */
 const ERRORS = [
@@ -69,6 +71,9 @@ const RESOLUTION: Record<string, [number, number]> = {
   "2k": [2560, 1440],
   "4k": [3840, 2160],
 };
+
+/** A rough hold while a task is unfinished: the default tier for a few units. */
+const HOLD_UNITS = 5;
 
 const FALLBACK_P50: Record<Modality, number> = { video: 50000, image: 7000, audio: 2500, "3d": 85000, text: 1200 };
 
@@ -110,11 +115,11 @@ function sampleInput(schema: JsonSchema, modality: Modality, random: Random): Re
   return input;
 }
 
-/** Fills `{{input.x}}` placeholders in an app step's params the way a run would. */
-function resolveParams(value: unknown, random: Random): unknown {
-  if (Array.isArray(value)) return value.map((item) => resolveParams(item, random));
+/** Fills `{{input.x}}` and `{{steps.<id>.output.x}}` in an app step's input the way a run would. */
+function resolveInput(value: unknown, random: Random): unknown {
+  if (Array.isArray(value)) return value.map((item) => resolveInput(item, random));
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveParams(item, random)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveInput(item, random)]));
   }
   if (typeof value !== "string" || !value.includes("{{")) return value;
   const whole = /^\{\{([^}]+)\}\}$/.exec(value)?.[1];
@@ -128,7 +133,7 @@ function resolveParams(value: unknown, random: Random): unknown {
     "input.voice": () => random.pick(["aria", "roger", "sarah", "charlie"]),
     "input.language": () => random.pick(["en", "tr", "es", "de"]),
     "input.bpm": () => random.int(80, 128),
-    "steps.boost.prompt": () => "Studio product photo on warm travertine, soft window light from the left, gentle reflections, 85mm",
+    "steps.boost.output.prompt": () => "Studio product photo on warm travertine, soft window light from the left, gentle reflections, 85mm",
   };
   if (whole && typed[whole]) return typed[whole]();
   const words: Record<string, string[]> = {
@@ -197,11 +202,7 @@ function outputFor(modality: Modality, id: string, input: Record<string, unknown
 
 function upstreamId(providerId: string, random: Random): string {
   switch (providerId) {
-    case "fal":
-      return `${random.hex(8)}-${random.hex(4)}-${random.hex(4)}-${random.hex(4)}-${random.hex(12)}`;
-    case "replicate":
-      return random.id("", 26);
-    case "google-vertex":
+    case "google":
       return `operations/${random.int(100000000, 999999999)}${random.int(100000000, 999999999)}`;
     case "openai":
       return `resp_${random.hex(24)}`;
@@ -215,18 +216,19 @@ function upstreamId(providerId: string, random: Random): string {
 interface Choice {
   model: ModelRecord;
   version: ModelVersion;
-  app: string | null;
   input: Record<string, unknown>;
+  /** Set when an app run made it. */
+  run: { app: AppRecord; step: AppStep; stages: string[]; priceMicros: number; others: AppStep[] } | null;
 }
 
-/** Requests over the last 7 days, denser toward now, newest first. */
-export function seedRequests(
+/** Tasks over the last 7 days, denser toward now, newest first. App steps follow their run. */
+export function seedTasks(
   now: number,
   random: Random,
   data: { models: ModelRecord[]; providers: ProviderRecord[]; customers: CustomerRecord[]; apiKeys: ApiKeyRecord[]; apps: AppRecord[] },
-): { requests: RequestDetail[]; events: SeedEvent[] } {
+): { tasks: TaskDetail[]; events: SeedEvent[] } {
   const providerName = (id: string) => data.providers.find((p) => p.id === id)?.name ?? id;
-  const customers = data.customers.filter((c) => c.status === "active" && c.requests30d > 0);
+  const customers = data.customers.filter((c) => c.status === "active" && c.tasks30d > 0);
   const callable = data.models.filter((m) => m.defaultVersion !== null && m.visibility !== "private");
   const liveApps = data.apps.filter((a) => a.status === "live");
 
@@ -235,58 +237,61 @@ export function seedRequests(
       const app = random.weighted(liveApps, (a) => a.runs24h);
       const release = app.releases.find((r) => r.status === "live") ?? app.releases[0];
       const step = release.steps[release.steps.length - 1];
-      const model = data.models.find((m) => m.id === step.modelId);
-      const version = model?.versionList.find((v) => v.id === step.version);
-      if (model && version) return { model, version, app: app.slug, input: resolveParams(step.params, random) as Record<string, unknown> };
+      const [modelId, versionId] = step.model.split("@");
+      const model = data.models.find((m) => m.id === modelId);
+      const version = model?.versionList.find((v) => v.id === versionId);
+      if (model && version) {
+        const input = resolveInput(step.input, random) as Record<string, unknown>;
+        const others = release.steps.filter((other) => other !== step);
+        return { model, version, input, run: { app, step, stages: release.stages, priceMicros: release.priceMicros, others } };
+      }
     }
     const open = callable.filter((m) => m.state === "active" || createdAt < Date.parse(m.updatedAt));
-    const model = random.weighted(open, (m) => m.requests24h);
+    const model = random.weighted(open, (m) => m.tasks24h);
     const deprecated = model.versionList.filter((v) => v.status === "deprecated");
     const version =
       deprecated.length > 0 && random.chance(0.1)
         ? random.pick(deprecated)
         : (model.versionList.find((v) => v.id === model.defaultVersion) ?? model.versionList[0]);
-    return { model, version, app: null, input: sampleInput(version.inputSchema, model.modality, random) };
+    return { model, version, input: sampleInput(version.inputSchema, model.modality, random), run: null };
   }
 
-  const requests: RequestDetail[] = [];
+  const tasks: TaskDetail[] = [];
   for (let i = 0; i < COUNT; i++) {
-    const random = createRandom(hashSeed(`request:${i}`));
-    const id = random.id("req_", 16);
+    const random = createRandom(hashSeed(`task:${i}`));
+    const id = random.id("task_", 16);
     const age = i < 6 ? random.int(4, 170) * 1000 : Math.max(200_000, 7 * DAY * Math.pow(random.next(), 1.8));
-    const createdAt = now - age;
+    const createdAt = Math.round(now - age);
     const customer = random.weighted(
       customers.filter((c) => Date.parse(c.createdAt) < createdAt),
-      (c) => Math.sqrt(c.requests30d),
+      (c) => Math.sqrt(c.tasks30d),
     );
     const keys = data.apiKeys.filter(
       (k) =>
         k.customerId === customer.id &&
-        k.env === "live" &&
         Date.parse(k.createdAt) < createdAt &&
         (k.revokedAt === null || Date.parse(k.revokedAt) > createdAt),
     );
     const key = keys.length > 0 ? random.weighted(keys, (k) => (k.name === "Production" ? 4 : 1)) : null;
     if (!key) continue;
 
-    const { model, version, app, input } = choose(random, createdAt);
+    const { model, version, input, run } = choose(random, createdAt);
     const modality = model.modality;
-    const mode = modality === "video" || modality === "3d" ? "queue" : "sync";
+    const slow = modality === "video" || modality === "3d";
     const pricing = version.pricing;
     const tier: PriceTier = random.chance(0.75) ? defaultTier(pricing) : random.pick(pricing.tiers);
-    const scale = tier.price / (defaultTier(pricing).price || 1);
     const units = unitsFor(pricing.unit, input, version.inputSchema, random);
     const routes = [...version.routes].sort(byPriority);
     const active = routes.filter((r) => r.status === "active");
     const usable = active.length > 0 ? active : routes;
     if (usable.length === 0) continue;
 
-    let status: RequestStatus;
-    const recent = age < (mode === "queue" ? 4 * MINUTE : 30_000);
-    if (recent) status = mode === "queue" && random.chance(0.4) ? "queued" : "running";
+    let status: TaskStatus;
+    const recent = age < (slow ? 4 * MINUTE : 30_000);
+    if (recent) status = random.chance(0.4) ? "queued" : "running";
     else {
       const roll = random.next();
-      status = roll < 0.065 ? "failed" : roll < 0.08 && mode === "queue" ? "canceled" : "succeeded";
+      status = roll < 0.065 ? "failed" : roll < 0.08 ? "canceled" : "succeeded";
     }
     const failure = status === "failed" ? random.weighted(ERRORS, (e) => e.weight) : null;
     const first =
@@ -295,18 +300,18 @@ export function seedRequests(
     const fellBack = status === "succeeded" && second !== null && version.routing.fallbacks && random.chance(0.06);
 
     const attempts: Attempt[] = [];
-    const events: RequestDetail["events"] = [];
+    const events: TaskDetail["events"] = [];
     let clock = createdAt;
-    const accepted = `Accepted from key ${key.prefix}`;
-    events.push({ at: iso(clock), status: mode === "queue" ? "queued" : "running", detail: mode === "queue" ? accepted : `${accepted} (sync)` });
+    events.push({ at: iso(clock), status: "queued", detail: `Accepted from key ${key.prefix}` });
     clock += random.int(80, 600);
 
-    const runAttempt = (route: Route, outcome: Attempt["status"], error: string | null) => {
+    const costOf = (route: Route) => toMicros(units * Number(route.tierCosts[tier.id] ?? 0));
+    const runAttempt = (route: Route, outcome: Attempt["status"], error: string | null, charged = outcome === "succeeded") => {
       const p50 = route.health.p50Ms ?? FALLBACK_P50[modality];
       const latency =
         outcome === "timeout" ? version.routing.timeoutSeconds * 1000 : Math.round(p50 * random.float(0.6, 1.7) * (outcome === "failed" ? 0.4 : 1));
       events.push({ at: iso(clock), status: "attempt", detail: `Attempt ${attempts.length + 1} on ${providerName(route.providerId)} (${route.upstreamModel})` });
-      if (mode === "queue" && attempts.length === 0) events.push({ at: iso(clock + 900), status: "running", detail: "The provider started processing." });
+      if (attempts.length === 0) events.push({ at: iso(clock + 900), status: "running", detail: "The provider started processing." });
       attempts.push({
         number: attempts.length + 1,
         provider: route.providerId,
@@ -316,6 +321,7 @@ export function seedRequests(
         status: outcome,
         latencyMs: latency,
         error,
+        costMicros: charged ? costOf(route) : 0,
         startedAt: iso(clock),
       });
       clock += latency;
@@ -340,7 +346,7 @@ export function seedRequests(
       events.push({ at: iso(clock), status: "succeeded", detail: `Output stored (${files} ${files === 1 ? "file" : "files"}).` });
     } else if (status === "failed" && failure) {
       const outcome: Attempt["status"] = failure.code === "upstream_timeout" ? "timeout" : "failed";
-      runAttempt(first, outcome, failure.code);
+      runAttempt(first, outcome, failure.code, failure.providerCharges);
       if (failure.fallback && second && version.routing.fallbacks) {
         events.push({ at: iso(clock), status: "attempt", detail: `Attempt 1 failed; falling back to ${providerName(second.providerId)}.` });
         runAttempt(second, outcome, failure.code);
@@ -352,67 +358,121 @@ export function seedRequests(
       events.push({ at: iso(clock), status: "canceled", detail: "Canceled by the customer." });
     } else if (status === "running") {
       events.push({ at: iso(clock), status: "attempt", detail: `Attempt 1 on ${providerName(first.providerId)} (${first.upstreamModel})` });
-      if (mode === "queue") events.push({ at: iso(clock + 900), status: "running", detail: "The provider started processing." });
+      events.push({ at: iso(clock + 900), status: "running", detail: "The provider started processing." });
+      attempts.push({
+        number: 1,
+        provider: first.providerId,
+        routeId: first.id,
+        upstreamModel: first.upstreamModel,
+        upstreamId: upstreamId(first.providerId, random),
+        status: "running",
+        latencyMs: null,
+        error: null,
+        costMicros: 0,
+        startedAt: iso(clock),
+      });
     }
 
     const finished = status === "succeeded" || status === "failed" || status === "canceled";
-    const webhookUrl = mode === "queue" && random.chance(0.4) ? `https://api.${domainOf(customer.email)}/webhooks/modelvend` : null;
+    const webhookUrl = random.chance(0.4) ? `https://api.${domainOf(customer.owner.email)}/webhooks/modelvend` : null;
     if (webhookUrl && finished) {
       events.push({ at: iso(clock + random.int(150, 400)), status, detail: `Webhook delivered to ${webhookUrl} (HTTP 200).` });
     }
     const end = Math.min(clock, now - 1000);
 
-    requests.push({
+    const amountMicros = billedRoute ? toMicros(units * Number(tier.price) * (1 - (pricing.promo ?? 0))) : 0;
+    const costMicros = chargedRoute ? costOf(chargedRoute) : 0;
+    const holdMicros = finished ? 0 : toMicros(HOLD_UNITS * Number(tier.price));
+    const stage = run ? (run.step.stage ?? null) : null;
+
+    const row: TaskRow = {
       id,
       model: model.id,
       version: version.id,
-      app,
+      app: run?.app.slug ?? null,
+      parentId: null,
+      stage,
       customer: { id: customer.id, name: customer.name },
       keyPrefix: key.prefix,
       status,
       provider: finished && attempts.length > 0 ? attempts[attempts.length - 1].provider : null,
       attempts: attempts.length,
       latencyMs: finished ? end - createdAt : null,
-      units,
+      units: status === "succeeded" ? units : null,
       unit: pricing.unit,
-      // units × tier price × (1 − promo), as billing quotes it.
-      price: billedRoute ? money(units * tier.price * (1 - (pricing.promo ?? 0))) : 0,
-      cost: chargedRoute ? money(units * chargedRoute.cost.price * scale) : 0,
+      tier: tier.id,
+      amountMicros,
+      costMicros,
+      holdMicros,
       errorCode: failure?.code ?? null,
       createdAt: iso(createdAt),
-      mode,
+    };
+    const detail: TaskDetail = {
+      ...row,
       input,
       output: status === "succeeded" ? outputFor(modality, id, input, units, random) : null,
+      metadata: {},
       errorMessage: failure?.message ?? null,
       webhookUrl,
       refundedAt: null,
       attemptList: attempts,
       events: events.filter((event) => Date.parse(event.at) <= now),
+      steps: [],
+    };
+    if (!run) {
+      tasks.push(detail);
+      continue;
+    }
+    // An app run is the customer's task; what the models did are its steps, which customers never see.
+    const step = { ...detail, id: random.id("task_", 16), parentId: id, amountMicros: 0, holdMicros: 0, events: [...detail.events] };
+    const earlier = run.others.map((other): TaskDetail => {
+      const [modelId, versionId] = other.model.split("@");
+      return { ...step, id: random.id("task_", 16), model: modelId, version: versionId, stage: other.stage ?? null, costMicros: Math.round(step.costMicros / 20), attemptList: [], attempts: 0, events: [] };
     });
+    tasks.push(
+      {
+        ...detail,
+        model: null,
+        version: null,
+        units: null,
+        unit: null,
+        tier: null,
+        amountMicros: status === "succeeded" ? run.priceMicros : 0,
+        holdMicros: finished ? 0 : run.priceMicros,
+        costMicros: costMicros + earlier.reduce((total, other) => total + other.costMicros, 0),
+        input: { image: upload(random, "jpg") },
+        attemptList: [],
+        attempts: 0,
+        steps: [...earlier, step].map(taskRow),
+      },
+      ...earlier,
+      step,
+    );
   }
-  requests.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   // Two refunds by support, written to the customers' ledgers.
   const events: SeedEvent[] = [];
   const reasons = ["Duplicate charge: the customer's client retried after a network error.", "Output was a black frame; customer sent a screenshot."];
-  const refundable = requests.filter((r) => r.status === "succeeded" && r.price > 0.2 && Date.parse(r.createdAt) < now - DAY);
-  for (const [index, request] of random.sample(refundable, 2).entries()) {
-    const at = Math.min(Date.parse(request.createdAt) + random.int(3, 30) * HOUR, now - HOUR);
+  const refundable = tasks.filter((t) => t.parentId === null && t.status === "succeeded" && t.amountMicros > 200_000 && Date.parse(t.createdAt) < now - DAY);
+  for (const [index, task] of random.sample(refundable, 2).entries()) {
+    const at = Math.min(Date.parse(task.createdAt) + random.int(3, 30) * HOUR, now - HOUR);
     const reason = reasons[index];
-    request.refundedAt = iso(at);
-    request.events.push({ at: iso(at), status: request.status, detail: `Refunded $${request.price.toFixed(2)} to the customer by Deniz Aydın: ${reason}` });
-    const customer = data.customers.find((c) => c.id === request.customer.id);
-    customer?.ledger.unshift({ id: random.id("led_", 12), kind: "refund", amount: request.price, note: `Refund for ${request.id}: ${reason}`, operator: "Deniz Aydın", at: iso(at) });
+    task.refundedAt = iso(at);
+    task.events.push({ at: iso(at), status: task.status, detail: `Refunded ${dollars(task.amountMicros)} to the customer by Deniz Aydın: ${reason}` });
+    const customer = data.customers.find((c) => c.id === task.customer.id);
+    customer?.ledger.unshift({ id: random.id("led_", 12), kind: "refund", amountMicros: task.amountMicros, note: `Refund for ${task.id}: ${reason}`, operator: "Deniz Aydın", at: iso(at) });
     customer?.ledger.sort((a, b) => b.at.localeCompare(a.at));
-    events.push({ at, operatorId: "op_deniz", action: "request.refund", targetType: "request", targetId: request.id, detail: { amount: request.price, reason, customerId: request.customer.id } });
+    events.push({ at, operatorId: "op_deniz", action: "task.refund", targetType: "task", targetId: task.id, detail: { amountMicros: task.amountMicros, reason, customerId: task.customer.id } });
   }
 
-  // Keep customers and keys consistent with their latest requests.
-  for (const request of requests) {
-    const customer = data.customers.find((c) => c.id === request.customer.id);
-    if (customer && (customer.lastActiveAt === null || customer.lastActiveAt < request.createdAt)) customer.lastActiveAt = request.createdAt;
-    const key = data.apiKeys.find((k) => k.prefix === request.keyPrefix);
-    if (key && (key.lastUsedAt === null || key.lastUsedAt < request.createdAt)) key.lastUsedAt = request.createdAt;
+  // Keep customers and keys consistent with their latest tasks; only what the customer asked for holds credit.
+  for (const task of tasks) {
+    const customer = data.customers.find((c) => c.id === task.customer.id);
+    if (customer) customer.heldMicros += task.holdMicros;
+    if (customer && (customer.lastActiveAt === null || customer.lastActiveAt < task.createdAt)) customer.lastActiveAt = task.createdAt;
+    const key = data.apiKeys.find((k) => k.prefix === task.keyPrefix);
+    if (key && (key.lastUsedAt === null || key.lastUsedAt < task.createdAt)) key.lastUsedAt = task.createdAt;
   }
-  return { requests, events };
+  return { tasks, events };
 }

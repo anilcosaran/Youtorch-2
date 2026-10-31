@@ -24,6 +24,8 @@ type Error struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
 	Fields  map[string]string `json:"fields,omitempty"`
+	// Replacement is the model version to move to, on a version_retired error.
+	Replacement string `json:"replacement,omitempty"`
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }

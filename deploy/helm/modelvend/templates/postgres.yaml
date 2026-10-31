@@ -1,0 +1,25 @@
+{{- if .Values.postgres.enabled }}
+# Needs the CloudNativePG operator. It creates the <name>-app secret whose `uri` key is DATABASE_URL.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "modelvend.postgresName" . }}
+  labels:
+    {{- include "modelvend.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  instances: {{ .Values.postgres.instances }}
+  imageName: {{ .Values.postgres.imageName }}
+  bootstrap:
+    initdb:
+      database: modelvend
+      owner: modelvend
+  storage:
+    size: {{ .Values.postgres.storage.size }}
+    {{- with .Values.postgres.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+{{- end }}

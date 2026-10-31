@@ -37,11 +37,11 @@ export const NAV: NavGroup[] = [
     items: [
       { href: "/", label: "Overview", icon: LayoutDashboard, keywords: "home dashboard revenue margin" },
       {
-        href: "/requests",
-        label: "Requests",
+        href: "/tasks",
+        label: "Tasks",
         icon: Activity,
         keywords: "generations logs runs jobs errors failed queue",
-        requires: "requests.view",
+        requires: "tasks.view",
       },
     ],
   },
@@ -66,7 +66,7 @@ export const NAV: NavGroup[] = [
         href: "/providers",
         label: "Providers",
         icon: Waypoints,
-        keywords: "upstream fal replicate openai google routing credentials health",
+        keywords: "upstream google openai elevenlabs kling routing credentials health",
         requires: "providers.view",
         badge: "providers",
         tone: "warning",
@@ -80,7 +80,7 @@ export const NAV: NavGroup[] = [
         href: "/customers",
         label: "Customers",
         icon: UsersRound,
-        keywords: "users workspaces accounts credits balance tiers limits suspend",
+        keywords: "users workspaces accounts credits balance limits suspend",
         requires: "customers.view",
       },
       {

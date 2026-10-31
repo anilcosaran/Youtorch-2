@@ -6,30 +6,39 @@ import { describeSchemaProblem, exampleInput, routeMargin, schemaFields, schemaP
 const seedance: Pricing = {
   unit: "second",
   defaultTier: "1080p",
+  tierField: "resolution",
+  tierValues: {},
   tiers: [
-    { id: "720p", label: "720p", price: 0.14, cost: null },
-    { id: "1080p", label: "1080p", price: 0.206, cost: null },
+    { id: "720p", label: "720p", price: "0.14", cost: null },
+    { id: "1080p", label: "1080p", price: "0.206", cost: null },
   ],
-  input: { unit: "second", price: 0.04 },
+  input: { unit: "second", price: "0.04", field: "image_urls" },
   promo: 0.5,
 };
 
 describe("margins with the promo", () => {
   it("prices a tier after the promo", () => {
-    expect(soldPrice(seedance, 0.206)).toBeCloseTo(0.103);
-    expect(soldPrice({ promo: null }, 0.206)).toBeCloseTo(0.206);
+    expect(soldPrice(seedance, "0.206")).toBeCloseTo(0.103);
+    expect(soldPrice({ promo: null }, "0.206")).toBeCloseTo(0.206);
   });
 
   it("shows the byteplus route losing money, not a 37% margin", () => {
     // (0.103 − 0.13) ÷ 0.103
-    expect(routeMargin(seedance, { unit: "second", price: 0.13 })).toBeCloseTo(-0.262, 3);
-    expect(tierMargin(seedance, seedance.tiers[1], 0.13)).toBeCloseTo(-0.262, 3);
-    expect(tierMargin({ promo: null }, seedance.tiers[1], 0.13)).toBeCloseTo(0.369, 3);
+    expect(routeMargin(seedance, { tierCosts: { "720p": "0.05", "1080p": "0.13" } })).toBeCloseTo(-0.262, 3);
+    expect(tierMargin(seedance, seedance.tiers[1], "0.13")).toBeCloseTo(-0.262, 3);
+    expect(tierMargin({ promo: null }, seedance.tiers[1], "0.13")).toBeCloseTo(0.369, 3);
   });
 
-  it("has no margin for a cost in another unit", () => {
-    expect(routeMargin(seedance, { unit: "minute", price: 7.8 })).toBeNull();
-    expect(tierMargin(seedance, undefined, 0.13)).toBeNull();
+  it("works a route's margin out at each tier's own cost", () => {
+    // (0.07 − 0.05) ÷ 0.07, not the 1080p tier's cost scaled down.
+    expect(tierMargin(seedance, seedance.tiers[0], "0.05")).toBeCloseTo(0.286, 3);
+  });
+
+  it("has no margin without a cost for the tier", () => {
+    expect(routeMargin(seedance, { tierCosts: {} })).toBeNull();
+    expect(routeMargin(seedance, { tierCosts: { "720p": "0.05" } })).toBeNull();
+    expect(tierMargin(seedance, undefined, "0.13")).toBeNull();
+    expect(tierMargin(seedance, seedance.tiers[1], null)).toBeNull();
   });
 });
 

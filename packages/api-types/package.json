@@ -1,0 +1,21 @@
+{
+  "name": "@modelvend/api-types",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript types generated from the OpenAPI contracts in api/. Run npm run gen after changing them.",
+  "exports": {
+    "./admin": "./src/admin.ts",
+    "./console": "./src/console.ts",
+    "./public": "./src/public.ts"
+  },
+  "scripts": {
+    "gen": "openapi-typescript ../../api/public.yaml -o src/public.ts && openapi-typescript ../../api/admin.yaml -o src/admin.ts && openapi-typescript ../../api/console.yaml -o src/console.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck"
+  },
+  "devDependencies": {
+    "@modelvend/config-typescript": "*",
+    "openapi-typescript": "^7",
+    "typescript": "^5"
+  }
+}

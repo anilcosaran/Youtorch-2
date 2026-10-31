@@ -18,7 +18,7 @@ Modelvend, OpenRouter ve fal.ai'nin arasında duruyor:
    - Sürüm, değişmez bir yayındır (`@v2`). Şeması ve fiyatı yayından sonra değişmez.
    - Route, o sürümün bir sağlayıcıdaki karşılığıdır: sağlayıcının model ID'si, bize maliyeti, önceliği ve sağlık durumu.
    - Kendi GPU'larımız ileride sadece yeni bir sağlayıcı türü (`managed`) olarak eklenir.
-2. **Sürüm yaşam döngüsü:** `draft → staging → live → deprecated → retired`. Bunun üstünde model seviyesinde bir acil durdurma (pause) var. App'ler numaralı release'lerle deploy ve rollback edilir.
+2. **Sürüm yaşam döngüsü:** `draft → live → deprecated → retired`. Bunun üstünde model seviyesinde bir acil durdurma (pause) var. App'ler numaralı release'lerle deploy ve rollback edilir.
 3. **İki dış API yüzeyi var, arkada tek motor çalışır:**
    - OpenAI uyumlu yüzey: `/v1/chat/completions`, `/v1/images/generations`, `/v1/models`. postpane Modelvend'i bugün zaten böyle çağırıyor.
    - Yerel yüzey: `POST /v1/tasks`, durum sorgulama (`GET /v1/tasks/{id}`), webhook. Müşteri konsolundaki kod örnekleri bunu gösteriyor.
@@ -91,7 +91,7 @@ Kavramlar:
   - Durum: `active`, `paused` veya `draining`. Ayrıca bölge, eşzamanlılık limiti ve sağlık bilgisi.
 - **App / AppRelease / AppStep:** App, adımları olan bir iş akışıdır. Her adım `model@version` şeklinde **sabitlenir**. Model yeni bir sürüm çıkardığında canlı app etkilenmez; yeni sürümü kullanmak için app'in yeni bir release'i gerekir. Release başına sabit bir çalıştırma fiyatı vardır. Deploy ve rollback, fal'daki revision ve takma ad mantığıyla çalışır.
 - **Workspace:** Faturalanan hesap. Bakiyesi, tier'ı (`free`, `standard`, `scale`, `enterprise`), limit override'ları ve askıya alma durumu burada tutulur. Kullanıcılar workspace'in üyesidir.
-- **ApiKey:** `mv_live_…` veya `mv_test_…` biçiminde. Secret yalnızca bir kez gösterilir; veritabanında hash'i ve prefix'i saklanır. Her anahtarın scope'ları (`publisher/slug`, `publisher/slug@version` ya da app slug'ı), aylık harcama limiti ve iptal durumu vardır. Scope dışı bir çağrı 403 `key_scope` alır. Aylık limit UTC takvim ayına göre, task oluşturma tarihiyle sayılır (başarılı task'ların fiyatı ve bitmemiş task'ların blokesi) ve task oluşturulurken kontrol edilir. Test anahtarları canlı anahtarlarla aynı fiyattan faturalanır ve aynı limitlere tabidir; yalnızca test trafiğini ayrı tutmaya yarar.
+- **ApiKey:** `mv_…` biçiminde, tek tür. Secret yalnızca bir kez gösterilir; veritabanında hash'i ve prefix'i saklanır. Her anahtarın scope'ları (`publisher/slug`, `publisher/slug@version` ya da app slug'ı), aylık harcama limiti ve iptal durumu vardır. Scope dışı bir çağrı 403 `key_scope` alır. Aylık limit UTC takvim ayına göre, task oluşturma tarihiyle sayılır (başarılı task'ların fiyatı ve bitmemiş task'ların blokesi) ve task oluşturulurken kontrol edilir.
 - **Task / Attempt:** Her API çağrısı bir `task_…` kaydı oluşturur. Router her denemeyi bir **attempt** olarak kaydeder: sağlayıcı, route, upstream ID, sonuç ve gecikme. Bu, OpenRouter'daki `provider_responses[]` alanının karşılığı. Yalnızca başarılı attempt faturalanır.
 - **LedgerEntry:** Bakiyeyi oluşturan append-only kayıt: `top_up`, `grant`, `usage`, `refund`, `adjustment`. Bakiye bu kayıtların toplamıdır. Hızlı okumak için ayrıca önbelleğe alınır.
 - **Operator / AuditEntry:** Admin paneli müşteri hesaplarından tamamen ayrıdır. Her değişiklik audit log'a yazılır.
@@ -101,8 +101,7 @@ Kavramlar:
 ```
 google/veo-3.1            → defaultVersion (örneğin v2)
 google/veo-3.1@v1         → v1 (deprecated ise yanıt Deprecation/Sunset header'ı taşır)
-google/veo-3.1@v0         → retired: replacement varsa ona yönlendirilir, yoksa 410
-modelvend/lumen-1@staging → yalnızca dahili anahtarlarla
+google/veo-3.1@v0         → retired: 410 version_retired; replacement öneri olarak döner, yönlendirme yok
 ```
 
 ### Yaşam döngüleri
@@ -110,23 +109,20 @@ modelvend/lumen-1@staging → yalnızca dahili anahtarlarla
 ```mermaid
 stateDiagram-v2
   [*] --> draft
-  draft --> staging: promote
-  draft --> live: promote (aktif route ve fiyat şart)
-  staging --> live: promote
-  live --> deprecated: deprecate (default olamaz; sunset ve replacement)
+  draft --> live: publish (kullanılabilir route, her kademeye fiyat ve maliyet, marj kuralı)
+  live --> deprecated: deprecate (default da olabilir; sunset ve replacement)
   deprecated --> retired: retire (geri alınamaz)
   retired --> [*]
 ```
 
 - **draft:** Kimse çağıramaz. Şema, fiyat ve route'lar serbestçe düzenlenir.
-- **staging:** Yalnızca dahili workspace'lerin (`INTERNAL_WORKSPACES`) anahtarları çağırabilir; müşterilerin test anahtarları çağıramaz. Gerçek sağlayıcıyla uçtan uca test için kullanılır.
 - **live:**
-  - Şema ve fiyat **dondurulur**. Değiştirmek için yeni sürüm açılır.
+  - Şema **dondurulur**; değiştirmek için yeni sürüm açılır. Fiyat, fiyat değişimi akışıyla değişir ([product-rules.md](product-rules.md) bölüm 6).
   - Route'lar, routing politikası ve changelog yine değiştirilebilir.
   - Sürümün canlıya alınması onu otomatik olarak default yapmaz; default ayrıca seçilir.
-- **deprecated:** Sunset tarihine kadar çalışmaya devam eder. Yanıtlarda `Deprecation` ve `Sunset` header'ları olur. Son 30 günde bu sürümü çağıran workspace'lere e-posta gider.
-- **retired:** Artık çağrılamaz. İstekler yerine geçen sürüme yönlendirilir; o yoksa 410 döner.
-- **Model pause:** Sürümlerden bağımsız acil durdurma. Kuyruktaki işler tamamlanır.
+- **deprecated:** Emekli edilene kadar çalışmaya devam eder; sunset tarihi kendiliğinden kapatmaz, emekli etme iznini verir. Yanıtlarda `Deprecation` ve `Sunset` header'ları olur. Son 30 günde bu sürümü çağıran workspace'lere e-posta gider.
+- **retired:** Artık çağrılamaz. Her çağrı 410 `version_retired` alır, yerine geçen sürüm yalnızca önerilir.
+- **Model pause:** Sürümlerden bağımsız acil durdurma. Yeni task 503 alır, çalışanlar biter, kuyruktakiler bekler ve kuyruk süresi dolunca `queue_timeout` ile düşer.
 - **Provider pause:** O sağlayıcının tüm route'ları atlanır ve istekler sıradaki route'a düşer.
 - **Route pause/drain:** Tek bir sürüm-sağlayıcı ikilisini durdurur. `draining` durumundaki route elindeki işleri bitirir ama yenisini almaz.
 
@@ -493,7 +489,7 @@ Bu uçlar yalnızca management key kabul eder. Alt hesabın kendi anahtarıyla g
 - **Rate limit ve eşzamanlılık:** Alt hesaba ayrı limit konabilir ama bu limit ana hesabınkini aşamaz. Ana hesabın limiti bütün ağaç için ortaktır: her istekte hem alt hesabın hem ana hesabın sayacı kontrol edilir. Aksi halde alt hesap açarak limitler çoğaltılabilirdi.
 - **Model erişimi:** Alt hesabın `scopes` listesi, ana hesabın erişebildiği modellerle sınırlıdır. Alt hesaptaki anahtarların scope'ları da alt hesabınkiyle sınırlıdır.
 - **Askı:** Ana hesap askıya alınırsa bütün alt hesapları 403 `account_suspended` alır. Bir alt hesap tek başına da askıya alınabilir; bunu hem ana hesap hem operatör yapabilir.
-- **İç hesaplar:** `INTERNAL_WORKSPACES` içindeki bir hesabın alt hesapları iç hesap sayılmaz, staging sürümlere ve private modellere erişemez.
+- **İç hesaplar:** `INTERNAL_WORKSPACES` içindeki bir hesabın alt hesapları iç hesap sayılmaz, private modellere erişemez.
 - **Fiyat:** Alt hesap ana hesabın fiyat listesini kullanır (bölüm 10.3). Faturayı ana hesaba kestiğimiz için alt hesaba ayrı bir fiyat listesi bağlanmaz.
 
 **Görünürlük.**

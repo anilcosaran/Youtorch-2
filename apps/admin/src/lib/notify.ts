@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { ApiError, errorMessage, fieldErrors } from "@modelvend/admin-api/client";
 
-/** A field name the server sent, readable: "cost.price" → "Cost price", "limits.monthlySpendCap" → "Monthly spend cap". */
+/** A field name the server sent, readable: "steps.0.input" → "Steps 0 input", "limits.requestsPerMinute" → "Requests per minute". */
 export function fieldLabel(field: string, labels: Record<string, string> = {}): string {
   if (labels[field]) return labels[field];
   const parts = field.split(".").filter((part) => part !== "limits" && part !== "");
@@ -29,6 +29,15 @@ export function formErrors(
   if (Object.keys(all).length === 0) return { fields, message: errorMessage(error) };
   return { fields, message: rest.length > 0 ? rest.join(" ") : null };
 }
+
+/** What a refused publish says when a tier or run is under the minimum margin; null for any other failure. */
+export function lowMarginMessage(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.code !== "low_margin") return null;
+  return error.fields.reason ?? error.message;
+}
+
+/** A 409 `stale`: the model changed since the revision the change was based on. */
+export const isStale = (error: unknown) => error instanceof ApiError && error.code === "stale";
 
 /** An error's message, naming the field when the server pinned it on one: "Priority: Must be at most 100." */
 function describe(error: unknown): string {

@@ -1,49 +1,25 @@
-import { request, type Page, type PageParams } from "./client";
+import { request, type PageParams } from "./client";
+import type { S } from "./schema";
 
 /*
  * Customer API keys. The secret is shown once at creation in the customer
  * console; here only the prefix is known. Revoking is immediate and final.
  */
 
-export const KEY_ENVS = ["live", "test"] as const;
-export type KeyEnv = (typeof KEY_ENVS)[number];
+export type KeyStatus = S["KeyStatus"];
+export const KEY_STATUSES = ["active", "revoked"] as const satisfies readonly KeyStatus[];
 
-export const KEY_STATUSES = ["active", "revoked"] as const;
-export type KeyStatus = (typeof KEY_STATUSES)[number];
-
-export interface ApiKeyRow {
-  id: string;
-  name: string;
-  /** e.g. "mv_live_3fa9"; enough to find a key a customer pastes in a ticket. */
-  prefix: string;
-  env: KeyEnv;
-  status: KeyStatus;
-  customer: { id: string; name: string; workspace: string };
-  /** Model IDs or app slugs it may call; empty for everything. */
-  scopes: string[];
-  /** Stops the key once its spend this month reaches it. */
-  spendLimit: number | null;
-  spend30d: number;
-  requests30d: number;
-  createdAt: string;
-  lastUsedAt: string | null;
-  revokedAt: string | null;
-  revokedReason: string | null;
-}
+export type ApiKeyRow = S["ApiKey"];
 
 export interface ApiKeyFilters {
-  /** Matches the key's ID, name and prefix, and its customer's name, workspace and email. */
   query?: string;
-  env?: KeyEnv;
   status?: KeyStatus;
   customerId?: string;
 }
 
-export const listApiKeys = (params: ApiKeyFilters & PageParams) =>
-  request<Page<ApiKeyRow>>("/api-keys", { query: { ...params } });
+export const listApiKeys = (params: ApiKeyFilters & PageParams) => request<S["ApiKeyPage"]>("/api-keys", { query: { ...params } });
 
 export const revokeApiKey = (id: string, reason: string) =>
   request<ApiKeyRow>(`/api-keys/${encodeURIComponent(id)}/revoke`, { method: "POST", body: { reason } });
 
-export const updateApiKey = (id: string, body: { spendLimit: number | null }) =>
-  request<ApiKeyRow>(`/api-keys/${encodeURIComponent(id)}`, { method: "PATCH", body });
+export const updateApiKey = (id: string, body: S["ApiKeyUpdate"]) => request<ApiKeyRow>(`/api-keys/${encodeURIComponent(id)}`, { method: "PATCH", body });

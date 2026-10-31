@@ -21,6 +21,7 @@ import { ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConfirm } from "@/components/shared/confirm";
 import { DetailSection } from "@/components/shared/detail-section";
+import { PublishDialog } from "@/components/shared/publish-dialog";
 import { ReasonDialog } from "@/components/shared/reason-dialog";
 import { StatTile } from "@/components/shared/stat-tile";
 import { AppStatusPill, ReleaseStatusPill } from "@/components/shared/status";
@@ -33,32 +34,39 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { margin, modelHref } from "@/lib/catalog";
-import { integer, percent, plural, unitPrice, usdCompact } from "@/lib/format";
+import { margin, modelHref, parsePinned } from "@/lib/catalog";
+import { integer, percent, plural, usdCompact, usdPrecise } from "@/lib/format";
 import { APP_CATEGORY_LABELS } from "@/lib/labels";
 import { toastError } from "@/lib/notify";
 import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
+import { AppSchemas } from "./app-schemas";
 import { ReleaseEditor } from "./release-editor";
-import { useApplyApp } from "./use-apply-app";
+import { useApplyApp, useRefreshApp } from "./use-apply-app";
 
 /** The steps of a release as a left-to-right chain. */
 function Pipeline({ steps }: { steps: AppStep[] }) {
   if (steps.length === 0) return <p className="text-sm text-muted-foreground">No steps yet.</p>;
   return (
     <ol className="flex flex-wrap items-stretch gap-2" aria-label="Steps">
-      {steps.map((step, i) => (
-        <li key={step.id} className="flex items-center gap-2">
-          {i > 0 && <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
-          <div className="rounded-lg border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">Step {i + 1}</div>
-            <div className="text-sm font-medium">{step.name}</div>
-            <Link href={modelHref(step.modelId, step.version)} className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline">
-              {step.modelId}@{step.version}
-            </Link>
-          </div>
-        </li>
-      ))}
+      {steps.map((step, i) => {
+        const { modelId, version } = parsePinned(step.model);
+        return (
+          <li key={step.id} className="flex items-center gap-2">
+            {i > 0 && <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+            <div className="rounded-lg border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">
+                Step {i + 1}
+                {step.stage && ` · ${step.stage}`}
+              </div>
+              <div className="font-mono text-sm font-medium">{step.id}</div>
+              <Link href={modelHref(modelId, version)} className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline">
+                {step.model}
+              </Link>
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -75,7 +83,7 @@ function ReleaseRow({
   onRollback: (release: AppRelease) => void;
 }) {
   const can = usePermissions();
-  const share = margin(release.price, release.cost);
+  const share = margin(release.priceMicros, release.costMicros);
   return (
     <li className="grid gap-3 border-b px-4 py-3 last:border-b-0">
       <div className="flex flex-wrap items-center gap-2">
@@ -94,10 +102,10 @@ function ReleaseRow({
           {release.createdBy && ` · drafted by ${release.createdBy}`}
         </span>
         <span className="ml-auto text-xs tabular">
-          {unitPrice(release.price)} / run
+          {usdPrecise(release.priceMicros)} / run
           <span className="text-muted-foreground">
             {" "}
-            · cost {unitPrice(release.cost)}
+            · cost {usdPrecise(release.costMicros)}
             {share !== null && ` · ${percent(share, 0)} margin`}
           </span>
         </span>
@@ -113,6 +121,7 @@ function ReleaseRow({
         )}
       </div>
       <Pipeline steps={release.steps} />
+      {release.stages.length > 0 && <p className="text-xs text-muted-foreground">Stages: {release.stages.join(" → ")}</p>}
       {release.notes && <p className="text-xs text-muted-foreground">{release.notes}</p>}
     </li>
   );
@@ -122,6 +131,7 @@ function Actions({ app }: { app: App }) {
   const can = usePermissions();
   const confirm = useConfirm();
   const apply = useApplyApp();
+  const refresh = useRefreshApp();
   const [pausing, setPausing] = useState(false);
 
   const draft = async () => {
@@ -130,6 +140,7 @@ function Actions({ app }: { app: App }) {
       toast.success("Draft release created", { description: app.liveRelease ? `Copied from #${app.liveRelease}.` : undefined });
     } catch (error) {
       toastError(error, "Couldn't create a release");
+      refresh(app.slug);
     }
   };
 
@@ -141,6 +152,7 @@ function Actions({ app }: { app: App }) {
       toast.success(`${app.name} is running again`);
     } catch (error) {
       toastError(error, "Couldn't resume the app");
+      refresh(app.slug);
     }
   };
 
@@ -188,9 +200,14 @@ function Actions({ app }: { app: App }) {
         destructive
         describeError={errorMessage}
         onSubmit={async (reason) => {
-          apply(await pauseApp(app.slug, reason));
-          setPausing(false);
-          toast.success(`${app.name} is paused`);
+          try {
+            apply(await pauseApp(app.slug, reason));
+            setPausing(false);
+            toast.success(`${app.name} is paused`);
+          } catch (error) {
+            refresh(app.slug);
+            throw error;
+          }
         }}
       />
     </>
@@ -202,7 +219,9 @@ export function AppDetail({ slug }: { slug: string }) {
   const can = usePermissions();
   const confirm = useConfirm();
   const apply = useApplyApp();
+  const refresh = useRefreshApp();
   const app = useQuery({ queryKey: keys.app(slug), queryFn: () => getApp(slug) });
+  const [deploying, setDeploying] = useState<AppRelease | null>(null);
   const data = app.data;
   const live = data?.releases.find((r) => r.status === "live");
   const draft = data?.releases.find((r) => r.status === "draft");
@@ -212,26 +231,17 @@ export function AppDetail({ slug }: { slug: string }) {
   const stillPaused = (number: number) =>
     `${data?.name ?? "The app"} stays paused: #${number} becomes the live release, but runs keep failing with 503 app_paused until you resume the app.`;
 
-  const deploy = async (release: AppRelease) => {
-    if (!data) return;
-    const ok = await confirm({
-      title: `Deploy release #${release.number}?`,
-      description: paused
-        ? `${stillPaused(release.number)}${live ? ` #${live.number} is superseded; you can roll back to it later.` : ""}`
-        : live
-          ? `New runs use it at once; runs in progress finish on #${live.number}. You can roll back to #${live.number} later.`
-          : `${data.name} goes live and customers can run it.`,
-      action: paused ? "Deploy, stay paused" : "Deploy",
-    });
-    if (!ok) return;
+  const deploy = async (release: AppRelease, reason: string | undefined) => {
     try {
-      const updated = await publishRelease(data.slug, release.number);
+      const updated = await publishRelease(slug, release.number, reason ? { reason } : {});
       apply(updated);
+      setDeploying(null);
       toast.success(`Release #${release.number} is the live release`, {
         description: updated.status === "paused" ? `${updated.name} is still paused; resume it to take runs.` : undefined,
       });
     } catch (error) {
-      toastError(error, "Couldn't deploy the release");
+      refresh(slug);
+      throw error;
     }
   };
 
@@ -254,6 +264,7 @@ export function AppDetail({ slug }: { slug: string }) {
       });
     } catch (error) {
       toastError(error, "Couldn't roll back");
+      refresh(slug);
     }
   };
 
@@ -303,25 +314,47 @@ export function AppDetail({ slug }: { slug: string }) {
               />
               <StatTile
                 label="Price per run"
-                value={live ? unitPrice(live.price) : "—"}
-                hint={live ? `Cost ${unitPrice(live.cost)} · ${percent(margin(live.price, live.cost) ?? 0, 0)} margin` : undefined}
+                value={live ? usdPrecise(live.priceMicros) : "—"}
+                hint={live ? `Cost ${usdPrecise(live.costMicros)} · ${percent(margin(live.priceMicros, live.costMicros) ?? 0, 0)} margin` : undefined}
               />
               <StatTile label="Runs 24h" value={integer(data.runs24h)} />
-              <StatTile label="Revenue 30d" value={usdCompact(data.revenue30d)} />
+              <StatTile label="Revenue 30d" value={usdCompact(data.revenue30dMicros)} />
             </div>
             {draft && can.editCatalog && (
-              <ReleaseEditor key={`${draft.number}:${JSON.stringify(draft.steps)}:${draft.price}:${draft.notes}`} app={data} release={draft} onDeploy={() => void deploy(draft)} />
+              <ReleaseEditor
+                key={`${draft.number}:${JSON.stringify([draft.steps, draft.stages, draft.outputMap, draft.priceMicros, draft.notes])}`}
+                app={data}
+                release={draft}
+                onDeploy={can.publishCatalog ? () => setDeploying(draft) : undefined}
+              />
             )}
+            <AppSchemas app={data} />
             <DetailSection title="Releases" bodyClassName="p-0">
               <ol aria-label="Releases">
                 {data.releases.map((release) => (
-                  <ReleaseRow key={release.number} app={data} release={release} onDeploy={(r) => void deploy(r)} onRollback={(r) => void rollback(r)} />
+                  <ReleaseRow key={release.number} app={data} release={release} onDeploy={setDeploying} onRollback={(r) => void rollback(r)} />
                 ))}
               </ol>
             </DetailSection>
           </>
         )}
       </PageBody>
+      <PublishDialog
+        open={deploying !== null}
+        onOpenChange={(open) => !open && setDeploying(null)}
+        title={`Deploy release #${deploying?.number ?? ""}?`}
+        description={
+          !deploying
+            ? undefined
+            : paused
+              ? `${stillPaused(deploying.number)}${live ? ` #${live.number} is superseded; you can roll back to it later.` : ""}`
+              : live
+                ? `New runs use it at once; runs in progress finish on #${live.number}. You can roll back to #${live.number} later.`
+                : `${data?.name ?? "The app"} goes live and customers can run it.`
+        }
+        action={paused ? "Deploy, stay paused" : "Deploy"}
+        onPublish={(reason) => (deploying ? deploy(deploying, reason) : Promise.resolve())}
+      />
     </>
   );
 }

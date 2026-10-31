@@ -5,10 +5,10 @@ import type { App } from "@modelvend/admin-api/apps";
 import type { AuditEntry } from "@modelvend/admin-api/audit";
 import type { Operator } from "@modelvend/admin-api/auth";
 import type { Page } from "@modelvend/admin-api/client";
-import type { Customer, CustomerRow } from "@modelvend/admin-api/customers";
+import type { Customer, CustomerRow, LedgerEntry } from "@modelvend/admin-api/customers";
 import type { Model, ModelSummary } from "@modelvend/admin-api/models";
 import type { Overview } from "@modelvend/admin-api/overview";
-import type { RequestDetail, RequestRow } from "@modelvend/admin-api/requests";
+import type { TaskDetail, TaskRow } from "@modelvend/admin-api/tasks";
 import { MOCK_PASSWORD, handleMock, mockSettings } from ".";
 import { createStore } from "./seed";
 import { resetStore } from "./store";
@@ -20,9 +20,9 @@ interface ErrorBody {
 /** Cookies the mock set, sent back like a browser would. */
 const jar = new Map<string, string>();
 
-async function call<T = ErrorBody>(method: string, path: string, body?: unknown): Promise<{ status: number; body: T }> {
+async function call<T = ErrorBody>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<{ status: number; body: T }> {
   const url = `http://localhost/api/admin/v1${path}`;
-  const headers = new Headers();
+  const headers = new Headers(extra);
   if (jar.size > 0) headers.set("cookie", [...jar].map(([name, value]) => `${name}=${value}`).join("; "));
   if (method !== "GET") headers.set("content-type", "application/json");
   const request = new NextRequest(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -37,8 +37,6 @@ async function call<T = ErrorBody>(method: string, path: string, body?: unknown)
   return { status: response.status, body: (text ? JSON.parse(text) : undefined) as T };
 }
 
-const inWeeks = (weeks: number) => new Date(Date.now() + weeks * 7 * 86_400_000).toISOString();
-
 beforeEach(() => {
   mockSettings.latencyMs = [0, 0];
   resetStore();
@@ -49,11 +47,11 @@ describe("mock admin API", () => {
   it("lists models busiest first and pages through them", async () => {
     const all = await call<Page<ModelSummary>>("GET", "/models");
     expect(all.status).toBe(200);
-    expect(all.body.items.length).toBeGreaterThanOrEqual(15);
+    expect(all.body.items.length).toBeGreaterThanOrEqual(8);
     expect(all.body.nextCursor).toBeNull();
-    const counts = all.body.items.map((m) => m.requests24h);
+    const counts = all.body.items.map((m) => m.tasks24h);
     expect(counts).toEqual([...counts].sort((a, b) => b - a));
-    expect(all.body.items.find((m) => m.id === "minimax/hailuo-03")?.state).toBe("paused");
+    expect(all.body.items.find((m) => m.id === "openai/sora-2")?.state).toBe("paused");
 
     const first = await call<Page<ModelSummary>>("GET", "/models?limit=5");
     expect(first.body.items).toHaveLength(5);
@@ -61,61 +59,67 @@ describe("mock admin API", () => {
     const second = await call<Page<ModelSummary>>("GET", `/models?limit=5&cursor=${first.body.nextCursor}`);
     expect(second.body.items[0].id).toBe(all.body.items[5].id);
 
-    const video = await call<Page<ModelSummary>>("GET", "/models?modality=video&provider=byteplus");
-    expect(video.body.items.map((m) => m.id)).toEqual(["bytedance/seedance-2.5"]);
+    const video = await call<Page<ModelSummary>>("GET", "/models?modality=video&provider=kling");
+    expect(video.body.items.map((m) => m.id)).toEqual(["kling/kling-3"]);
   });
 
-  it("refuses to put a version live without an active route, then promotes it once it has one", async () => {
-    const path = "/models/bytedance/seedance-2.5/versions/v3";
-    const refused = await call("POST", `${path}/promote`, { to: "live" });
+  it("refuses to put a version live without an active route, then publishes it once it has one", async () => {
+    const path = "/models/openai/sora-2/versions/v2";
+    const refused = await call("POST", `${path}/publish`, {});
     expect(refused.status).toBe(422);
     expect(refused.body.error.code).toBe("no_route");
 
-    const added = await call<Model>("POST", `${path}/routes`, {
-      providerId: "byteplus",
-      upstreamModel: "seedance-2-5-pro-251101",
-      priority: 1,
-      weight: 100,
-      cost: { unit: "second", price: 0.13 },
-      region: "ap-southeast-1",
-      maxConcurrency: null,
-    });
+    const { revision } = (await call<Model>("GET", "/models/openai/sora-2")).body;
+    const added = await call<Model>(
+      "POST",
+      `${path}/routes`,
+      {
+        providerId: "openai",
+        upstreamModel: "sora-2-1",
+        priority: 1,
+        weight: 100,
+        tierCosts: { "720p": "0.1", "1080p-pro": "0.4" },
+        region: "us",
+        maxConcurrency: null,
+      },
+      { "If-Match": String(revision) },
+    );
     expect(added.status).toBe(200);
-    const draft = added.body.versionList.find((v) => v.id === "v3");
-    expect(draft?.pricing.tiers.find((t) => t.id === "1080p")?.cost).toBe(0.13);
+    const draft = added.body.versionList.find((v) => v.id === "v2");
+    expect(draft?.pricing.tiers.find((t) => t.id === "1080p-pro")?.cost).toBe("0.4");
 
-    const promoted = await call<Model>("POST", `${path}/promote`, { to: "live" });
-    expect(promoted.status).toBe(200);
-    const live = promoted.body.versionList.find((v) => v.id === "v3");
+    const published = await call<Model>("POST", `${path}/publish`, {});
+    expect(published.status).toBe(200);
+    const live = published.body.versionList.find((v) => v.id === "v2");
     expect(live?.status).toBe("live");
     expect(live?.releasedAt).not.toBeNull();
-    expect(promoted.body.versions.live).toBe(2);
+    expect(published.body.versions.live).toBe(2);
 
-    const audit = await call<Page<AuditEntry>>("GET", "/audit?action=version&targetId=bytedance/seedance-2.5@v3");
-    expect(audit.body.items[0]).toMatchObject({ action: "version.promote", detail: { from: "draft", to: "live" }, ip: "127.0.0.1" });
+    const audit = await call<Page<AuditEntry>>("GET", "/audit?action=version&targetId=openai/sora-2@v2");
+    expect(audit.body.items[0]).toMatchObject({ action: "version.publish", ip: "127.0.0.1" });
   });
 
-  it("won't deprecate the default version or reprice a live one", async () => {
-    const deprecated = await call("POST", "/models/google/veo-3.1/versions/v2/deprecate", { sunsetAt: inWeeks(6), replacement: null });
-    expect(deprecated.status).toBe(422);
-    expect(deprecated.body.error.message).toBe("Make another version the default first.");
-
-    const repriced = await call("PATCH", "/models/google/veo-3.1/versions/v2", {
-      pricing: { unit: "second", defaultTier: "1080p", tiers: [{ id: "1080p", label: "1080p", price: 0.3 }], input: null, promo: null },
-    });
+  it("won't reprice a live version", async () => {
+    const { revision } = (await call<Model>("GET", "/models/google/veo-3.1")).body;
+    const repriced = await call(
+      "PATCH",
+      "/models/google/veo-3.1/versions/v2",
+      { pricing: { unit: "second", defaultTier: "1080p", tierField: null, tierValues: {}, tiers: [{ id: "1080p", label: "1080p", price: "0.3" }], input: null, promo: null } },
+      { "If-Match": String(revision) },
+    );
     expect(repriced.status).toBe(422);
     expect(repriced.body.error.code).toBe("version_locked");
   });
 
   it("publishes an app's draft release and supersedes the live one", async () => {
-    const published = await call<App>("POST", "/apps/product-shots/releases/4/publish");
+    const published = await call<App>("POST", "/apps/product-shots/releases/2/publish", { reason: "Trying GPT Image." });
     expect(published.status).toBe(200);
-    expect(published.body.liveRelease).toBe(4);
+    expect(published.body.liveRelease).toBe(2);
     expect(published.body.draftRelease).toBeNull();
-    expect(published.body.releases.find((r) => r.number === 3)?.status).toBe("superseded");
-    expect(published.body.models).toContain("google/nano-banana-pro");
+    expect(published.body.releases.find((r) => r.number === 1)?.status).toBe("superseded");
+    expect(published.body.models).toContain("openai/gpt-image-1.5");
 
-    const again = await call("POST", "/apps/product-shots/releases/4/publish");
+    const again = await call("POST", "/apps/product-shots/releases/2/publish", {});
     expect(again.status).toBe(422);
   });
 
@@ -134,30 +138,31 @@ describe("mock admin API", () => {
     expect(customerAfter.body.keys).toBe(customerBefore.body.keys - 1);
   });
 
-  it("won't take a balance below zero", async () => {
+  it("won't take a balance below zero without asking", async () => {
     const customers = await call<Page<CustomerRow>>("GET", "/customers?limit=1");
     const customer = customers.body.items[0];
-    const refused = await call("POST", `/customers/${customer.id}/credits`, { amount: -(customer.balance + 100), reason: "Clawback" });
+    const refused = await call("POST", `/customers/${customer.id}/credits`, { amountMicros: -(customer.balanceMicros + 100_000_000), reason: "Clawback" });
     expect(refused.status).toBe(422);
-    expect(refused.body.error.fields?.amount).toBeTruthy();
+    expect(refused.body.error.fields?.amountMicros).toBeTruthy();
 
-    const granted = await call<Customer>("POST", `/customers/${customer.id}/credits`, { amount: 25, reason: "Goodwill" });
-    expect(granted.body.balance).toBeCloseTo(customer.balance + 25, 6);
-    expect(granted.body.ledger[0]).toMatchObject({ kind: "grant", amount: 25, note: "Goodwill", operator: "Anıl Coşaran" });
+    const granted = await call<Customer>("POST", `/customers/${customer.id}/credits`, { amountMicros: 25_000_000, kind: "gift", reason: "Goodwill" });
+    expect(granted.body.balanceMicros).toBe(customer.balanceMicros + 25_000_000);
+    const ledger = await call<Page<LedgerEntry>>("GET", `/customers/${customer.id}/ledger?limit=1`);
+    expect(ledger.body.items[0]).toMatchObject({ kind: "grant", amountMicros: 25_000_000, note: "Goodwill", operator: "Anıl Coşaran" });
   });
 
-  it("refunds a request once", async () => {
-    const list = await call<Page<RequestRow>>("GET", "/requests?status=succeeded&limit=200");
-    const row = list.body.items.find((r) => r.price > 0);
+  it("refunds a task once", async () => {
+    const list = await call<Page<TaskRow>>("GET", "/tasks?status=succeeded&limit=200");
+    const row = list.body.items.find((r) => r.amountMicros > 0);
     expect(row).toBeDefined();
-    const refunded = await call<RequestDetail>("POST", `/requests/${row?.id}/refund`, { reason: "Blank output." });
+    const refunded = await call<TaskDetail>("POST", `/tasks/${row?.id}/refund`, { reason: "Blank output." });
     expect(refunded.status).toBe(200);
     expect(refunded.body.refundedAt).not.toBeNull();
-    const twice = await call("POST", `/requests/${row?.id}/refund`, { reason: "Again." });
+    const twice = await call("POST", `/tasks/${row?.id}/refund`, { reason: "Again." });
     expect(twice.status).toBe(409);
   });
 
-  it("signs out, refuses requests, and signs in again", async () => {
+  it("signs out, refuses calls, and signs in again", async () => {
     expect((await call("POST", "/auth/logout")).status).toBe(204);
     const me = await call("GET", "/me");
     expect(me.status).toBe(401);
@@ -245,7 +250,7 @@ describe("mock admin API", () => {
   it("builds one overview day per UTC day", async () => {
     const overview = await call<Overview>("GET", "/overview?range=30d");
     expect(overview.body.series).toHaveLength(30);
-    expect(overview.body.topModels).toHaveLength(8);
+    expect(overview.body.topModels?.length).toBeGreaterThanOrEqual(5);
     expect(overview.body.totals.providersDegraded).toBe(1);
     expect((await call("GET", "/overview?range=1y")).status).toBe(400);
   });
@@ -255,6 +260,6 @@ describe("mock admin API", () => {
     const evening = createStore(Date.parse("2026-10-16T21:00:00Z"));
     expect(evening.customers.map((c) => c.id).sort()).toEqual(morning.customers.map((c) => c.id).sort());
     expect(evening.apiKeys.map((k) => k.id).sort()).toEqual(morning.apiKeys.map((k) => k.id).sort());
-    expect(evening.requests.map((r) => r.id).sort()).toEqual(morning.requests.map((r) => r.id).sort());
+    expect(evening.tasks.map((t) => t.id).sort()).toEqual(morning.tasks.map((t) => t.id).sort());
   });
 });

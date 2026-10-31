@@ -1,0 +1,140 @@
+# Defaults for every environment; values-<env>.yaml overrides them.
+
+# development registers the fake provider; production requires storage.
+appEnv: production
+logLevel: info
+# Public origin of the gateway.
+publicApiUrl: ""
+# Comma-separated workspace IDs whose keys reach private models.
+internalWorkspaces: ""
+
+# A digest wins over a tag. CI commits digests to values-<env>.yaml.
+images:
+  services:
+    repository: ghcr.io/brieeflabs/modelvend-services
+    tag: main
+    digest: ""
+  console:
+    repository: ghcr.io/brieeflabs/modelvend-console
+    tag: main
+    digest: ""
+  admin:
+    repository: ghcr.io/brieeflabs/modelvend-admin
+    tag: main
+    digest: ""
+imagePullPolicy: IfNotPresent
+imagePullSecrets:
+  - name: ghcr-pull
+
+# Created outside Git; deploy/secrets lists its keys.
+secretName: modelvend-secrets
+
+# Output storage. Empty endpoint: outputs stay at the provider's URL, which only development allows.
+storage:
+  endpoint: ""
+  bucket: ""
+  region: auto
+  useSSL: true
+  publicUrl: ""
+
+services:
+  gateway:
+    replicas: 2
+    port: 8080
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+  mcp:
+    replicas: 2
+    port: 8090
+    resources:
+      requests: { cpu: 50m, memory: 96Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+  adminapi:
+    replicas: 1
+    port: 8081
+    resources:
+      requests: { cpu: 50m, memory: 96Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+  worker:
+    replicas: 2
+    port: 9090
+    resources:
+      requests: { cpu: 200m, memory: 256Mi }
+      limits: { cpu: "2", memory: 1Gi }
+
+apps:
+  console:
+    replicas: 2
+    port: 3000
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }
+  admin:
+    replicas: 1
+    port: 3001
+    # Serves the in-memory mock until the Go admin API exists; sign-in needs ADMIN_API_MOCK_PASSWORD from the secret.
+    mock: false
+    trustedProxyHops: 1
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }
+
+migrate:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+postgres:
+  # false: DATABASE_URL comes from the secret instead of the CloudNativePG cluster.
+  enabled: true
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:17
+  storage:
+    size: 20Gi
+    # Empty uses the cluster's default storage class.
+    storageClass: ""
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+
+redis:
+  enabled: true
+  image: redis:8-alpine
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+ingress:
+  # Needs the hosts below; the admin API is never exposed.
+  enabled: false
+  className: ""
+  annotations: {}
+  # Secret holding the certificate for all hosts; empty for no TLS block.
+  tlsSecretName: ""
+  hosts:
+    api: ""
+    mcp: ""
+    console: ""
+    admin: ""
+
+# Pods take traffic only from this namespace and the namespaces below.
+networkPolicy:
+  enabled: true
+  # Where the ingress controller runs; reaches only gateway, mcp, console and admin.
+  ingressControllerNamespace: ""
+  # Reach every pod: the CloudNativePG operator and monitoring.
+  platformNamespaces:
+    - cnpg-system
+
+# Keeps this namespace from starving the others on a shared cluster.
+resourceQuota:
+  enabled: true
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "24"
+    limits.memory: 48Gi
+    persistentvolumeclaims: "10"
+    requests.storage: 200Gi
+    pods: "60"

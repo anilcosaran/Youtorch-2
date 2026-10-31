@@ -16,7 +16,6 @@ import (
 	"github.com/brieeflabs/modelvend/services/internal/api/public/openaicompat"
 	"github.com/brieeflabs/modelvend/services/internal/api/public/redact"
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
-	"github.com/brieeflabs/modelvend/services/internal/catalog/schema"
 	"github.com/brieeflabs/modelvend/services/internal/identity/keys"
 	"github.com/brieeflabs/modelvend/services/internal/platform/httpx"
 	"github.com/brieeflabs/modelvend/services/internal/platform/ids"
@@ -71,10 +70,6 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	if err := validateCreate(&body, r.Header.Get("Idempotency-Key")); err != nil {
-		a.fail(w, r, err)
-		return
-	}
 	created, err := a.Tasks.Create(r.Context(), tasks.CreateParams{
 		WorkspaceID:      p.WorkspaceID,
 		KeyID:            p.KeyID,
@@ -95,49 +90,25 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 	if created.Deprecated != nil {
 		deprecationHeaders(w, *created.Deprecated)
 	}
+	if !created.Created {
+		w.Header().Set("Idempotent-Replayed", "true")
+	}
 	task := created.Task
 	if wait := preferWait(r); wait > 0 && !task.Status.Final() {
-		if task, err = a.Tasks.Wait(r.Context(), p.WorkspaceID, task.ID, wait); err != nil {
-			a.fail(w, r, err)
-			return
+		// The task exists and holds money by now, so a failed wait answers with
+		// the task: an error here would make the caller create another.
+		if waited, err := a.Tasks.Wait(r.Context(), p.WorkspaceID, task.ID, wait); err != nil {
+			a.Logger.ErrorContext(r.Context(), "waiting for a task", "task", task.ID, "error", err)
+		} else {
+			task = waited
 		}
 	}
 	status := http.StatusAccepted
-	if task.Status.Final() || !created.Created {
+	if task.Status.Final() {
 		status = http.StatusOK
 	}
 	w.Header().Set("Location", "/v1/tasks/"+task.ID)
 	httpx.WriteJSON(w, status, redact.PublicTask(task))
-}
-
-func validateCreate(b *createBody, idempotencyKey string) error {
-	fields := map[string]string{}
-	if (b.Model == "") == (b.App == "") {
-		fields["model"] = "Set either model or app."
-	}
-	if len(b.Input) == 0 || b.Input[0] != '{' {
-		fields["input"] = "Input must be a JSON object."
-	}
-	if b.WebhookURL != "" && !strings.HasPrefix(b.WebhookURL, "https://") {
-		fields["webhook_url"] = "Webhooks must use https://."
-	} else if strings.ContainsRune(b.WebhookURL, 0) {
-		fields["webhook_url"] = "Webhook URLs can't contain the null character (U+0000)."
-	}
-	switch {
-	case len(b.Metadata) > 0 && b.Metadata[0] != '{':
-		fields["metadata"] = "Metadata must be a JSON object."
-	case len(b.Metadata) > 4096:
-		fields["metadata"] = "Metadata can be up to 4 KB."
-	case schema.HasNUL(b.Metadata):
-		fields["metadata"] = "Metadata can't contain the null character (U+0000)."
-	}
-	if len(idempotencyKey) > 255 {
-		fields["Idempotency-Key"] = "Idempotency keys can be up to 255 characters."
-	}
-	if len(fields) > 0 {
-		return &httpx.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_request", Message: "Some fields need another look.", Fields: fields}
-	}
-	return nil
 }
 
 // preferWait reads "Prefer: wait=N" (RFC 7240).
@@ -152,8 +123,11 @@ func preferWait(r *http.Request) time.Duration {
 	return 0
 }
 
+// deprecationHeaders follow RFC 9745 and RFC 8594.
 func deprecationHeaders(w http.ResponseWriter, v catalog.Version) {
-	w.Header().Set("Deprecation", "true")
+	if v.DeprecatedAt != nil {
+		w.Header().Set("Deprecation", "@"+strconv.FormatInt(v.DeprecatedAt.Unix(), 10))
+	}
 	if v.SunsetAt != nil {
 		w.Header().Set("Sunset", v.SunsetAt.UTC().Format(http.TimeFormat))
 	}
@@ -179,25 +153,14 @@ func (a *API) cancelTask(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, redact.PublicTask(t))
 }
 
-// List is a page of items.
-type List[T any] struct {
-	Object     string  `json:"object"`
-	Data       []T     `json:"data"`
-	NextCursor *string `json:"next_cursor"`
-}
-
 func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 	p, _ := keys.FromContext(r.Context())
 	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	status := tasks.Status(q.Get("status"))
-	switch status {
-	case "", tasks.Queued, tasks.Running, tasks.Succeeded, tasks.Failed, tasks.Canceled:
-	default:
-		a.fail(w, r, httpx.Errorf(http.StatusBadRequest, "invalid_request", "status must be queued, running, succeeded, failed or canceled."))
+	requested, _ := strconv.Atoi(q.Get("limit"))
+	limit := tasks.PageLimit(requested)
+	status, err := tasks.ParseStatus(q.Get("status"))
+	if err != nil {
+		a.fail(w, r, err)
 		return
 	}
 	list, err := a.Tasks.List(r.Context(), p.WorkspaceID, tasks.ListFilter{
@@ -207,16 +170,7 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	out := List[redact.Task]{Object: "list", Data: []redact.Task{}}
-	for i, t := range list {
-		if i == limit {
-			next := list[i-1].ID
-			out.NextCursor = &next
-			break
-		}
-		out.Data = append(out.Data, redact.PublicTask(t))
-	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, redact.TaskPage(list, limit))
 }
 
 func (a *API) listModels(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +179,7 @@ func (a *API) listModels(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	out := List[redact.Model]{Object: "list", Data: make([]redact.Model, 0, len(models))}
+	out := redact.List[redact.Model]{Object: "list", Data: make([]redact.Model, 0, len(models))}
 	for _, m := range models {
 		out.Data = append(out.Data, redact.PublicModel(m))
 	}

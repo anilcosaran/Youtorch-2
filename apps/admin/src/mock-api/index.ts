@@ -9,7 +9,8 @@ import { modelRoutes } from "./handlers/models";
 import { operatorRoutes } from "./handlers/operators";
 import { overviewRoutes } from "./handlers/overview";
 import { providerRoutes } from "./handlers/providers";
-import { requestRoutes } from "./handlers/requests";
+import { settingsRoutes } from "./handlers/settings";
+import { taskRoutes } from "./handlers/tasks";
 import { MockError, badRequest, errorResponse, fail } from "./http";
 import { matchRoute, type RouteDef } from "./router";
 import { currentOperator } from "./session";
@@ -28,17 +29,18 @@ export const mockSettings = { latencyMs: [120, 300] as [number, number] };
 
 const PREFIX = "/admin/v1";
 
-const ROUTES: RouteDef[] = [
+export const ROUTES: RouteDef[] = [
   ...authRoutes,
   ...operatorRoutes,
   ...auditRoutes,
   ...overviewRoutes,
+  ...settingsRoutes,
   ...modelRoutes,
   ...appRoutes,
   ...providerRoutes,
   ...customerRoutes,
   ...apiKeyRoutes,
-  ...requestRoutes,
+  ...taskRoutes,
 ];
 
 async function readBody(request: Request): Promise<Body> {

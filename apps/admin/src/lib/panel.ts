@@ -1,10 +1,10 @@
 import type { Permission } from "@modelvend/admin-api/auth";
 
-/** The query parameter of the item open in the side panel: `?panel=request:<id>`. */
+/** The query parameter of the item open in the side panel: `?panel=task:<id>`. */
 export const PANEL_PARAM = "panel";
 
 /** What the side panel can show, on any page. */
-export const PANEL_KINDS = ["request"] as const;
+export const PANEL_KINDS = ["task"] as const;
 
 export type PanelKind = (typeof PANEL_KINDS)[number];
 
@@ -16,13 +16,13 @@ export interface PanelRef {
 
 /** The permission an operator needs to open each kind of item. */
 export const PANEL_PERMISSIONS: Record<PanelKind, Permission> = {
-  request: "requests.view",
+  task: "tasks.view",
 };
 
 const isKind = (value: string): value is PanelKind => (PANEL_KINDS as readonly string[]).includes(value);
 
 /**
- * `request:<id>` → `{ kind: "request", id }`; null for anything else. An ID never holds a slash or "..", so a
+ * `task:<id>` → `{ kind: "task", id }`; null for anything else. An ID never holds a slash or "..", so a
  * crafted link can't make it read as a path to another endpoint (the client encodes IDs as well).
  */
 export function parsePanel(value: string | null | undefined): PanelRef | null {
@@ -47,7 +47,7 @@ export function panelFromQuery(params: Pick<URLSearchParams, "get">): PanelRef |
 
 /**
  * A query string without the leading "?". The panel's colon stays readable
- * (`panel=request:req_1`); it needs no escaping in a query.
+ * (`panel=task:task_1`); it needs no escaping in a query.
  */
 export function encodeQuery(params: URLSearchParams): string {
   return params.toString().replace(/(^|&)(panel=[a-z]+)%3A/g, "$1$2:");

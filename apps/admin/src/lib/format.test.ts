@@ -19,7 +19,9 @@ import {
   span,
   unitPrice,
   usd,
+  usdAxis,
   usdCompact,
+  usdPrecise,
   utc,
 } from "./format";
 
@@ -61,13 +63,13 @@ describe("badgeCount", () => {
 describe("usd", () => {
   it.each([
     [0, "$0.00"],
-    [0.05, "$0.05"],
-    [1234.56, "$1,234.56"],
-    [-5, "-$5.00"],
-    [1_000_000, "$1,000,000.00"],
-    [19.996, "$20.00"],
-  ])("%d dollars", (dollars, expected) => {
-    expect(usd(dollars)).toBe(expected);
+    [50_000, "$0.05"],
+    [1_234_560_000, "$1,234.56"],
+    [-5_000_000, "-$5.00"],
+    [1_000_000_000_000, "$1,000,000.00"],
+    [19_996_000, "$20.00"],
+  ])("%d micro-dollars", (micros, expected) => {
+    expect(usd(micros)).toBe(expected);
   });
 
   it("shows a dash for an unknown amount", () => {
@@ -79,15 +81,36 @@ describe("usd", () => {
 
 describe("usdCompact", () => {
   it("shortens from a thousand up", () => {
-    expect(usdCompact(999.5)).toBe("$999.50");
-    expect(usdCompact(12_840)).toBe("$12.8K");
-    expect(usdCompact(-2_500_000)).toBe("-$2.5M");
+    expect(usdCompact(999_500_000)).toBe("$999.50");
+    expect(usdCompact(12_840_000_000)).toBe("$12.8K");
+    expect(usdCompact(-2_500_000_000_000)).toBe("-$2.5M");
+  });
+});
+
+describe("usdAxis", () => {
+  it("keeps a chart's ticks short and in dollars", () => {
+    expect(usdAxis(0)).toBe("$0");
+    expect(usdAxis(2_500_000)).toBe("$2.5");
+    expect(usdAxis(250_000_000)).toBe("$250");
+    expect(usdAxis(12_800_000_000)).toBe("$12.8K");
+    expect(usdAxis(-1_000_000)).toBe("-$1");
+  });
+});
+
+describe("usdPrecise", () => {
+  it("keeps fractions of a cent under a dollar", () => {
+    expect(usdPrecise(3500)).toBe("$0.0035");
+    expect(usdPrecise(45_000)).toBe("$0.045");
+    expect(usdPrecise(-500_000)).toBe("-$0.50");
+    expect(usdPrecise(12_500_000)).toBe("$12.50");
+    expect(usdPrecise(null)).toBe("—");
   });
 });
 
 describe("unitPrice", () => {
   it("keeps fractions of a cent", () => {
     expect(unitPrice(0.045)).toBe("$0.045");
+    expect(unitPrice("0.084")).toBe("$0.084");
     expect(unitPrice(0.0035)).toBe("$0.0035");
     expect(unitPrice(1.2)).toBe("$1.20");
     expect(unitPrice(null)).toBe("—");

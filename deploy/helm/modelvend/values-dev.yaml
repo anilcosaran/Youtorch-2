@@ -1,0 +1,45 @@
+# Shared dev cluster, namespace modelvend.
+
+appEnv: development
+logLevel: debug
+
+# Digests are written by .github/workflows/images.yml.
+images:
+  services:
+    digest: ""
+  console:
+    digest: ""
+  admin:
+    digest: ""
+
+services:
+  gateway:
+    replicas: 1
+  mcp:
+    replicas: 1
+  worker:
+    replicas: 1
+
+apps:
+  console:
+    replicas: 1
+  admin:
+    mock: true
+
+postgres:
+  instances: 1
+  storage:
+    size: 10Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+resourceQuota:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "12"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "5"
+    requests.storage: 50Gi
+    pods: "30"

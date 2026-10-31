@@ -31,7 +31,7 @@ import { pick, usePager, useUrlState } from "@/lib/use-url-state";
 
 /**
  * Where a target lives in the console, when it has a page the operator may
- * open. Versions and routes are written as `publisher/slug@version`; requests
+ * open. Versions and routes are written as `publisher/slug@version`; tasks
  * open in the side panel.
  */
 function targetHref(entry: AuditEntry, can: Permissions): string | null {
@@ -69,14 +69,16 @@ const TARGET_LABELS: Record<string, string> = {
   provider: "Provider",
   customer: "Customer",
   api_key: "API key",
-  request: "Request",
+  task: "Task",
+  settings: "Settings",
   operator: "Operator",
 };
 
 /** Who acted: an operator, the command line, or nobody signed in (a failed sign-in). */
 function actorOf(entry: AuditEntry): string {
   if (entry.operator) return entry.operator.name;
-  return entry.detail.via === "cli" ? "Command line" : "Not signed in";
+  if (entry.detail.via === "cli") return "Command line";
+  return entry.action.startsWith("auth.") ? "Not signed in" : "System";
 }
 
 /** Group prefixes ("version") match every action under them. */
@@ -148,8 +150,8 @@ function EntrySheet({ entry, onClose }: { entry: AuditEntry | null; onClose: () 
                 <div className="col-span-2">
                   <dt className="text-xs text-muted-foreground">Target ID</dt>
                   <dd className="font-mono text-xs break-all">
-                    {entry.targetType === "request" && entry.targetId ? (
-                      <PanelLink to={{ kind: "request", id: entry.targetId }} onOpen={onClose} className="hover:underline">
+                    {entry.targetType === "task" && entry.targetId ? (
+                      <PanelLink to={{ kind: "task", id: entry.targetId }} onOpen={onClose} className="hover:underline">
                         {entry.targetId}
                       </PanelLink>
                     ) : href ? (
@@ -235,7 +237,7 @@ export function AuditView() {
               variant="outline"
               size="sm"
               onClick={() => set({ customerId: null })}
-              title="Changes to the customer, its API keys and refunds of its requests"
+              title="Changes to the customer, its API keys and refunds of its tasks"
             >
               Customer <span className="max-w-32 truncate font-mono text-xs">{customerId}</span> <X />
             </Button>

@@ -38,7 +38,7 @@ type Store interface {
 	URL(key string) string
 }
 
-// S3 stores files in an S3-compatible bucket (R2 in production, MinIO in development).
+// S3 stores files in an S3-compatible bucket (Bunny Storage in the cluster, SeaweedFS in development).
 type S3 struct {
 	client    *minio.Client
 	bucket    string

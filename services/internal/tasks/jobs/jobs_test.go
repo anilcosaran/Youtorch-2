@@ -106,8 +106,8 @@ func setup(t *testing.T, routing catalog.Routing) *env {
 	routingJSON, _ := json.Marshal(routing)
 	statements := []string{
 		`insert into providers (id, name, kind, adapter, status, white_label_allowed) values
-			('first', 'First', 'aggregator', 'first', 'active', true),
-			('second', 'Second', 'aggregator', 'second', 'active', true)`,
+			('first', 'First', 'first_party', 'first', 'active', true),
+			('second', 'Second', 'first_party', 'second', 'active', true)`,
 		`insert into models (id, publisher, slug, name, modality, visibility, default_version)
 			values ('test/model', 'test', 'model', 'Test', 'image', 'public', 'v1')`,
 		`insert into model_versions (model_id, id, label, status, input_schema, output_schema, pricing, routing)

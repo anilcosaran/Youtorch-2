@@ -2,7 +2,7 @@
 
 > Durum: 31 Ekim 2026. Go backend, admin sözleşmesi ve müşteri konsolu kod okunarak denetlendi. Düzeltmeler henüz yapılmadı; "Faz" sütunu [roadmap.md](roadmap.md)'deki fazdır.
 >
-> **Doğrulama:** ✓ işaretlilerin satırları ayrıca açılıp kontrol edildi; diğerleri denetim raporundan geliyor ve düzeltilirken yeniden doğrulanmalı. Hiçbiri çalışma zamanında denenmedi. Backend'in veritabanı testleri `TEST_DATABASE_URL` olmadığı için denetimde çalışmadı; yarış ve kilit bulguları okumaya dayanıyor.
+> **Doğrulama:** ✓ işaretlilerin satırları ayrıca açılıp kontrol edildi; diğerleri denetim raporundan geliyor ve düzeltilirken yeniden doğrulanmalı. Hiçbiri çalışma zamanında denenmedi. Backend'in veritabanı testleri denetim sırasında çalışmadı; sonradan Faz 0'daki yerel Postgres ile çalıştırıldı ve geçti. Yine de bu testler aşağıdaki hataları yakalamıyor, yarış ve kilit bulguları okumaya dayanıyor.
 >
 > **Temiz çıkanlar (kod okumasına göre):** tahsilat ve çift ücret, idempotency, kiracı ayrımı, anahtar hash'leme, SSRF koruması, hata mesajı temizliği, import sınırları; konsolun REST örnek yolları ve MCP araç adları; admin'de sayfalama ve son admin kuralları.
 
@@ -11,6 +11,14 @@ Kararlar [product-rules.md](product-rules.md)'de, bölüm 1 ve 11.
 ## 1. Sözleşme önceden düzeltilmeli (Faz 0)
 
 Lansmandan sonra değiştirilmesi zor olanlar. OpenAPI yazılmadan önce kapanmalı.
+
+**Public API tarafı kapandı (`api/public.yaml`):** para biçimi, kademe seçimi ve kademe maliyeti, girdi fiyatı, tek anahtar türü, `staging`'in kaldırılması, emekli sürüme 410, durdurulmuş modelin okunabilmesi, `author`'ın gizlenmesi, listelerde özet, REST ve MCP ortak doğrulama, zaman ve `Deprecation` biçimi. Gerçek yanıtlar `services/internal/api/public/rest/contract_test.go` ile sözleşmeye karşı denetleniyor. 
+
+**Admin tarafı kapandı (`api/admin.yaml`):** `task_` kimliği ve `/tasks`, app'lerde Go biçimi, birim sözlüğü, `tier` ve `staging`'in kaldırılması, kademe başına maliyet, `mapping`, `disclosure`, `white_label_allowed`, ayarlar ve 10 limit değeri. Mock'un her yanıtı `apps/admin/src/mock-api/contract.test.ts` ile sözleşmeye karşı denetleniyor. İleri fazın işlemleri sözleşmede `x-phase` ile yazılı, henüz sunulmuyor.
+
+**Konsol tarafı sözleşmede (`api/console.yaml`), kodda yok:** her işlem `x-phase: 3` ya da `4`. Konsolun tipleri ve örnekleri Faz 3'te bu sözleşmeye geçer (bölüm 5).
+
+**Faz 1'e kalanlar:** eşzamanlı düzenleme yalnızca modelde var, app'te yok; `operators` ve `audit` tabloları yok; Go admin sunucusu yok, yani yukarıdaki kurallar şimdilik mock'ta çalışıyor. Liste metrikleri değişiklik yanıtlarında kalıyor, çünkü saatlik özet tablolar geldiğinde pahalı olmayacaklar. Admin ve Go'nun şema doğrulaması hâlâ iki ayrı kod; ortak test örnekleri Faz 1'de yazılır.
 
 | Bulgu | Yer | Ne yapılacak |
 | ----- | --- | ------------ |
@@ -66,7 +74,7 @@ Lansmandan sonra değiştirilmesi zor olanlar. OpenAPI yazılmadan önce kapanma
 | ----- | --- | ------------ |
 | ✓ Kademe maliyeti uyduruluyor (maliyet × fiyat oranı); marj her kademede aynı | `apps/admin/src/mock-api/catalog.ts:58` | Route'ta kademe başına maliyet |
 | ✓ UI'dan eklenen provider açılamıyor; yalnızca `paused` için buton var | `apps/admin/src/features/providers/providers-view.tsx:142` | Anahtar varsa "Aç"; kapatma da eklenir |
-| ✓ Marj uyarısı kodda %15, kural %20 ayar; hiçbir kayıt gerekçe veya `pricing.below_cost` istemiyor | `apps/admin/src/lib/catalog.ts:10` | Ayardan okunur, sunucuda zorlanır, app release'lerine de uygulanır |
+| ✓ Marj uyarısı kodda %15, kural %20 ayar; hiçbir kayıt gerekçe veya `pricing.below_cost` istemiyor (mock'ta kapandı, canlı sürüm fiyat değişimi Faz 1) | `apps/admin/src/lib/catalog.ts:10` | Ayardan okunur, sunucuda zorlanır, app release'lerine de uygulanır |
 | Eşzamanlı düzenleme kontrolü yok; ekran "birleştiriyoruz" diyor, tam değer yazmalar birbirini eziyor | `details-tab.tsx:204` | `version` kolonu, 409 `stale`, metin düzeltmesi |
 | Elle yükleme hep `grant` (90 gün); eksiye düşürme hep reddediliyor; 1.000 $ kuralı yalnızca istemcide | `mock-api/handlers/customers.ts:94` | `kind`, `confirmNegative`, sunucu rol kontrolü |
 | Model kapatılamıyor: son route durdurulamıyor, varsayılan deprecate edilemiyor | `handlers/models.ts:403` | Karara göre izin verilir; sunset varsa son route `draining` |

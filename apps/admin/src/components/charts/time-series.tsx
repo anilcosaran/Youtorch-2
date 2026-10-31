@@ -116,6 +116,7 @@ export function TimeSeriesChart<T>({
   tickFormat,
   labelFormat,
   valueFormat = integer,
+  axisFormat = compact,
   legend = "none",
   className,
 }: {
@@ -128,6 +129,8 @@ export function TimeSeriesChart<T>({
   tickFormat: (value: string) => string;
   labelFormat: (value: string) => string;
   valueFormat?: (n: number) => string;
+  /** The y-axis ticks; money series pass `usdAxis`, as their values are micro-dollars. */
+  axisFormat?: (n: number) => string;
   /** "totals" adds the sum over the range; use it for counts, not for levels like active users. */
   legend?: "none" | "plain" | "totals";
   className?: string;
@@ -172,7 +175,7 @@ export function TimeSeriesChart<T>({
           axisLine={false}
           allowDecimals={false}
           tick={AXIS_TICK}
-          tickFormatter={(value) => compact(Number(value))}
+          tickFormatter={(value) => axisFormat(Number(value))}
         />
         <Tooltip
           cursor={

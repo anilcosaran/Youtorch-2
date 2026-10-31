@@ -1,0 +1,100 @@
+{{- range $name, $app := .Values.apps }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+  labels:
+    {{- include "modelvend.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: {{ $app.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: modelvend
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "modelvend.labels" $ | nindent 8 }}
+        app.kubernetes.io/name: {{ $name }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "modelvend.podSecurity" $ | nindent 8 }}
+        # The nextjs user in the apps' images.
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: {{ $name }}
+          image: {{ include "modelvend.image" (index $.Values.images $name) | quote }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          env:
+            - name: PORT
+              value: {{ $app.port | quote }}
+            {{- if eq $name "admin" }}
+            - name: TRUSTED_PROXY_HOPS
+              value: {{ $app.trustedProxyHops | quote }}
+            {{- if $app.mock }}
+            - name: ADMIN_API_MOCK
+              value: "1"
+            - name: ADMIN_API_MOCK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secretName }}
+                  key: ADMIN_API_MOCK_PASSWORD
+            {{- else }}
+            - name: ADMIN_API_URL
+              value: http://{{ $.Release.Name }}-adminapi:{{ $.Values.services.adminapi.port }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $app.port }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+          resources:
+            {{- toYaml $app.resources | nindent 12 }}
+          securityContext:
+            {{- include "modelvend.containerSecurity" $ | nindent 12 }}
+          volumeMounts:
+            # Next.js writes its cache here; the rest of the filesystem is read-only.
+            - name: next-cache
+              mountPath: /app/apps/{{ $name }}/.next/cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+  labels:
+    {{- include "modelvend.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  selector:
+    app.kubernetes.io/part-of: modelvend
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $app.port }}
+      targetPort: http
+{{- end }}

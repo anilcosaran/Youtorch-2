@@ -73,6 +73,7 @@ describe("admin API proxy", () => {
     await GET(
       request("GET", "/api/admin/v1/me", {
         cookie: "session=abc",
+        "if-match": "7",
         accept: "application/json",
         "x-forwarded-for": "6.6.6.6, 10.0.0.7",
         "x-forwarded-host": "evil.example",
@@ -83,6 +84,7 @@ describe("admin API proxy", () => {
     );
     const { headers } = forwarded();
     expect(headers.get("cookie")).toBe("session=abc");
+    expect(headers.get("if-match")).toBe("7");
     expect(headers.get("accept")).toBe("application/json");
     expect(headers.get("x-forwarded-for")).toBe("10.0.0.7");
     expect(headers.get("x-forwarded-host")).toBe("admin.modelvend.ai");

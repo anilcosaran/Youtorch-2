@@ -1,4 +1,7 @@
+import type { JsonSchema } from "@modelvend/admin-api/models";
+import { describeSchemaProblem, schemaProblem } from "@/lib/catalog";
 import { MockError, invalid } from "./http";
+import { clone } from "./util";
 
 /** A parsed JSON request body. */
 export type Body = Record<string, unknown>;
@@ -89,6 +92,23 @@ export function nullableNumber(body: Body, field: string, options: NumberOptions
   const value = body[field];
   if (value === undefined || value === null) return value as null | undefined;
   return checkNumber(value, field, options);
+}
+
+const DECIMAL = /^[0-9]+(\.[0-9]+)?$/;
+
+/** A price per unit as the API writes it, such as "0.084"; 422 on `field` otherwise. */
+export function checkDecimal(value: unknown, field: string): string {
+  if (typeof value !== "string" || !DECIMAL.test(value)) return invalid(field, 'Must be a decimal string, such as "0.084".');
+  return value;
+}
+
+/** A JSON Schema in the shape the catalog relies on; 422 naming where it breaks otherwise. */
+export function readSchema(body: Body, field: string): JsonSchema {
+  const value = body[field];
+  if (!isObject(value)) return invalid(field, "Must be a JSON Schema object.");
+  const problem = schemaProblem(value);
+  if (problem) invalid(problem.path ? `${field}.${problem.path}` : field, describeSchemaProblem(problem));
+  return clone(value);
 }
 
 /** A list of strings, trimmed, each once; undefined when absent. */

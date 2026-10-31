@@ -27,16 +27,16 @@ describe("patchQuery", () => {
   });
 
   it("keeps the page when only the cursor or the open panel changes", () => {
-    expect(patchQuery("cursor=x", { panel: "request:r1" })).toBe("cursor=x&panel=request:r1");
-    expect(patchQuery("cursor=x&panel=request:r1", { panel: null })).toBe("cursor=x");
+    expect(patchQuery("cursor=x", { panel: "task:t1" })).toBe("cursor=x&panel=task:t1");
+    expect(patchQuery("cursor=x&panel=task:t1", { panel: null })).toBe("cursor=x");
     expect(patchQuery("cursor=x", { cursor: "y" })).toBe("cursor=y");
   });
 
   it("keeps the open panel readable when a filter changes", () => {
-    expect(patchQuery("panel=request:p1&status=held", { status: "failed" })).toBe("panel=request:p1&status=failed");
+    expect(patchQuery("panel=task:p1&status=held", { status: "failed" })).toBe("panel=task:p1&status=failed");
   });
 
   it("accepts a leading question mark", () => {
-    expect(patchQuery("?tab=history", { panel: "request:r2" })).toBe("tab=history&panel=request:r2");
+    expect(patchQuery("?tab=history", { panel: "task:t2" })).toBe("tab=history&panel=task:t2");
   });
 });

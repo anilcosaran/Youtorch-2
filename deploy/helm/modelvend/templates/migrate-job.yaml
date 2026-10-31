@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  labels:
+    {{- include "modelvend.labels" . | nindent 4 }}
+    app.kubernetes.io/name: migrate
+  annotations:
+    # Argo CD recreates this on each sync, between the database (-1) and the deployments (1).
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # A new database takes a while to accept connections; the image has no shell to wait in.
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "modelvend.labels" . | nindent 8 }}
+        app.kubernetes.io/name: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "modelvend.podSecurity" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "modelvend.image" .Values.images.services | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [/usr/local/bin/migrate, up]
+          env:
+            {{- include "modelvend.goEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "modelvend.containerSecurity" . | nindent 12 }}

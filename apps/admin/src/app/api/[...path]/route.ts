@@ -18,7 +18,7 @@ const PREFIX = "/admin/v1";
 
 // What the admin API reads from the browser's request. Everything else stays
 // here, above all the browser's own X-Forwarded-* and X-Real-IP.
-const FORWARDED_REQUEST = ["accept", "accept-language", "content-type", "cookie", "user-agent"];
+const FORWARDED_REQUEST = ["accept", "accept-language", "content-type", "cookie", "if-match", "user-agent"];
 // fetch decodes compressed bodies, so the encoding and length no longer apply.
 const DROPPED_RESPONSE = new Set([
   "connection",

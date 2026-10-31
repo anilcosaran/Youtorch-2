@@ -268,43 +268,43 @@ describe("overview permissions", () => {
     expect(Object.keys(all.totals).sort()).toEqual(
       [
         "activeCustomers7d",
-        "cost",
+        "costMicros",
         "deprecatedVersions",
         "errorRate24h",
         "liveModels",
         "margin",
         "pausedModels",
         "providersDegraded",
-        "requests24h",
-        "revenue",
+        "tasks24h",
+        "revenueMicros",
       ].sort(),
     );
-    expect(Object.keys(all.series[0]).sort()).toEqual(["cost", "day", "failed", "requests", "revenue", "signups"]);
+    expect(Object.keys(all.series[0]).sort()).toEqual(["costMicros", "day", "failed", "revenueMicros", "signups", "tasks"]);
     expect(all.topModels?.length).toBeGreaterThan(0);
     expect(all.providers?.length).toBeGreaterThan(0);
   });
 
   it("leaves out what the operator can't see on its own screen", async () => {
     const catalog = await load(await signedInWith(["catalog.view"]));
-    expect(Object.keys(catalog.totals).sort()).toEqual(["deprecatedVersions", "liveModels", "pausedModels", "revenue"]);
-    expect(Object.keys(catalog.series[0]).sort()).toEqual(["day", "revenue"]);
+    expect(Object.keys(catalog.totals).sort()).toEqual(["deprecatedVersions", "liveModels", "pausedModels", "revenueMicros"]);
+    expect(Object.keys(catalog.series[0]).sort()).toEqual(["day", "revenueMicros"]);
     expect(catalog.topModels?.length).toBeGreaterThan(0);
     expect(catalog).not.toHaveProperty("providers");
 
     const providers = await load(await signedInWith(["providers.view"]));
-    expect(Object.keys(providers.totals).sort()).toEqual(["cost", "providersDegraded"]);
-    expect(Object.keys(providers.series[0]).sort()).toEqual(["cost", "day"]);
+    expect(Object.keys(providers.totals).sort()).toEqual(["costMicros", "providersDegraded"]);
+    expect(Object.keys(providers.series[0]).sort()).toEqual(["costMicros", "day"]);
     expect(providers.providers?.length).toBeGreaterThan(0);
     expect(providers).not.toHaveProperty("topModels");
 
     // Margin needs cost and revenue: with cost alone it would give revenue away.
     const finance = await load(await signedInWith(["customers.view", "providers.view"]));
-    expect(Object.keys(finance.totals).sort()).toEqual(["activeCustomers7d", "cost", "margin", "providersDegraded", "revenue"]);
-    expect(Object.keys(finance.series[0]).sort()).toEqual(["cost", "day", "revenue", "signups"]);
+    expect(Object.keys(finance.totals).sort()).toEqual(["activeCustomers7d", "costMicros", "margin", "providersDegraded", "revenueMicros"]);
+    expect(Object.keys(finance.series[0]).sort()).toEqual(["costMicros", "day", "revenueMicros", "signups"]);
 
-    const requests = await load(await signedInWith(["requests.view"]));
-    expect(Object.keys(requests.totals).sort()).toEqual(["errorRate24h", "requests24h"]);
-    expect(Object.keys(requests.series[0]).sort()).toEqual(["day", "failed", "requests"]);
+    const tasks = await load(await signedInWith(["tasks.view"]));
+    expect(Object.keys(tasks.totals).sort()).toEqual(["errorRate24h", "tasks24h"]);
+    expect(Object.keys(tasks.series[0]).sort()).toEqual(["day", "failed", "tasks"]);
 
     const audit = await load(await signedInWith(["audit.view"]));
     expect(audit.totals).toEqual({});
@@ -315,40 +315,40 @@ describe("overview permissions", () => {
 });
 
 describe("provider credentials", () => {
-  const fal = async (browser: Browser) =>
-    (await browser.call<Provider[]>("GET", "/providers")).body.find((p) => p.id === "fal") as Provider;
+  const openai = async (browser: Browser) =>
+    (await browser.call<Provider[]>("GET", "/providers")).body.find((p) => p.id === "openai") as Provider;
 
   it("needs the key again to move a provider to another endpoint", async () => {
     const admin = new Browser();
-    const before = await fal(admin);
+    const before = await openai(admin);
     expect(before.credential.configured).toBe(true);
 
-    const refused = await admin.call("PATCH", "/providers/fal", { name: "fal (moved)", baseUrl: "https://attacker.example" });
+    const refused = await admin.call("PATCH", "/providers/openai", { name: "OpenAI (moved)", baseUrl: "https://attacker.example" });
     expect(refused.status).toBe(422);
     expect(refused.body.error.code).toBe("credential_required");
     expect(refused.body.error.fields?.secret).toBeTruthy();
     // Nothing changed, the name included.
-    expect(await fal(admin)).toMatchObject({ name: before.name, baseUrl: before.baseUrl, credential: before.credential });
+    expect(await openai(admin)).toMatchObject({ name: before.name, baseUrl: before.baseUrl, credential: before.credential });
 
-    const short = await admin.call("PATCH", "/providers/fal", { baseUrl: "https://queue.fal.example", secret: "short" });
+    const short = await admin.call("PATCH", "/providers/openai", { baseUrl: "https://api.openai.example", secret: "short" });
     expect(short.status).toBe(422);
     expect(short.body.error.fields?.secret).toBeTruthy();
 
     // A trailing slash is the same endpoint; other fields need no key.
-    const renamed = await admin.call<Provider>("PATCH", "/providers/fal", { name: "fal.ai", baseUrl: `${before.baseUrl}/` });
+    const renamed = await admin.call<Provider>("PATCH", "/providers/openai", { name: "OpenAI API", baseUrl: `${before.baseUrl}/` });
     expect(renamed.status).toBe(200);
-    expect(renamed.body.name).toBe("fal.ai");
+    expect(renamed.body.name).toBe("OpenAI API");
 
-    const moved = await admin.call<Provider>("PATCH", "/providers/fal", { baseUrl: "https://queue.fal.example/", secret: "fal-key-0000-9z9z" });
+    const moved = await admin.call<Provider>("PATCH", "/providers/openai", { baseUrl: "https://api.openai.example/", secret: "openai-key-0000-9z9z" });
     expect(moved.status).toBe(200);
-    expect(moved.body.baseUrl).toBe("https://queue.fal.example");
-    expect(moved.body.credential).toMatchObject({ configured: true, hint: "…9z9z", source: "console" });
-    expect(JSON.stringify(moved.body)).not.toContain("fal-key-0000-9z9z");
+    expect(moved.body.baseUrl).toBe("https://api.openai.example");
+    expect(moved.body.credential).toMatchObject({ configured: true, hint: "…9z9z" });
+    expect(JSON.stringify(moved.body)).not.toContain("openai-key-0000-9z9z");
   });
 
   it("moves a provider without a credential freely", async () => {
     const admin = new Browser();
-    const moved = await admin.call<Provider>("PATCH", "/providers/modelvend-gpu", { baseUrl: "https://gpu2.internal.modelvend.ai" });
+    const moved = await admin.call<Provider>("PATCH", "/providers/dev-fake", { baseUrl: "https://gpu2.internal.modelvend.ai" });
     expect(moved.status).toBe(200);
     expect(moved.body.credential.configured).toBe(false);
   });
@@ -356,10 +356,10 @@ describe("provider credentials", () => {
   it("lets only providers.edit run a connection check", async () => {
     const viewer = await signedInWith(["providers.view"]);
     expect((await viewer.call("GET", "/providers")).status).toBe(200);
-    expect((await viewer.call("POST", "/providers/fal/check")).status).toBe(403);
+    expect((await viewer.call("POST", "/providers/openai/check")).status).toBe(403);
 
     const editor = await signedInWith(["providers.edit"]);
-    const check = await editor.call<{ ok: boolean }>("POST", "/providers/fal/check");
+    const check = await editor.call<{ ok: boolean }>("POST", "/providers/openai/check");
     expect(check.status).toBe(200);
     expect(check.body.ok).toBe(true);
   });

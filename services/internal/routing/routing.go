@@ -19,7 +19,7 @@ type Health struct {
 // Plan returns the routes to try in order. It drops paused and draining
 // routes, routes on paused providers, routes with an open breaker, and, for
 // white-label models, routes whose provider doesn't allow reselling.
-func Plan(model catalog.Model, version catalog.Version, routes []catalog.Route, health map[string]Health, rnd *rand.Rand) []catalog.Route {
+func Plan(model catalog.Model, version catalog.Version, routes []catalog.Route, tier string, health map[string]Health, rnd *rand.Rand) []catalog.Route {
 	var usable []catalog.Route
 	for _, r := range routes {
 		if r.Status != "active" || !r.ProviderActive || health[r.ID].Open {
@@ -33,8 +33,9 @@ func Plan(model catalog.Model, version catalog.Version, routes []catalog.Route, 
 	switch version.Routing.Strategy {
 	case "cheapest":
 		sort.SliceStable(usable, func(i, j int) bool {
-			if usable[i].CostMicros != usable[j].CostMicros {
-				return usable[i].CostMicros < usable[j].CostMicros
+			a, b := usable[i].Cost(tier), usable[j].Cost(tier)
+			if a != b {
+				return a < b
 			}
 			return usable[i].Priority < usable[j].Priority
 		})

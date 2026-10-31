@@ -1,6 +1,6 @@
 // Package keys issues and checks API keys. A key looks like
-// "mv_live_<32 base62 characters>"; only its SHA-256 and its first characters
-// are stored, so a database leak doesn't leak working keys.
+// "mv_<32 base62 characters>"; only its SHA-256 and its first characters are
+// stored, so a database leak doesn't leak working keys.
 package keys
 
 import (
@@ -18,13 +18,13 @@ import (
 
 const base62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// prefixLen is how much of a key is kept to recognise it: "mv_live_3fa9".
+// prefixLen is how much of a key is kept to recognise it: "mv_3fa9Bc2xQ".
 const prefixLen = 12
 
-// Generate returns a new secret for env ("live" or "test"), its prefix and its hash.
-func Generate(env string) (secret, prefix, hash string) {
+// Generate returns a new secret, its prefix and its hash.
+func Generate() (secret, prefix, hash string) {
 	var b strings.Builder
-	b.WriteString("mv_" + env + "_")
+	b.WriteString("mv_")
 	for range 32 {
 		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(base62))))
 		b.WriteByte(base62[n.Int64()])
@@ -41,12 +41,8 @@ func Hash(secret string) string {
 
 // WellFormed reports whether s looks like one of our keys, before any lookup.
 func WellFormed(s string) bool {
-	rest, ok := strings.CutPrefix(s, "mv_")
-	if !ok {
-		return false
-	}
-	env, body, ok := strings.Cut(rest, "_")
-	if !ok || (env != "live" && env != "test") || len(body) != 32 {
+	body, ok := strings.CutPrefix(s, "mv_")
+	if !ok || len(body) != 32 {
 		return false
 	}
 	for i := 0; i < len(body); i++ {
@@ -61,8 +57,7 @@ func WellFormed(s string) bool {
 type Principal struct {
 	WorkspaceID string
 	KeyID       string
-	Env         string
-	// Internal keys reach private models and staging versions.
+	// Internal keys reach private models.
 	Internal bool
 	// Scopes are the model IDs and app slugs the key may run; empty for everything.
 	Scopes []string
@@ -79,8 +74,7 @@ type Store struct {
 	InternalWorkspaces map[string]bool
 }
 
-// Authenticate finds the active key and its active workspace. Test keys
-// (mv_test_) are billed and limited like live ones.
+// Authenticate finds the active key and its active workspace.
 func (s *Store) Authenticate(ctx context.Context, secret string) (Principal, error) {
 	if !WellFormed(secret) {
 		return Principal{}, ErrInvalid
@@ -88,10 +82,10 @@ func (s *Store) Authenticate(ctx context.Context, secret string) (Principal, err
 	var p Principal
 	var workspaceStatus string
 	err := s.DB.QueryRow(ctx, `
-		select k.id, k.workspace_id, k.env, k.scopes, k.spend_limit_micros, w.status
+		select k.id, k.workspace_id, k.scopes, k.spend_limit_micros, w.status
 		from api_keys k join workspaces w on w.id = k.workspace_id
 		where k.secret_hash = $1 and k.status = 'active'`, Hash(secret)).
-		Scan(&p.KeyID, &p.WorkspaceID, &p.Env, &p.Scopes, &p.SpendLimitMicros, &workspaceStatus)
+		Scan(&p.KeyID, &p.WorkspaceID, &p.Scopes, &p.SpendLimitMicros, &workspaceStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalid
 	}

@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { limitsFor, loweredLimits, TIER_LIMITS, TIERS, updateCustomer, type Customer, type Tier } from "@modelvend/admin-api/customers";
+import { limitsFor, LIMIT_NAMES, loweredLimits, updateCustomer, type Customer, type LimitName, type Limits } from "@modelvend/admin-api/customers";
 import { Field, FormError } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,80 +16,46 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { TIER_LABELS } from "@/lib/labels";
+import { integer } from "@/lib/format";
 import { formErrors } from "@/lib/notify";
+import { keys } from "@/lib/query-keys";
+import { useSettings } from "@/lib/use-settings";
 import { storeCustomer } from "./cache";
-import { formatLimit, LIMIT_KEYS, LIMIT_LABELS, type LimitKey } from "./limits";
-import { dollarsError, parseCount, parseDollars } from "./money";
+import { formatLimit, isMoneyLimit, LIMIT_BOUNDS, LIMIT_LABELS, limitText, parseLimit } from "./limits";
+import { dollarsError } from "./money";
 import { MoneyInput } from "./money-input";
 
-const MAX_COUNT = 1_000_000;
+/** The workspace's own value for a limit; null when it follows the platform default. */
+const ownValue = (customer: Customer, name: LimitName) => (customer.overrides.includes(name) ? customer.limits[name] : null);
 
-/** The workspace's own value for a limit; null when it follows the tier. */
-const overrideOf = (customer: Customer, key: LimitKey) =>
-  customer.overrides.includes(key) ? customer.limits[key] : null;
-
-/** A typed limit: null when empty, NaN when it isn't a valid value for that limit. */
-function parseLimit(key: LimitKey, text: string): number | null {
-  if (key === "monthlySpendCap") {
-    const dollars = parseDollars(text);
-    return dollars === null || dollars > 0 ? dollars : Number.NaN;
-  }
-  const n = parseCount(text);
-  return n === null || (n >= 1 && n <= MAX_COUNT) ? n : Number.NaN;
+function invalidText(name: LimitName): string {
+  const bounds = LIMIT_BOUNDS[name];
+  return bounds
+    ? `Enter a whole number from ${integer(bounds.min)} to ${integer(bounds.max)}, or leave it empty.`
+    : "Enter an amount above $0 with at most two decimals, or leave it empty.";
 }
 
-const INVALID: Record<LimitKey, string> = {
-  requestsPerMinute: "Enter a whole number from 1 to 1,000,000, or leave it empty.",
-  concurrency: "Enter a whole number from 1 to 1,000,000, or leave it empty.",
-  monthlySpendCap: "Enter an amount above $0 with at most two decimals, or leave it empty.",
-};
+/** The server's name for a limit's field. */
+const fieldOf = (name: LimitName) => `limits.${name}`;
 
-/** The server's names for the fields this form shows. */
-const FIELD = { tier: "tier", reason: "reason", ...Object.fromEntries(LIMIT_KEYS.map((key) => [key, `limits.${key}`])) } as Record<
-  "tier" | "reason" | LimitKey,
-  string
->;
-
-function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => void }) {
+function LimitsForm({ customer, defaults, onDone }: { customer: Customer; defaults: Limits; onDone: () => void }) {
   const queryClient = useQueryClient();
-  const [tier, setTier] = useState<Tier>(customer.tier);
-  const [values, setValues] = useState<Record<LimitKey, string>>(() => {
-    const text = (key: LimitKey) => {
-      const value = overrideOf(customer, key);
-      return value === null ? "" : String(value);
-    };
-    return {
-      requestsPerMinute: text("requestsPerMinute"),
-      concurrency: text("concurrency"),
-      monthlySpendCap: text("monthlySpendCap"),
-    };
-  });
+  const [values, setValues] = useState(
+    () => Object.fromEntries(LIMIT_NAMES.map((name) => [name, limitText(name, ownValue(customer, name))])) as Record<LimitName, string>,
+  );
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
 
-  const parsed = Object.fromEntries(LIMIT_KEYS.map((key) => [key, parseLimit(key, values[key])])) as Record<
-    LimitKey,
-    number | null
-  >;
-  const invalid = LIMIT_KEYS.some((key) => Number.isNaN(parsed[key]));
-  const limitsChanged = LIMIT_KEYS.some((key) => parsed[key] !== overrideOf(customer, key));
-  const tierChanged = tier !== customer.tier;
-  const changed = tierChanged || limitsChanged;
-  const defaults = TIER_LIMITS[tier];
-  const after = limitsFor(tier, parsed);
-  // What the change takes away; it starts refusing requests sooner, so it needs a reason on record.
-  const lowered = invalid ? [] : loweredLimits({ tier: customer.tier, limits: customer.limits }, { tier, limits: after });
+  const parsed = Object.fromEntries(LIMIT_NAMES.map((name) => [name, parseLimit(name, values[name])])) as Record<LimitName, number | null>;
+  const invalid = LIMIT_NAMES.some((name) => Number.isNaN(parsed[name]));
+  const changed = LIMIT_NAMES.some((name) => parsed[name] !== ownValue(customer, name));
+  const after = limitsFor(defaults, parsed);
+  // What the change takes away; it starts refusing tasks sooner, so it needs a reason on record.
+  const lowered = invalid ? [] : loweredLimits(customer.limits, after);
   const lowering = changed && lowered.length > 0;
 
   const submit = async (e: React.FormEvent) => {
@@ -99,65 +65,51 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
     setError(null);
     setFields({});
     try {
-      // `limits` replaces every override, so all three go; null means the tier's default.
+      // `limits` replaces every value of its own, so all of them go; null follows the platform default.
       const updated = await updateCustomer(customer.id, {
-        ...(tierChanged && { tier }),
-        ...(limitsChanged && { limits: parsed }),
-        ...(reason.trim() && { reason: reason.trim() }),
+        limits: parsed,
+        ...(lowering && { reason: reason.trim() }),
       });
       storeCustomer(queryClient, updated);
-      toast.success(`Limits saved for ${customer.workspace}`);
+      toast.success(`Limits saved for ${customer.name}`);
       onDone();
     } catch (err) {
-      const shown = formErrors(err, Object.values(FIELD), { tier: "Tier" });
+      void queryClient.invalidateQueries({ queryKey: keys.customer(customer.id) });
+      const shown = formErrors(err, [...LIMIT_NAMES.map(fieldOf), "reason"]);
       setFields(shown.fields);
       setError(shown.message);
       setBusy(false);
     }
   };
 
-  const fieldError = (key: LimitKey) => {
-    if (fields[FIELD[key]]) return fields[FIELD[key]];
-    if (!Number.isNaN(parsed[key])) return undefined;
-    return (key === "monthlySpendCap" && dollarsError(values[key])) || INVALID[key];
+  const fieldError = (name: LimitName) => {
+    if (fields[fieldOf(name)]) return fields[fieldOf(name)];
+    if (!Number.isNaN(parsed[name])) return undefined;
+    return (isMoneyLimit(name) && dollarsError(values[name])) || invalidText(name);
   };
 
   return (
     <form onSubmit={submit} className="grid gap-4">
       <FormError message={error} />
-      <Field id="tier" label="Tier" hint="Sets the default for every limit left empty." error={fields.tier}>
-        <Select value={tier} onValueChange={(value) => setTier(value as Tier)}>
-          <SelectTrigger id="tier" className="w-full" aria-invalid={Boolean(fields.tier)}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent position="popper">
-            {TIERS.map((t) => (
-              <SelectItem key={t} value={t}>
-                {TIER_LABELS[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-      <fieldset className="grid gap-3">
+      <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className="mb-1 text-xs text-muted-foreground">
-          Overrides for this workspace. Leave a box empty to use the {TIER_LABELS[tier]} default.
+          This workspace&apos;s own values. Leave a box empty to follow the platform default.
         </legend>
-        {LIMIT_KEYS.map((key) => {
-          const id = `limit-${key}`;
-          const fallback = `${TIER_LABELS[tier]} default: ${formatLimit(key, defaults[key])}`;
-          const problem = fieldError(key);
-          const change = (value: string) => setValues((v) => ({ ...v, [key]: value }));
+        {LIMIT_NAMES.map((name) => {
+          const id = `limit-${name}`;
+          const fallback = `Default: ${formatLimit(name, defaults[name])}`;
+          const problem = fieldError(name);
+          const change = (value: string) => setValues((v) => ({ ...v, [name]: value }));
           return (
-            <Field key={key} id={id} label={LIMIT_LABELS[key]} error={problem}>
-              {key === "monthlySpendCap" ? (
-                <MoneyInput id={id} value={values[key]} onChange={change} placeholder={fallback} invalid={Boolean(problem)} />
+            <Field key={name} id={id} label={LIMIT_LABELS[name]} hint={name === "queueWaitSeconds" ? "In seconds." : undefined} error={problem}>
+              {isMoneyLimit(name) ? (
+                <MoneyInput id={id} value={values[name]} onChange={change} placeholder={fallback} invalid={Boolean(problem)} />
               ) : (
                 <Input
                   id={id}
                   inputMode="numeric"
                   autoComplete="off"
-                  value={values[key]}
+                  value={values[name]}
                   onChange={(e) => change(e.target.value)}
                   placeholder={fallback}
                   aria-invalid={Boolean(problem)}
@@ -171,20 +123,13 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
       {lowering && (
         <div role="alert" className="grid gap-3 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-sm">
           <div>
-            <p className="font-medium">This lowers what {customer.workspace} may do, from its next request:</p>
+            <p className="font-medium">This lowers what {customer.name} may do, from its next task; running tasks aren&apos;t touched:</p>
             <ul className="mt-1 list-inside list-disc text-muted-foreground">
-              {lowered.map((key) =>
-                key === "tier" ? (
-                  <li key={key}>
-                    Tier: {TIER_LABELS[customer.tier]} → {TIER_LABELS[tier]}
-                  </li>
-                ) : (
-                  <li key={key}>
-                    {LIMIT_LABELS[key]}: {formatLimit(key, customer.limits[key])} → {formatLimit(key, after[key])}
-                    {key === "monthlySpendCap" && ". Requests are refused once this month's spend reaches it"}
-                  </li>
-                ),
-              )}
+              {lowered.map((name) => (
+                <li key={name}>
+                  {LIMIT_LABELS[name]}: {formatLimit(name, customer.limits[name])} → {formatLimit(name, after[name])}
+                </li>
+              ))}
             </ul>
           </div>
           <Field id="limits-reason" label="Reason" hint="Required to lower limits; kept in the audit log." error={fields.reason}>
@@ -193,7 +138,7 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
               required
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Why the workspace gets less, e.g. the customer asked to downgrade"
+              placeholder="Why the workspace gets less"
               maxLength={500}
               aria-invalid={Boolean(fields.reason)}
               className="min-h-16 bg-background"
@@ -218,7 +163,7 @@ function LimitsForm({ customer, onDone }: { customer: Customer; onDone: () => vo
   );
 }
 
-/** A workspace's tier and the limits it overrides: requests per minute, concurrency and spend cap. */
+/** The limits a workspace has of its own, on top of the platform defaults. */
 export function LimitsDialog({
   customer,
   open,
@@ -228,16 +173,22 @@ export function LimitsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { limits: defaults, failed } = useSettings();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="scroll-thin max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Tier &amp; limits</DialogTitle>
-          <DialogDescription>
-            For {customer.workspace}: its tier, and any limit that differs from the tier&apos;s default.
-          </DialogDescription>
+          <DialogTitle>Limits</DialogTitle>
+          <DialogDescription>For {customer.name}: any limit that differs from the platform default.</DialogDescription>
         </DialogHeader>
-        {open && <LimitsForm customer={customer} onDone={() => onOpenChange(false)} />}
+        {open &&
+          (defaults ? (
+            <LimitsForm customer={customer} defaults={defaults} onDone={() => onOpenChange(false)} />
+          ) : failed ? (
+            <FormError message="Couldn't load the platform defaults, which this form needs. Close it and try again." />
+          ) : (
+            <Skeleton className="h-64 rounded-lg" />
+          ))}
       </DialogContent>
     </Dialog>
   );

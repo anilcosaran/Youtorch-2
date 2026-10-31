@@ -34,21 +34,20 @@ modelvend/
 │  │  ├─ platform/              config, database (+ dbtest), httpx, ids, logging
 │  │  └─ bootstrap/             Wiring every process shares
 │  └─ migrations/               goose SQL
-├─ api/                         OpenAPI contracts: public, admin, webhooks (placeholder)
+├─ api/                         OpenAPI contracts: public, webhooks, admin, console
 ├─ packages/                    Shared JS packages (npm workspaces)
-│  ├─ admin-api/                @modelvend/admin-api: typed client and contract types for /admin/v1
-│  ├─ api-types/                TypeScript types generated from api/ (placeholder)
+│  ├─ admin-api/                @modelvend/admin-api: typed client for /admin/v1, on the generated types
+│  ├─ api-types/                TypeScript types generated from api/ (make gen)
 │  ├─ config-eslint/            ESLint config shared by the apps and packages
 │  ├─ config-typescript/        Base tsconfig the apps and packages extend
 │  └─ sdk-js/                   @modelvend/sdk (placeholder)
 ├─ catalog/
 │  ├─ models/                   Model manifests, YAML (placeholder)
 │  └─ apps/                     App manifests, YAML (placeholder)
-├─ deploy/
-│  ├─ docker/                   Service images (placeholder)
-│  └─ helm/                     Kubernetes chart (placeholder)
-├─ docs/                        architecture.md, structure.md
-├─ Makefile                     Common tasks (placeholder)
+├─ deploy/                      Local stack, images, Helm chart and Argo CD (see deploy/README.md)
+├─ docs/                        roadmap.md, product-rules.md, audit.md, architecture.md, structure.md
+├─ .github/workflows/           CI and image publishing
+├─ Makefile                     Common tasks: make help
 └─ package.json                 npm workspaces: apps/*, packages/*
 ```
 
@@ -71,7 +70,15 @@ npm run dev:console    # http://localhost:3000
 npm run dev:admin      # http://localhost:3001
 ```
 
-Requires Node.js 20.9 or newer.
+Requires Node.js 20.9 or newer. Both apps run on mock data, so they need nothing else.
+
+For the backend you also need Go, Docker and make (on Windows, Git Bash with `scoop install make`):
+
+```bash
+make seed    # starts Postgres, Redis, object storage and Mailpit, migrates, and prints a test API key
+make dev     # runs every service and both apps
+make test    # Go tests, database included, and every workspace's check
+```
 
 ## Scripts
 

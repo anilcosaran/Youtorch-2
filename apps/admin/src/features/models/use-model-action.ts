@@ -26,9 +26,19 @@ export function useApplyModel() {
   );
 }
 
-/** Runs a change that returns the model, then toasts how it went. Resolves to the model, or null when it failed. */
-export function useModelAction() {
+/** Loads a model again after a failed change, so a 409 `stale` leaves the operator looking at current data. */
+export function useRefreshModel() {
+  const queryClient = useQueryClient();
+  return useCallback((id: string) => void queryClient.invalidateQueries({ queryKey: keys.model(id) }), [queryClient]);
+}
+
+/**
+ * Runs a change to the model that returns it, then toasts how it went. Resolves to the model, or null when it
+ * failed, in which case the model loads again.
+ */
+export function useModelAction(id: string) {
   const apply = useApplyModel();
+  const refresh = useRefreshModel();
   return useCallback(
     async (run: () => Promise<Model>, success: string, failure: string): Promise<Model | null> => {
       try {
@@ -38,9 +48,10 @@ export function useModelAction() {
         return model;
       } catch (error) {
         toastError(error, failure);
+        refresh(id);
         return null;
       }
     },
-    [apply],
+    [apply, refresh, id],
   );
 }

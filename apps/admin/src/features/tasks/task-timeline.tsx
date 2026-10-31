@@ -2,16 +2,17 @@
 
 import { format, parseISO } from "date-fns";
 import { ArrowRight } from "lucide-react";
-import type { Attempt, AttemptStatus, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
+import type { Attempt, AttemptStatus, TaskDetail, TaskStatus } from "@modelvend/admin-api/tasks";
 import { CopyButton } from "@/components/shared/copy-field";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Pill, type Tone } from "@/components/shared/pill";
-import { milliseconds, plural, utc } from "@/lib/format";
-import { REQUEST_STATUS_LABELS } from "@/lib/labels";
+import { milliseconds, plural, usdPrecise, utc } from "@/lib/format";
+import { TASK_STATUS_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import { ATTEMPT_STATUS_LABELS, ATTEMPT_VERBS, inFlight } from "./request-format";
+import { ATTEMPT_STATUS_LABELS, ATTEMPT_VERBS, inFlight } from "./task-format";
 
 const ATTEMPT_TONES: Record<AttemptStatus, Tone> = {
+  running: "info",
   succeeded: "good",
   failed: "critical",
   timeout: "warning",
@@ -19,6 +20,7 @@ const ATTEMPT_TONES: Record<AttemptStatus, Tone> = {
 };
 
 const ATTEMPT_COLORS: Record<AttemptStatus, string> = {
+  running: "var(--series-1)",
   succeeded: "var(--status-good)",
   failed: "var(--status-critical)",
   timeout: "var(--status-warning)",
@@ -26,13 +28,14 @@ const ATTEMPT_COLORS: Record<AttemptStatus, string> = {
 };
 
 const ATTEMPT_TEXT: Record<AttemptStatus, string> = {
+  running: "text-foreground",
   succeeded: "text-status-good",
   failed: "text-status-critical",
   timeout: "text-status-warning",
   canceled: "text-muted-foreground",
 };
 
-type EventStatus = RequestStatus | "attempt";
+type EventStatus = TaskStatus | "attempt";
 
 const EVENT_COLORS: Record<EventStatus, string> = {
   queued: "var(--muted-foreground)",
@@ -43,12 +46,12 @@ const EVENT_COLORS: Record<EventStatus, string> = {
   attempt: "var(--series-7)",
 };
 
-const EVENT_LABELS: Record<EventStatus, string> = { ...REQUEST_STATUS_LABELS, attempt: "Attempt" };
+const EVENT_LABELS: Record<EventStatus, string> = { ...TASK_STATUS_LABELS, attempt: "Attempt" };
 
-/** "14:03:07" in the viewer's time zone; request events are seconds apart. */
+/** "14:03:07" in the viewer's time zone; task events are seconds apart. */
 const clock = (value: string) => format(parseISO(value), "HH:mm:ss");
 
-/** Time since the request was accepted: "+1.4 s". */
+/** Time since the task was accepted: "+1.4 s". */
 const offset = (from: string, at: string) => `+${milliseconds(Math.max(0, Date.parse(at) - Date.parse(from)))}`;
 
 /** A dot on a vertical rail, with the line on to the next item unless it is the last. */
@@ -76,8 +79,8 @@ function Then() {
 }
 
 /**
- * The fallback story in one line: "Attempt 1 on fal failed: upstream_timeout
- * → Attempt 2 on replicate succeeded".
+ * The fallback story in one line: "Attempt 1 on kling failed: upstream_timeout
+ * → Attempt 2 on google succeeded".
  */
 function FallbackStory({
   attempts,
@@ -102,7 +105,7 @@ function FallbackStory({
           </span>
         </span>
       ))}
-      {running && (
+      {running && attempts.at(-1)?.status !== "running" && (
         <span className="inline-flex items-center gap-2 text-muted-foreground">
           <Then />
           Still running
@@ -152,6 +155,8 @@ function AttemptItem({
             <span className="text-muted-foreground">None</span>
           )}
         </dd>
+        <dt className="text-muted-foreground">Cost to us</dt>
+        <dd className="tabular">{usdPrecise(attempt.costMicros)}</dd>
         <dt className="text-muted-foreground">Started</dt>
         <dd>
           <time dateTime={attempt.startedAt} title={utc(attempt.startedAt)} className="tabular">
@@ -171,13 +176,13 @@ function AttemptItem({
 
 /** Every route the router tried, in order, so a fallback reads at a glance. */
 export function AttemptsSection({
-  request,
+  task,
   providerName,
 }: {
-  request: RequestDetail;
+  task: TaskDetail;
   providerName: (id: string) => string;
 }) {
-  const attempts = [...request.attemptList].sort((a, b) => a.number - b.number);
+  const attempts = [...task.attemptList].sort((a, b) => a.number - b.number);
   return (
     <DetailSection
       title="Attempts"
@@ -185,21 +190,21 @@ export function AttemptsSection({
     >
       {attempts.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {inFlight(request.status)
+          {inFlight(task.status)
             ? "No provider has picked it up yet."
-            : "No provider was tried: the request ended before routing."}
+            : "No provider was tried: the task ended before routing."}
         </p>
       ) : (
         <div className="flex flex-col gap-4">
           {attempts.length > 1 && (
-            <FallbackStory attempts={attempts} running={inFlight(request.status)} providerName={providerName} />
+            <FallbackStory attempts={attempts} running={inFlight(task.status)} providerName={providerName} />
           )}
           <ol aria-label="Attempts">
             {attempts.map((attempt, i) => (
               <AttemptItem
                 key={attempt.number}
                 attempt={attempt}
-                startedFrom={request.createdAt}
+                startedFrom={task.createdAt}
                 last={i === attempts.length - 1}
                 providerName={providerName}
               />
@@ -211,9 +216,9 @@ export function AttemptsSection({
   );
 }
 
-/** What happened to the request, second by second. */
-export function EventsSection({ request }: { request: RequestDetail }) {
-  const events = [...request.events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+/** What happened to the task, second by second. */
+export function EventsSection({ task }: { task: TaskDetail }) {
+  const events = [...task.events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   return (
     <DetailSection title="Events">
       {events.length === 0 ? (
@@ -230,7 +235,7 @@ export function EventsSection({ request }: { request: RequestDetail }) {
                 <span className="w-20 shrink-0 text-xs font-medium">{EVENT_LABELS[event.status]}</span>
                 <span className="min-w-0 flex-1 break-words">{event.detail}</span>
                 <span className="shrink-0 text-xs text-muted-foreground tabular">
-                  {offset(request.createdAt, event.at)}
+                  {offset(task.createdAt, event.at)}
                 </span>
               </div>
             </li>

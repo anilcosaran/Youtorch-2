@@ -1,0 +1,66 @@
+{{- if .Values.redis.enabled }}
+# Rate limits and health counters: losing them on a restart is acceptable, so nothing is persisted.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "modelvend.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: modelvend
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        {{- include "modelvend.labels" . | nindent 8 }}
+        app.kubernetes.io/name: redis
+    spec:
+      securityContext:
+        {{- include "modelvend.podSecurity" . | nindent 8 }}
+        # The redis user in the image.
+        runAsUser: 999
+        runAsGroup: 1000
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args: [--save, "", --appendonly, "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            {{- include "modelvend.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "modelvend.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+spec:
+  selector:
+    app.kubernetes.io/part-of: modelvend
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+{{- end }}

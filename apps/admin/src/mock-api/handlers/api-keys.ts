@@ -12,14 +12,13 @@ function findKey(store: Store, id: string): ApiKeyRecord {
 
 function listKeys({ store, query }: Context) {
   const q = query.get("query") ?? "";
-  const env = query.get("env");
   const status = query.get("status");
   const customerId = query.get("customerId");
   const items = store.apiKeys.filter((key) => {
-    if ((env && key.env !== env) || (status && key.status !== status) || (customerId && key.customerId !== customerId)) return false;
+    if ((status && key.status !== status) || (customerId && key.customerId !== customerId)) return false;
     const customer = store.customers.find((c) => c.id === key.customerId);
     // The audit log links a key by its ID, so IDs match too.
-    return matchesQuery(q, key.id, key.name, key.prefix, customer?.name, customer?.workspace, customer?.email);
+    return matchesQuery(q, key.id, key.name, key.prefix, customer?.name, customer?.owner.name, customer?.owner.email);
   });
   const page = paginate(items, query);
   return { ...page, items: page.items.map((key) => apiKeyView(store, key)) };
@@ -38,16 +37,16 @@ function revoke(ctx: Context) {
 
 function update(ctx: Context) {
   const key = findKey(ctx.store, ctx.params.id);
-  if (!has(ctx.body, "spendLimit")) invalid("spendLimit", "Send a spend limit, or null for none.");
-  const spendLimit = nullableNumber(ctx.body, "spendLimit", { above: 0 }) ?? null;
+  if (!has(ctx.body, "spendLimitMicros")) invalid("spendLimitMicros", "Send a spend limit, or null for none.");
+  const spendLimitMicros = nullableNumber(ctx.body, "spendLimitMicros", { above: 0, integer: true }) ?? null;
   if (key.status === "revoked") invalidState("Revoked keys can't change.");
-  if (spendLimit !== key.spendLimit) {
+  if (spendLimitMicros !== key.spendLimitMicros) {
     audit(ctx, "api_key.update", "api_key", key.id, {
       prefix: key.prefix,
       customerId: key.customerId,
-      spendLimit: { from: key.spendLimit, to: spendLimit },
+      spendLimitMicros: { from: key.spendLimitMicros, to: spendLimitMicros },
     });
-    key.spendLimit = spendLimit;
+    key.spendLimitMicros = spendLimitMicros;
   }
   return apiKeyView(ctx.store, key);
 }
