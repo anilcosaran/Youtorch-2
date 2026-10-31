@@ -70,6 +70,7 @@ const TARGET_LABELS: Record<string, string> = {
   customer: "Customer",
   api_key: "API key",
   task: "Task",
+  settings: "Settings",
   operator: "Operator",
 };
 

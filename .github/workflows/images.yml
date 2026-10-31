@@ -61,7 +61,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ghcr.io/brieeflabs/modelvend-${{ matrix.name }}:main
+            ${{ github.ref == 'refs/heads/main' && format('ghcr.io/brieeflabs/modelvend-{0}:main', matrix.name) || '' }}
             ghcr.io/brieeflabs/modelvend-${{ matrix.name }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}

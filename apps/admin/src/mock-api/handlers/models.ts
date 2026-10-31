@@ -217,7 +217,7 @@ function createModel(ctx: Context) {
   const description = text(body, "description", { max: 2000 }) ?? "";
   const visibility = oneOf(body, "visibility", VISIBILITIES) ?? "private";
   const disclosure = oneOf(body, "disclosure", DISCLOSURES) ?? "open";
-  const author = text(body, "author", { max: 80 }) ?? publisher;
+  const author = text(body, "author", { max: 80 }) || publisher;
   if (visibility !== "private" && !can(actor(ctx), "catalog.publish")) {
     forbidden(`Starting a model ${visibility} needs the Publish permission (catalog.publish).`);
   }
