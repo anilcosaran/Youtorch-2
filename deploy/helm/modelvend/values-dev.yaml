@@ -2,16 +2,14 @@
 
 appEnv: development
 logLevel: debug
-
 # Digests are written by .github/workflows/images.yml.
 images:
   services:
-    digest: ""
+    digest: "sha256:c81de7cc295a5ca4bf2d93548f98bfdc6283ea48df49894ac034301f4d7ac6dc"
   console:
-    digest: ""
+    digest: "sha256:dd61f41988eda2f839aab886a7ae0009624213d0bf2bdb66949f41be9dc39966"
   admin:
-    digest: ""
-
+    digest: "sha256:68f92518230e6db5c19e3fdc524b5534836cef9bc58814316d509281df119cf8"
 services:
   gateway:
     replicas: 1
@@ -19,21 +17,18 @@ services:
     replicas: 1
   worker:
     replicas: 1
-
 apps:
   console:
     replicas: 1
   admin:
     mock: true
-
 postgres:
   instances: 1
   storage:
     size: 10Gi
   resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: "1", memory: 1Gi }
-
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
 resourceQuota:
   hard:
     requests.cpu: "4"
