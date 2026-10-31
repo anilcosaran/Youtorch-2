@@ -2,6 +2,7 @@
 
 > Durum: 30 Ekim 2026. Kod, [architecture.md](architecture.md) ve [structure.md](structure.md) karşılaştırılarak ve uygulama çalıştırılarak çıkarıldı. architecture.md bölüm 9'daki yol haritasının yerine geçer.
 > Hukuk notları sözleşme metinlerinin okunmasına dayanır, hukuki görüş değildir.
+> 31 Ekim denetiminin hataları ve çelişkileri [audit.md](audit.md)'de; kararlar [product-rules.md](product-rules.md) bölüm 11'de. Her fazın kapsamına dahildir.
 
 ## 1. Alınan kararlar
 
@@ -127,7 +128,7 @@ Sonraki her şeyin üstüne oturacağı yapı.
 - Namespace içinde CNPG cluster (dev'de tek kopya) ve Redis. Küme operatörleri ortak kullanılır.
 - Secret sözleşmesi: boş örnek env dosyaları ve eksik anahtarı bildiren kontrol. Değerler Git'e girmez.
 - Küme bağlantısı Anıl'dan gelince Argo tanımları uygulanır. O zamana kadar chart `helm template` ve yerel kümede doğrulanır.
-- `api/public.yaml`, `admin.yaml`, `webhooks.yaml`; `packages/api-types` üretimi; contract testi.
+- `api/public.yaml`, `console.yaml`, `admin.yaml`, `webhooks.yaml`; `packages/api-types` üretimi; contract testi. Önce [audit.md](audit.md) bölüm 1 kapanır: para biçimi, `task_` kimliği, app biçimi, birimler, tek anahtar türü, kademe seçimi ve kademe maliyeti.
 - Sözleşme eksiklerini kapatma: `disclosure`, route `mapping`/`transform`, `x-ui`, `white_label_allowed`. Kaldırılanlar: `tier` ve `TIER_LIMITS`. Yeniler: limit ayarları ve katalog alanları. Mock da birlikte güncellenir ([product-rules.md](product-rules.md) bölüm 9).
 - Doküman güncellemeleri.
 
@@ -137,7 +138,8 @@ Sonraki her şeyin üstüne oturacağı yapı.
 
 Admin paneli mock'tan kurtulur.
 
-- `operators`: oturum, izinler, şifre, sign-in sınırı. `audit`: her değişiklik yazılır.
+- `operators`: oturum, izinler, şifre, sign-in sınırı. `audit`: her değişiklik yazılır, sistem aktörü dahil. Eşzamanlı düzenleme kontrolü.
+- Katalog dışa ve içe aktarma (dev'den prod'a). Gelir tanımına göre saatlik özet tablolar.
 - `catalog`: model, sürüm, route ve fiyat yazma; yaşam döngüsü kuralları; önbellek geçersiz kılma.
 - Model sihirbazı: şablon seçimi, görsel şema düzenleyici, `mapping`, katalog alanları.
 - "Test et" ve canlıya almada test zorunluluğu. Şablon ve test, Faz 2'nin ilk adapter'ı ile birlikte gerçek üreticide tamamlanır; önce sahte sağlayıcıyla çalışır.
@@ -155,7 +157,8 @@ Admin paneli mock'tan kurtulur.
 
 Modelvend gerçek içerik üretir.
 
-- Adapter'lar sırayla: Google, OpenAI, ElevenLabs, Kling. Bir model çağrısı her adapter için staging'de denenir. Adapter'lar test anahtarıyla yazılır, yeniden satış izni canlıya almanın şartıdır.
+- Önce [audit.md](audit.md) bölüm 2 ve 3: zaman aşımı sırası, kopyalama yeniden denemesi, boş çıktı, üretici 429'u, dispatch kontrolleri, hata kodları ve hata yüzeyi.
+- Adapter'lar sırayla: Google, OpenAI, ElevenLabs, Kling. Bir model çağrısı her adapter için dev ortamında "Test et" ile denenir. Üretici anahtarları dev'e aittir, yeniden satış izni prod'da canlıya almanın şartıdır.
 - Şablonlar: `catalog/templates/<üretici>/<model>.yaml`. İlk katalog bunlardan admin üzerinden açılır.
 - Bunny `media.Store` ve imzalı indirme.
 - Webhook teslimatı ve yeniden deneme. SSE. `/v1/uploads`.
@@ -176,7 +179,8 @@ Müşteri kayıt olup kullanabilir.
 - E-posta gönderimi.
 - `data/` katmanı; mock'lar `data/source/mock`'a taşınır; üretilmiş tipler; `/models/{publisher}/{slug}` URL'leri.
 - `ConsoleProvider` bölünür; Server Action'lar.
-- Şemadan playground (`lib/schema-form`), BFF (`/api/tasks`, `/api/uploads`).
+- `/console/v1`: anahtar, bakiye, ledger, üyeler, playground ve kullanım; oturum ve roller burada.
+- Şemadan playground (`lib/schema-form`); durumlar ve hata kodları `redact.Task` üzerine ([audit.md](audit.md) bölüm 5).
 - Gerçek anahtarlar, usage, ledger; yeni ekranlar: tasks, settings, üyeler, webhook'lar.
 - Sahte içeriğin temizliği.
 
@@ -240,7 +244,7 @@ Bunlar kodu bloklamıyor, ilgili faza gelmeden kesinleşmeli. Cevap gelmezse var
 | Canvas: backend tasarımı yok                         | 5   | "Yakında" kalır; akışı önce tasarlanır                                            |
 | Hesap başına çıktı saklama süresi değiştirilebilsin mi | 2   | 30 gün sabit                                                                      |
 
-Dokümanlardaki şu açık kararlar öneriyle kapatıldı: sürüm ID'si `vN` ve `label`; staging yalnızca dahili anahtarlar; müşteri sürümün tek fiyatını öder; katalog kaynağı veritabanı, YAML içe aktarma için; fiyat listesi ile promosyondan düşük olan uygulanır; ana hesabın limitleri bütün ağaç için ortak; alt hesaba konsol kullanıcısı ve reseller marjı yok.
+Dokümanlardaki şu açık kararlar öneriyle kapatıldı: sürüm ID'si `vN` ve `label`; `staging` durumu kaldırıldı; müşteri sürümün tek fiyatını öder; katalog kaynağı veritabanı, YAML içe aktarma için; fiyat listesi ile promosyondan düşük olan uygulanır; ana hesabın limitleri bütün ağaç için ortak; alt hesaba konsol kullanıcısı ve reseller marjı yok.
 
 ## 6. Riskler
 

@@ -1,6 +1,6 @@
 # Modelvend ürün kuralları: üyeler, limitler, kredi, fiyat ve model ekleme
 
-> Durum: 30 Ekim 2026. Bölüm 1'deki kararları Anıl verdi. Edge case kuralları (bölüm 2–8) varsayılan öneridir: itiraz edilmezse kod bunlara göre yazılır. Oranlar ve eşikler admin ayarıdır.
+> Durum: 31 Ekim 2026. Bu belgedeki kurallar Anıl tarafından onaylandı. Bölüm 10'daki konular prod öncesi yeniden ele alınır. Oranlar ve eşikler admin ayarıdır.
 > architecture.md ile çelişen yerde bu belge geçerlidir (bölüm 9).
 
 ## 1. Kararlar
@@ -39,7 +39,8 @@ Rakiplerde ortak desen: protokol kodda, model veride, canlıya almadan önce tes
 2. **Şablon (YAML, upstream başına):** `catalog/templates/<üretici>/<model>.yaml`. Şema, `mapping`, maliyet, örnek girdi. Deploy ile gelir, müşteriye görünmez.
 3. **Sihirbaz (admin):** Üretici seç > şablon seç (ya da boş başla) > ad, slug, açıklama, görsel > alanları düzenle veya JSON'a geç > kademeler ve fiyat > kaydet (draft).
 4. **Test:** "Test et" gerçek istek atar; sonuç, süre ve maliyet görünür.
-5. **Yayın:** Staging'de deneme, sonra canlı ve default.
+5. **Yayın:** Canlıya al, istenirse default yap.
+6. **Dev'den prod'a:** Model dev admin'inden YAML olarak dışa aktarılır, repoya girer, prod admin'inde içe aktarılınca taslak olur. Prod'da yeniden test edilir. Anahtar ve kullanım taşınmaz.
 
 ## 2. Üyeler ve workspace'ler
 
@@ -131,7 +132,6 @@ Bakiye tek sayı olamaz, çünkü kredilerin süresi farklı. Eklenecek tablo: `
 | Alt hesaba aktarım                      | Kredi kalan süresiyle geçer. Alt hesap kapanınca kalan ana hesaba döner                                        |
 | Para birimi                             | Yalnızca USD. Kur farkı müşterinin bankasına aittir                                                            |
 | Vergi                                   | Stripe Tax ile fiyatın üzerine; prod öncesi mali müşavir teyidi                                                |
-| Test anahtarı                           | Canlı gibi ücretlendirilir (dokümandaki mevcut kural)                                                          |
 
 ## 5. Task ve ücretlendirme
 
@@ -147,7 +147,8 @@ Bakiye tek sayı olamaz, çünkü kredilerin süresi farklı. Eklenecek tablo: `
 | Müşteri iptali                               | Çıktı oluşmadıysa ücret yok; üretici maliyeti bizde. Sık iptal admin raporunda                            |
 | Çıktı üretildi, depoya kopyalanamadı         | Yeniden denenir; üretici URL'si dolduysa `failed`, ücret yok                                              |
 | Worker düştü                                 | Job yeniden çalışır; `upstream_id` varsa yeniden göndermez, poll eder (çift üretim yok)                   |
-| Kuyrukta beklerken model durduruldu          | Bekler; model emekli olursa `failed: model_unavailable`, ücret yok                                        |
+| Model durduruldu                             | Çalışanlar biter, kuyruktakiler başlamaz. 1 saatte açılmazsa `failed: queue_timeout`, ücret yok, bloke kalkar |
+| Kuyrukta beklerken sürüm emekli oldu         | `failed: model_unavailable`, ücret yok                                                                    |
 | Tüm route'lar kapalı veya üretici durduruldu | `failed: no_route_available`, ücret yok; admin'e alarm                                                    |
 | Çıktı süresi doldu (30 gün)                  | Dosya silinir, URL 410 döner; task ve kullanım kaydı kalır                                                |
 | Webhook başarısız                            | 24 saat üstel bekleme; sonra durur, konsolda görünür. Sürekli başarısızlıkta Owner'a e-posta              |
@@ -191,6 +192,11 @@ Site duyurusu için yeni parça: admin'de `announcements`, konsolda banner.
 
 | Durum                                       | Kural                                                                                               |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Yaşam döngüsü                               | Taslak > canlı > kullanımdan kalkmış > emekli. `staging` durumu yok; deneme dev ortamında, prod'da da test zorunlu |
+| Varsayılan sürüm kaldırılıyor               | İzinli; çağrılar `Deprecation` ve `Sunset` header'ı alır                                            |
+| Sunset tarihi geçti                         | Kendiliğinden kapanmaz; admin'e uyarı gider, operatör emekli eder. App'in sabitlediği sürüm emekli edilemez |
+| Emekli sürüme çağrı                         | Sabitlenmiş ya da değil, 410 `version_retired` ve önerilen sürüm. Sessiz yönlendirme yok            |
+| Tek sürümlü model kapanıyor                 | Son route sunset varsa `draining` olabilir; yoksa durdurma önerilir                                 |
 | Test ne kadar geçerli                       | Şema, `mapping` ya da üretici değişirse geçersiz olur. Her aktif route için son test başarılı olmalı |
 | Test maliyeti                               | İç workspace'e yazılır, müşteri geliri sayılmaz, tutar ekranda görünür                              |
 | Canlı sürüme yeni route                     | O route test edilmeden aktif olmaz                                                                  |
@@ -228,6 +234,13 @@ Admin'e eklenecek katalog alanları: görsel/örnek galeri, kapasiteler, en büy
 | `workspaces.balance_micros`             | Tek bakiye                            | Önbellek; kaynak `credit_lots`              |
 | `routes`                                | `mapping` admin'de yok                | Sözleşme ve sihirbaza eklenir               |
 | Admin mock'u                            | Tier ekranları, bonus sabit           | Yeni kurallara göre güncellenir             |
+| `model_versions.status`, `INTERNAL_WORKSPACES` | `staging` durumu                | Durum kalkar; iç hesaplar yalnızca private modellere erişir |
+| `api_keys.env`, `mv_test_`              | Live ve test anahtar                  | Tek tür (`mv_…`); `env` kolonu ve konsol seçicisi kalkar |
+| `catalog/store.go`, architecture.md: emekli sürüm | Yeni sürüme yönlendiriyor   | 410 `version_retired`                       |
+| architecture.md: BFF ve gizli konsol anahtarı | `/api/tasks`, sunucu anahtarı   | `/console/v1` oturum API'si                 |
+| architecture.md: kısa işler senkron     | Dokümanda senkron, kodda kuyruk       | Her zaman kuyruk, `Prefer: wait` isteğe bağlı |
+| `routes.cost_micros`                    | Tek maliyet                           | Kademe başına maliyet                       |
+| Public para                             | Float dolar                           | Fiyat metin, tutar `amount_micros`          |
 
 ## 10. Prod öncesi netleşecekler
 
@@ -239,3 +252,42 @@ Kodu engellemez; varsayılan yazıldı.
 | Müşteri iki adımlı doğrulama | İsteğe bağlı; operatörlere zorunlu              |
 | Büyük kredi düzeltmesi       | 1.000 $ üstü yalnızca admin rolü                |
 | Kullanım şartları            | Anlık fiyat değişimi, iade, kredi süresi, kabul edilebilir kullanım; avukat onayı |
+
+## 11. Denetimden çıkan kararlar
+
+Bulguların tamamı [audit.md](audit.md)'de.
+
+### A. Anıl'ın verdiği kararlar
+
+| Konu                 | Karar                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Kademe seçimi        | Girdiden türetilir: sürüm hangi alanın kademeyi belirlediğini tanımlar (`resolution: 4k` > 4K kademesi). Ayrı `tier` alanı yok |
+| Kademe maliyeti      | Route her kademe için kendi maliyetini taşır; marj koruması kademe başına çalışır                                      |
+| API'de para          | Birim fiyat ondalık metin (`"0.084"`), ödenen tutar tam sayı (`amount_micros`). Müşteri tutarının adı `cost` olmaz     |
+| Girdi fiyatı         | Ücretlendirilir; bloke ve tahsilata eklenir, promosyon uygulanmaz                                                      |
+| Konsol API'si        | Ayrı, oturumlu `/console/v1`; admin ile aynı kalıp. Roller burada uygulanır, playground task servisini doğrudan çağırır. Gizli konsol anahtarı yok |
+| Test anahtarı        | Kaldırıldı; tek anahtar türü. Ayrım anahtar adı, scope veya ayrı workspace ile yapılır                                 |
+| Emekli sürüm         | 410 `version_retired` ve önerilen sürüm; sessiz yönlendirme yok                                                        |
+| Yanıt modu           | Her task kuyruğa girer, 202 döner; `Prefer: wait` ile en fazla 60 saniye beklenir. OpenAI uyumlu uçlar kendi içinde bekler |
+| Model durdurma       | Çalışanlar biter, kuyruktakiler bekler, 1 saatte `queue_timeout`                                                       |
+| Sürüm durumları      | `staging` kaldırıldı. Deneme dev ortamında; canlıya almadan önce her ortamda test zorunlu                              |
+| Dev'den prod'a       | YAML dışa ve içe aktarma; prod'da taslak olarak gelir ve yeniden test edilir                                           |
+| Varsayılan ve sunset | Varsayılan kullanımdan kaldırılabilir. Sunset kapanma izni verir, emeklilik elle yapılır                               |
+| Gelir                | Satın alınan krediyle kullanım eksi iade. Hediye kullanımı ve maliyeti ayrı satır, iç workspace'ler hariç. Kabul edilen başarısız denemeye tahmini route maliyeti yazılır |
+
+### B. Onaylanan varsayılanlar
+
+| Konu                     | Varsayılan                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Promosyon                | Sürüme bağlı, yüzde, başlangıç ve bitiş tarihli, isteğe bağlı kademe filtresi. Fiyat listesinden ayrı tablo |
+| Kullanım ve log ekranı   | Task bazlı. Reddedilen istekler (402, 429) yalnızca sayaç olarak; ayrı istek logu yok                     |
+| Müşteri satırı (admin)   | Workspace; sahip alt nesne, üyeler sekmesi. E-posta araması her üyede eşleşir                             |
+| Task iadesi              | Tutar aynı partiye, bitiş tarihiyle döner; süresi dolmuşsa 90 günlük yeni parti. Müşteri limit sayımından düşülür |
+| Elle yükleme             | Operatör tür seçer: satın alınan (1 yıl) ya da hediye (90 gün)                                            |
+| Fatura                   | Her yükleme için Stripe makbuzu ve vergi faturası; aylık fatura yok. "Never invoiced" metni kalkar        |
+| Konsol kullanım sekmeleri | Providers sekmesi kalkar (üretici ile model zaten aynı). Performance ve Uptime gerçek veri gelene kadar gizli |
+| App biçimi               | Go biçimi: adım şablonları, `stages`, `output_map`; parametre birleştirme yok                             |
+| Adapter kurulumu         | Provider kaydı başına örnek; `base_url` ve anahtar kayıttan gelir                                         |
+| `author`                 | Yalnızca admin. Müşteri publisher'ı görür                                                                 |
+| Aktif workspace          | Konsolda URL'de değil çerezde; değiştirici API'ye başlık veya oturumla taşır                              |
+| Üretici 429'u            | Görev düşmez; deneme harcamadan kuyrukta bekler                                                           |
