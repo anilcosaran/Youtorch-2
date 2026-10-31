@@ -23,17 +23,18 @@ type Store struct {
 const taskColumns = `id, workspace_id, coalesce(key_id::text, ''), coalesce(parent_id, ''), target_type, target_id,
 	coalesce(model_id, ''), coalesce(version_id, ''), coalesce(app_release, 0), status, coalesce(stage, ''), progress,
 	input, output, coalesce(error_code, ''), coalesce(error_message, ''), units, coalesce(unit, ''),
-	price_micros, cost_micros, hold_micros, coalesce(webhook_url, ''), metadata, created_at, started_at, finished_at`
+	price_micros, cost_micros, hold_micros, quote, coalesce(webhook_url, ''), metadata, created_at, started_at, finished_at`
 
 // scanTask reads taskColumns, then any extra columns selected after them into extra.
 func scanTask(row pgx.Row, extra ...any) (Task, error) {
 	var t Task
 	var progress *int16
 	var units *float64
+	var quote []byte
 	err := row.Scan(append([]any{&t.ID, &t.WorkspaceID, &t.KeyID, &t.ParentID, &t.Target.Type, &t.Target.ID,
 		&t.ModelID, &t.VersionID, &t.AppRelease, &t.Status, &t.Stage, &progress,
 		&t.Input, &t.Output, &t.ErrorCode, &t.ErrorMessage, &units, &t.Unit,
-		&t.PriceMicros, &t.CostMicros, &t.HoldMicros, &t.WebhookURL, &t.Metadata, &t.CreatedAt, &t.StartedAt, &t.FinishedAt},
+		&t.PriceMicros, &t.CostMicros, &t.HoldMicros, &quote, &t.WebhookURL, &t.Metadata, &t.CreatedAt, &t.StartedAt, &t.FinishedAt},
 		extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
@@ -43,6 +44,10 @@ func scanTask(row pgx.Row, extra ...any) (Task, error) {
 		t.Progress = &p
 	}
 	t.Units = units
+	if err == nil && len(quote) > 0 {
+		t.Quote = &billing.Quote{}
+		err = json.Unmarshal(quote, t.Quote)
+	}
 	return t, err
 }
 
@@ -99,14 +104,21 @@ func (s *Store) Insert(ctx context.Context, tx pgx.Tx, t Task, idem Idempotency)
 	if len(metadata) == 0 {
 		metadata = json.RawMessage(`{}`)
 	}
+	var quote []byte
+	if t.Quote != nil {
+		var err error
+		if quote, err = json.Marshal(t.Quote); err != nil {
+			return Task{}, false, err
+		}
+	}
 	tag, err := tx.Exec(ctx, `
 		insert into tasks (id, workspace_id, key_id, parent_id, target_type, target_id, model_id, version_id,
-			status, input, hold_micros, webhook_url, metadata, idempotency_key, idempotency_fingerprint)
+			status, input, hold_micros, quote, webhook_url, metadata, idempotency_key, idempotency_fingerprint)
 		values ($1, $2, nullif($3, '')::uuid, nullif($4, ''), $5, $6, nullif($7, ''), nullif($8, ''),
-			$9, $10, $11, nullif($12, ''), $13, $14, $15)
+			$9, $10, $11, $12, nullif($13, ''), $14, $15, $16)
 		on conflict (workspace_id, idempotency_key) do nothing`,
 		t.ID, t.WorkspaceID, t.KeyID, t.ParentID, t.Target.Type, t.Target.ID, t.ModelID, t.VersionID,
-		t.Status, t.Input, t.HoldMicros, t.WebhookURL, metadata, key, fingerprint)
+		t.Status, t.Input, t.HoldMicros, quote, t.WebhookURL, metadata, key, fingerprint)
 	if err != nil {
 		return Task{}, false, fmt.Errorf("inserting task: %w", err)
 	}

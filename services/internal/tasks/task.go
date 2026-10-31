@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/brieeflabs/modelvend/services/internal/billing"
 )
 
 type Status string
@@ -66,6 +68,8 @@ type Task struct {
 	CostMicros   int64
 	// HoldMicros is what the task set aside from the balance when it was created.
 	HoldMicros int64
+	// Quote is the prices the task was accepted at; settlement charges these.
+	Quote      *billing.Quote
 	WebhookURL string
 	Metadata   json.RawMessage
 	CreatedAt  time.Time
@@ -87,6 +91,31 @@ type Attempt struct {
 	StartedAt     time.Time
 	FinishedAt    *time.Time
 }
+
+// ParseStatus reads a status filter; empty means any.
+func ParseStatus(s string) (Status, error) {
+	switch status := Status(s); status {
+	case "", Queued, Running, Succeeded, Failed, Canceled:
+		return status, nil
+	}
+	return "", &InvalidRequest{Fields: map[string]string{"status": "Status must be queued, running, succeeded, failed or canceled."}}
+}
+
+// PageLimit is how many tasks a list asks for: 20 unless it says, at most 100.
+func PageLimit(n int) int {
+	if n <= 0 {
+		return 20
+	}
+	return min(n, 100)
+}
+
+// InvalidRequest is a call that names the wrong things, before any model is
+// involved. Fields says what is wrong with each.
+type InvalidRequest struct {
+	Fields map[string]string
+}
+
+func (e *InvalidRequest) Error() string { return "tasks: invalid request" }
 
 var (
 	ErrNotFound = errors.New("tasks: not found")

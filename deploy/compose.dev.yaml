@@ -1,4 +1,4 @@
-# Local dependencies for development: docker compose -f deploy/compose.dev.yaml up -d --wait
+# Local dependencies for development; `make up` starts them.
 # Host ports are high and bound to 127.0.0.1 so they don't clash with other projects. deploy/dev.env points at them.
 name: modelvend-dev
 
@@ -51,8 +51,10 @@ services:
       timeout: 3s
       retries: 30
 
+  # One-shot, so it stays out of `up --wait`, which counts any exit as a failure. `make up` runs it.
   storage-init:
     image: chrislusf/seaweedfs:4.48
+    profiles: [init]
     depends_on:
       storage:
         condition: service_healthy
@@ -60,7 +62,9 @@ services:
     entrypoint:
       - sh
       - -c
-      - echo "s3.bucket.create -name modelvend-media" | weed shell -master=storage:9333 -filer=storage:8888
+      - >
+        echo "s3.bucket.list" | weed shell -master=storage:9333 -filer=storage:8888 | grep -q modelvend-media ||
+        echo "s3.bucket.create -name modelvend-media" | weed shell -master=storage:9333 -filer=storage:8888
 
   mail:
     image: axllent/mailpit:v1.27

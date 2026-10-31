@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -78,7 +79,7 @@ type Service struct {
 type CreateParams struct {
 	WorkspaceID string
 	KeyID       string
-	// Internal keys may reach private models and staging versions.
+	// Internal keys may reach private models.
 	Internal bool
 	// Scopes are the models ("publisher/slug" or "publisher/slug@version") and
 	// apps the key may run; empty for everything.
@@ -94,12 +95,45 @@ type CreateParams struct {
 	IdempotencyKey string
 }
 
-var (
-	// ErrTarget means the call didn't name exactly one model or app.
-	ErrTarget = errors.New("tasks: name a model or an app")
-	// ErrAppsUnavailable means app runs aren't available yet.
-	ErrAppsUnavailable = errors.New("tasks: app runs aren't available yet")
-)
+// ErrAppsUnavailable means app runs aren't available yet.
+var ErrAppsUnavailable = errors.New("tasks: app runs aren't available yet")
+
+// validate checks a call before anything is looked up. Every surface goes
+// through it, so they all refuse the same things in the same words. Postgres
+// can't store U+0000, so it is refused here rather than failing the insert.
+func validate(p CreateParams) error {
+	fields := map[string]string{}
+	if (p.Model == "") == (p.App == "") {
+		fields["model"] = "Set either model or app."
+	} else if p.Model != "" {
+		if _, err := catalog.ParseRef(p.Model); err != nil {
+			fields["model"] = "Name a model as publisher/slug or publisher/slug@version."
+		}
+	}
+	if len(p.Input) == 0 || p.Input[0] != '{' {
+		fields["input"] = "Input must be a JSON object."
+	}
+	if p.WebhookURL != "" && !strings.HasPrefix(p.WebhookURL, "https://") {
+		fields["webhook_url"] = "Webhooks must use https://."
+	} else if strings.ContainsRune(p.WebhookURL, 0) {
+		fields["webhook_url"] = "Webhook URLs can't contain the null character (U+0000)."
+	}
+	switch {
+	case len(p.Metadata) > 0 && p.Metadata[0] != '{':
+		fields["metadata"] = "Metadata must be a JSON object."
+	case len(p.Metadata) > 4096:
+		fields["metadata"] = "Metadata can be up to 4 KB."
+	case schema.HasNUL(p.Metadata):
+		fields["metadata"] = "Metadata can't contain the null character (U+0000)."
+	}
+	if len(p.IdempotencyKey) > 255 || strings.ContainsRune(p.IdempotencyKey, 0) {
+		fields["idempotency_key"] = "Idempotency keys can be up to 255 characters, without the null character."
+	}
+	if len(fields) > 0 {
+		return &InvalidRequest{Fields: fields}
+	}
+	return nil
+}
 
 // Created is the task and whether this call created it (false for a repeated idempotency key).
 type Created struct {
@@ -109,17 +143,18 @@ type Created struct {
 	Deprecated *catalog.Version
 }
 
-// Create validates the input against the target's schema, holds the task's
-// estimated price from the workspace's balance, and writes the task and its
-// dispatch job, all in one transaction, so none exists without the others.
+// Create validates the input against the target's schema, fixes the task's
+// prices, holds its estimated cost from the workspace's balance, and writes the
+// task and its dispatch job, all in one transaction, so none exists without
+// the others.
 //
 // A repeated idempotency key returns the task it created within
 // IdempotencyWindow, whatever changed since (the model, the balance, the key's
 // limits), and holds nothing again; the same key with a different request is
 // ErrIdempotencyKeyReused.
 func (s *Service) Create(ctx context.Context, p CreateParams) (Created, error) {
-	if (p.Model == "") == (p.App == "") {
-		return Created{}, ErrTarget
+	if err := validate(p); err != nil {
+		return Created{}, err
 	}
 	now := time.Now()
 	idem := Idempotency{Key: p.IdempotencyKey}
@@ -138,11 +173,14 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Created, error) {
 	}
 	ref, err := catalog.ParseRef(p.Model)
 	if err != nil {
-		return Created{}, fmt.Errorf("%w: %v", ErrTarget, err)
+		return Created{}, err
 	}
 	resolved, err := s.Catalog.Resolve(ctx, ref, catalog.Access{Internal: p.Internal})
 	if err != nil {
 		return Created{}, err
+	}
+	if resolved.Model.Paused {
+		return Created{}, catalog.ErrPaused
 	}
 	v := resolved.Version
 	if !inScope(p.Scopes, v.ModelID, v.ID) {
@@ -156,10 +194,11 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
-	hold, ok := billing.Estimate(v.Pricing)
-	if !ok {
-		return Created{}, fmt.Errorf("version %s@%s has no price at its default tier %q", v.ModelID, v.ID, v.Pricing.DefaultTier)
+	quote, err := billing.NewQuote(v.Pricing, input)
+	if err != nil {
+		return Created{}, fmt.Errorf("version %s@%s can't price this input: %w", v.ModelID, v.ID, err)
 	}
+	hold := quote.Hold()
 
 	t := Task{
 		ID:          ids.New("task"),
@@ -171,6 +210,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Created, error) {
 		Status:      Queued,
 		Input:       input,
 		HoldMicros:  hold,
+		Quote:       &quote,
 		WebhookURL:  p.WebhookURL,
 		Metadata:    p.Metadata,
 	}

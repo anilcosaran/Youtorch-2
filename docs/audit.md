@@ -12,6 +12,8 @@ Kararlar [product-rules.md](product-rules.md)'de, bölüm 1 ve 11.
 
 Lansmandan sonra değiştirilmesi zor olanlar. OpenAPI yazılmadan önce kapanmalı.
 
+**Public API tarafı kapandı (`api/public.yaml`):** para biçimi, kademe seçimi ve kademe maliyeti, girdi fiyatı, tek anahtar türü, `staging`'in kaldırılması, emekli sürüme 410, durdurulmuş modelin okunabilmesi, `author`'ın gizlenmesi, listelerde özet, REST ve MCP ortak doğrulama, zaman ve `Deprecation` biçimi. Gerçek yanıtlar `services/internal/api/public/rest/contract_test.go` ile sözleşmeye karşı denetleniyor. **Açık kalanlar:** admin ve konsol tarafı, yani aşağıdaki admin sözleşmesi satırları ile konsol tipleri ve örnekleri.
+
 | Bulgu | Yer | Ne yapılacak |
 | ----- | --- | ------------ |
 | ✓ Public para float dolar; `usage.cost` müşteri fiyatı, `cost_micros` ise üretici maliyeti | `services/internal/api/public/redact/redact.go:52` | `amount_micros` ve metin birim fiyat; `cost` adı kalkar |

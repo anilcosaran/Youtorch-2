@@ -1,0 +1,549 @@
+openapi: 3.1.0
+info:
+  title: Modelvend API
+  version: "1"
+  description: |
+    One API and one balance for generative video, image, audio, 3D and text models.
+
+    Every model call and app run is a task. Tasks always enter the queue and answer 202; send `Prefer: wait=N`
+    to wait up to 60 seconds for the result.
+
+    Money: unit prices are decimal strings in US dollars, such as "0.084". Amounts paid are whole micro-dollars
+    (`amount_micros`, 1,000,000 = $1), so they add up without rounding.
+
+    Times are UTC, to the second.
+servers:
+  - url: https://api.modelvend.ai
+security:
+  - apiKey: []
+
+paths:
+  /v1/tasks:
+    post:
+      operationId: createTask
+      summary: Run a model or an app
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: Retrying with the same key within 24 hours returns the same task. Up to 255 characters.
+          schema:
+            type: string
+            maxLength: 255
+        - name: Prefer
+          in: header
+          description: "`wait=N` waits up to N seconds, at most 60, for the task to finish."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTask"
+      responses:
+        "200":
+          description: "The task has finished, within `Prefer: wait` or as a replay."
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+            Deprecation: { $ref: "#/components/headers/Deprecation" }
+            Sunset: { $ref: "#/components/headers/Sunset" }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "202":
+          description: The task is queued or running.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
+            Deprecation: { $ref: "#/components/headers/Deprecation" }
+            Sunset: { $ref: "#/components/headers/Sunset" }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listTasks
+      summary: List the workspace's tasks, newest first
+      description: Lists leave out input and output; read one task for those.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/TaskStatus" }
+        - name: target
+          in: query
+          description: A model ID or an app slug.
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          description: "`next_cursor` of the previous page."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Up to 100. The default is 20.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: A page of tasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskList"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Read a task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/tasks/{id}/cancel:
+    post:
+      operationId: cancelTask
+      summary: Cancel a task that hasn't finished
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: The canceled task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/models:
+    get:
+      operationId: listModels
+      summary: List the public catalog
+      responses:
+        "200":
+          description: Every listed model at its default version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelList"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/models/{publisher}/{slug}:
+    get:
+      operationId: getModel
+      summary: Read a model with its schema and prices
+      parameters:
+        - name: publisher
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: A version to read instead of the default.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The model at that version.
+          headers:
+            Deprecation: { $ref: "#/components/headers/Deprecation" }
+            Sunset: { $ref: "#/components/headers/Sunset" }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: "`Authorization: Bearer mv_…`"
+
+  parameters:
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  headers:
+    Location:
+      description: Where to read the task.
+      schema:
+        type: string
+    IdempotentReplayed:
+      description: "`true` when an Idempotency-Key returned an earlier task."
+      schema:
+        type: string
+    Deprecation:
+      description: "When the version was deprecated, as `@<unix seconds>` (RFC 9745)."
+      schema:
+        type: string
+    Sunset:
+      description: The date after which the version may stop answering (RFC 8594).
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: |
+        A refused request. Codes: `unauthenticated` (401), `account_suspended`, `key_scope` (403),
+        `insufficient_credits`, `spend_limit_reached` (402), `model_not_found`, `task_not_found` (404),
+        `task_finished` (409), `version_retired` (410), `invalid_json` (400),
+        `invalid_request`, `invalid_input`, `idempotency_key_reused` (422), `not_implemented` (501),
+        `model_paused`, `unavailable` (503), `internal` (500).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    CreateTask:
+      type: object
+      additionalProperties: false
+      required: [input]
+      description: Set exactly one of `model` and `app`.
+      properties:
+        model:
+          type: string
+          description: "`publisher/slug`, or `publisher/slug@version` to pin a version."
+        app:
+          type: string
+          description: An app's slug.
+        input:
+          type: object
+          description: Must match the input schema of the model or app.
+        webhook_url:
+          type: string
+          format: uri
+          description: An https URL to notify when the task finishes.
+        metadata:
+          type: object
+          description: Your own values, kept with the task. Up to 4 KB.
+
+    TaskStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, canceled]
+
+    Target:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [model, app]
+        id:
+          type: string
+        version:
+          type: string
+          description: The model version that ran. Apps have none.
+
+    Progress:
+      type: object
+      additionalProperties: false
+      properties:
+        stage:
+          type: string
+        percent:
+          type: integer
+
+    TaskError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    Usage:
+      type: object
+      additionalProperties: false
+      required: [units, unit, amount_micros, currency]
+      properties:
+        units:
+          type: number
+        unit:
+          type: string
+        tier:
+          type: string
+          description: The price tier the input picked.
+        amount_micros:
+          type: integer
+          description: What the task cost, in micro-dollars.
+        currency:
+          type: string
+          const: USD
+
+    TaskSummary:
+      type: object
+      required: [id, object, target, status, progress, error, usage, created_at, started_at, finished_at, metadata]
+      properties:
+        id:
+          type: string
+          pattern: "^task_"
+        object:
+          type: string
+          const: task
+        target:
+          $ref: "#/components/schemas/Target"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        progress:
+          oneOf:
+            - $ref: "#/components/schemas/Progress"
+            - type: "null"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/TaskError"
+            - type: "null"
+        usage:
+          description: Set once the task has succeeded.
+          oneOf:
+            - $ref: "#/components/schemas/Usage"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: [string, "null"]
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        metadata:
+          type: object
+
+    Task:
+      allOf:
+        - $ref: "#/components/schemas/TaskSummary"
+        - type: object
+          required: [input, output]
+          properties:
+            input:
+              type: object
+            output:
+              type: [object, "null"]
+      unevaluatedProperties: false
+
+    TaskList:
+      type: object
+      additionalProperties: false
+      required: [object, data, next_cursor]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/TaskSummary"
+            unevaluatedProperties: false
+        next_cursor:
+          type: [string, "null"]
+
+    Tier:
+      type: object
+      additionalProperties: false
+      required: [id, label, price]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        price:
+          type: string
+          pattern: "^[0-9]+(\\.[0-9]+)?$"
+          description: What a unit costs now, in US dollars.
+        list_price:
+          type: string
+          pattern: "^[0-9]+(\\.[0-9]+)?$"
+          description: The price before a promo; absent without one.
+
+    InputPrice:
+      type: object
+      additionalProperties: false
+      required: [unit, price, field]
+      description: What each piece of reference media costs, on top of the tier.
+      properties:
+        unit:
+          type: string
+        price:
+          type: string
+          pattern: "^[0-9]+(\\.[0-9]+)?$"
+        field:
+          type: string
+          description: The input field that holds it.
+
+    Pricing:
+      type: object
+      additionalProperties: false
+      required: [unit, currency, default_tier, tiers]
+      properties:
+        unit:
+          type: string
+          description: What one unit of output is.
+        currency:
+          type: string
+          const: USD
+        default_tier:
+          type: string
+        tier_field:
+          type: string
+          description: The input field whose value picks the tier. Without it, or when the input leaves it out, the default tier applies.
+        tier_values:
+          type: object
+          description: Values of `tier_field` that aren't tier IDs themselves, and the tier each picks.
+          additionalProperties:
+            type: string
+        tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tier"
+        input:
+          $ref: "#/components/schemas/InputPrice"
+
+    Deprecation:
+      type: object
+      additionalProperties: false
+      required: [deprecated_at, sunset_at]
+      properties:
+        deprecated_at:
+          type: [string, "null"]
+          format: date-time
+        sunset_at:
+          type: [string, "null"]
+          format: date-time
+          description: After this date the version may stop answering.
+        replacement:
+          type: string
+          description: The `publisher/slug@version` to move to.
+
+    Model:
+      type: object
+      additionalProperties: false
+      required: [id, object, publisher, slug, name, description, modality, tasks, state, version, input_schema, output_schema, pricing]
+      properties:
+        id:
+          type: string
+          description: "`publisher/slug`"
+        object:
+          type: string
+          const: model
+        publisher:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        modality:
+          type: string
+          enum: [image, video, audio, 3d, text]
+        tasks:
+          type: array
+          items:
+            type: string
+        state:
+          type: string
+          enum: [active, paused]
+          description: A paused model can be read but runs nothing; creating a task answers 503.
+        version:
+          type: string
+        input_schema:
+          type: object
+          description: JSON Schema (draft 2020-12).
+        output_schema:
+          type: object
+          description: JSON Schema (draft 2020-12).
+        pricing:
+          $ref: "#/components/schemas/Pricing"
+        deprecation:
+          $ref: "#/components/schemas/Deprecation"
+
+    ModelList:
+      type: object
+      additionalProperties: false
+      required: [object, data, next_cursor]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Model"
+        next_cursor:
+          type: [string, "null"]
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            fields:
+              type: object
+              description: What is wrong with each field.
+              additionalProperties:
+                type: string
+            replacement:
+              type: string
+              description: On `version_retired`, the `publisher/slug@version` to move to.

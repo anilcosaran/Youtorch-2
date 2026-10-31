@@ -7,6 +7,8 @@ package catalog
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"time"
 )
 
@@ -31,7 +33,6 @@ type VersionStatus string
 
 const (
 	Draft      VersionStatus = "draft"
-	Staging    VersionStatus = "staging"
 	Live       VersionStatus = "live"
 	Deprecated VersionStatus = "deprecated"
 	Retired    VersionStatus = "retired"
@@ -66,16 +67,24 @@ type Version struct {
 	Pricing      Pricing
 	Routing      Routing
 	Replacement  string
+	DeprecatedAt *time.Time
 	SunsetAt     *time.Time
 }
 
 // Pricing is the sell side. Prices are US dollars per billing unit.
 type Pricing struct {
-	Unit        string     `json:"unit" yaml:"unit"`
-	DefaultTier string     `json:"default_tier" yaml:"default_tier"`
-	Tiers       []Tier     `json:"tiers" yaml:"tiers"`
-	Input       *UnitPrice `json:"input,omitempty" yaml:"input,omitempty"`
-	Promo       *float64   `json:"promo,omitempty" yaml:"promo,omitempty"`
+	Unit        string `json:"unit" yaml:"unit"`
+	DefaultTier string `json:"default_tier" yaml:"default_tier"`
+	// TierField names the input field whose value picks the tier. Without it,
+	// or when the input leaves it out, the default tier applies.
+	TierField string `json:"tier_field,omitempty" yaml:"tier_field,omitempty"`
+	// TierValues maps values of TierField to tier IDs, for values that aren't tier IDs themselves.
+	TierValues map[string]string `json:"tier_values,omitempty" yaml:"tier_values,omitempty"`
+	Tiers      []Tier            `json:"tiers" yaml:"tiers"`
+	// Input is charged for reference media on top of the tier; promos don't apply to it.
+	Input *InputPrice `json:"input,omitempty" yaml:"input,omitempty"`
+	// Promo is a discount (0-1) off every tier.
+	Promo *float64 `json:"promo,omitempty" yaml:"promo,omitempty"`
 }
 
 type Tier struct {
@@ -84,9 +93,13 @@ type Tier struct {
 	Price float64 `json:"price" yaml:"price"`
 }
 
-type UnitPrice struct {
+// InputPrice is what each piece of reference media costs. Field is the input
+// field that holds them: a list counts its items, a number is the count, and
+// anything else present counts as one.
+type InputPrice struct {
 	Unit  string  `json:"unit" yaml:"unit"`
 	Price float64 `json:"price" yaml:"price"`
+	Field string  `json:"field" yaml:"field"`
 }
 
 // Tier returns the tier with id, or the default tier when id is empty.
@@ -100,6 +113,32 @@ func (p Pricing) Tier(id string) (Tier, bool) {
 		}
 	}
 	return Tier{}, false
+}
+
+// TierFor picks the tier an input runs at. A value that matches no tier is an
+// error: the version's schema should have refused it, so its pricing is wrong.
+func (p Pricing) TierFor(input map[string]any) (Tier, error) {
+	id := ""
+	if value, ok := input[p.TierField]; ok && p.TierField != "" && value != nil {
+		id = fmt.Sprint(value)
+		if mapped, ok := p.TierValues[id]; ok {
+			id = mapped
+		}
+	}
+	tier, ok := p.Tier(id)
+	if !ok {
+		return Tier{}, fmt.Errorf("catalog: %s %q picks no tier", p.TierField, id)
+	}
+	return tier, nil
+}
+
+// Net is a tier's price after any promo.
+func (p Pricing) Net(price float64) float64 {
+	if p.Promo != nil && *p.Promo > 0 && *p.Promo < 1 {
+		// Rounded so a discount doesn't leave binary noise such as 0.029250000000000002.
+		return math.Round(price*(1-*p.Promo)*1e9) / 1e9
+	}
+	return price
 }
 
 type Routing struct {
@@ -124,12 +163,15 @@ type Route struct {
 	Status            string // active, paused, draining
 	Priority          int
 	Weight            int
-	// CostMicros is what the provider charges per unit at the default tier.
-	CostMicros int64
-	Region     string
-	Mapping    json.RawMessage
-	Transform  string
+	// TierCosts is what the provider charges per billing unit at each tier, in dollars.
+	TierCosts map[string]float64
+	Region    string
+	Mapping   json.RawMessage
+	Transform string
 }
+
+// Cost is what the route charges per unit at a tier.
+func (r Route) Cost(tier string) float64 { return r.TierCosts[tier] }
 
 // Resolved is what a request to "publisher/slug[@version]" reaches.
 type Resolved struct {
@@ -145,6 +187,17 @@ var (
 	ErrPaused = errors.New("catalog: model paused")
 	// ErrNotLive means the model has no version callers may use.
 	ErrNotLive = errors.New("catalog: no live version")
-	// ErrGone means the version was retired without a replacement.
+	// ErrGone means the version was retired. Resolve returns it as a *RetiredError.
 	ErrGone = errors.New("catalog: version retired")
 )
+
+// RetiredError is a call to a retired version. Calls are never forwarded, as
+// the replacement may cost more or take other input; Suggestion is the
+// "publisher/slug@version" to move to, when there is one.
+type RetiredError struct {
+	Suggestion string
+}
+
+func (e *RetiredError) Error() string { return ErrGone.Error() }
+
+func (e *RetiredError) Is(target error) bool { return target == ErrGone }

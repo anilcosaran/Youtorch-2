@@ -7,8 +7,8 @@ import (
 	"github.com/brieeflabs/modelvend/services/internal/catalog"
 )
 
-func route(id string, priority int, cost int64) catalog.Route {
-	return catalog.Route{ID: id, Status: "active", ProviderActive: true, WhiteLabelAllowed: true, Priority: priority, Weight: 100, CostMicros: cost}
+func route(id string, priority int, cost float64) catalog.Route {
+	return catalog.Route{ID: id, Status: "active", ProviderActive: true, WhiteLabelAllowed: true, Priority: priority, Weight: 100, TierCosts: map[string]float64{"": cost}}
 }
 
 func ids(routes []catalog.Route) string {

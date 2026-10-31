@@ -34,10 +34,10 @@ modelvend/
 │  │  ├─ platform/              config, database (+ dbtest), httpx, ids, logging
 │  │  └─ bootstrap/             Wiring every process shares
 │  └─ migrations/               goose SQL
-├─ api/                         OpenAPI contracts: public, admin, webhooks (placeholder)
+├─ api/                         OpenAPI contracts: public and webhooks; admin and console come next
 ├─ packages/                    Shared JS packages (npm workspaces)
 │  ├─ admin-api/                @modelvend/admin-api: typed client and contract types for /admin/v1
-│  ├─ api-types/                TypeScript types generated from api/ (placeholder)
+│  ├─ api-types/                TypeScript types generated from api/ (make gen)
 │  ├─ config-eslint/            ESLint config shared by the apps and packages
 │  ├─ config-typescript/        Base tsconfig the apps and packages extend
 │  └─ sdk-js/                   @modelvend/sdk (placeholder)
