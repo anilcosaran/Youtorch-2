@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { revokeApiKey, updateApiKey, type ApiKeyRow } from "@modelvend/admin-api/api-keys";
 import { errorMessage, type Page } from "@modelvend/admin-api/client";
+import { toDollars, toMicros } from "@modelvend/admin-api/money";
 import { Field, FormError } from "@/components/shared/field";
 import { ReasonDialog } from "@/components/shared/reason-dialog";
 import { Button } from "@/components/ui/button";
@@ -94,16 +95,17 @@ export function KeyActionsMenu({
 
 function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => void }) {
   const queryClient = useQueryClient();
-  const [text, setText] = useState(apiKey.spendLimit === null ? "" : String(apiKey.spendLimit));
+  const [text, setText] = useState(apiKey.spendLimitMicros === null ? "" : String(toDollars(apiKey.spendLimitMicros)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
 
   const limit = parseDollars(text);
   const invalid = limit !== null && !(limit > 0);
-  const changed = !invalid && limit !== apiKey.spendLimit;
+  const limitMicros = limit === null || invalid ? null : toMicros(limit);
+  const changed = !invalid && limitMicros !== apiKey.spendLimitMicros;
   const problem =
-    fields.spendLimit ?? dollarsError(text) ?? (invalid ? "Enter an amount above $0 with at most two decimals." : undefined);
+    fields.spendLimitMicros ?? dollarsError(text) ?? (invalid ? "Enter an amount above $0 with at most two decimals." : undefined);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,16 +114,17 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
     setError(null);
     setFields({});
     try {
-      const updated = await updateApiKey(apiKey.id, { spendLimit: limit });
+      const updated = await updateApiKey(apiKey.id, { spendLimitMicros: limitMicros });
       storeKey(queryClient, updated);
       toast.success(
-        updated.spendLimit === null
+        updated.spendLimitMicros === null
           ? `${updated.name} has no spend limit`
-          : `${updated.name} stops at ${usd(updated.spendLimit)} a month`,
+          : `${updated.name} stops at ${usd(updated.spendLimitMicros)} a month`,
       );
       onDone();
     } catch (err) {
-      const shown = formErrors(err, ["spendLimit"]);
+      void queryClient.invalidateQueries({ queryKey: keys.apiKeys });
+      const shown = formErrors(err, ["spendLimitMicros"]);
       setFields(shown.fields);
       setError(shown.message);
       setBusy(false);
@@ -134,7 +137,7 @@ function SpendLimitForm({ apiKey, onDone }: { apiKey: ApiKeyRow; onDone: () => v
       <Field
         id="spend-limit"
         label="Monthly spend limit"
-        hint={`Leave empty for no limit. It spent ${usd(apiKey.spend30d)} in the last 30 days.`}
+        hint={`Leave empty for no limit. It spent ${usd(apiKey.spend30dMicros)} in the last 30 days.`}
         error={problem}
       >
         <MoneyInput
@@ -170,10 +173,15 @@ export function KeyActionDialogs({
 
   const revoke = async (reason: string) => {
     if (!key) return;
-    const updated = await revokeApiKey(key.id, reason);
-    storeKey(queryClient, updated);
-    setOpen(false);
-    toast.success(`${updated.name} is revoked`, { description: "Requests with it now get 401." });
+    try {
+      const updated = await revokeApiKey(key.id, reason);
+      storeKey(queryClient, updated);
+      setOpen(false);
+      toast.success(`${updated.name} is revoked`, { description: "Calls with it now get 401." });
+    } catch (error) {
+      void queryClient.invalidateQueries({ queryKey: keys.apiKeys });
+      throw error;
+    }
   };
 
   return (
@@ -183,8 +191,8 @@ export function KeyActionDialogs({
           <DialogHeader>
             <DialogTitle>Set spend limit</DialogTitle>
             <DialogDescription>
-              Requests with {key?.name ?? "this key"} stop once its spend this month reaches the limit.
-              Other keys of {key?.customer.workspace ?? "the workspace"} keep working.
+              Calls with {key?.name ?? "this key"} stop once its spend this month reaches the limit.
+              Other keys of {key?.customer.name ?? "the workspace"} keep working.
             </DialogDescription>
           </DialogHeader>
           {open && action?.kind === "limit" && <SpendLimitForm apiKey={action.key} onDone={() => setOpen(false)} />}
@@ -194,7 +202,7 @@ export function KeyActionDialogs({
         open={open && action?.kind === "revoke"}
         onOpenChange={setOpen}
         title={`Revoke ${key?.name ?? "key"}`}
-        description="Requests with this key fail at once with 401. This can't be undone."
+        description="Calls with this key fail at once with 401. This can't be undone."
         label="Reason"
         placeholder="Why the key is revoked, for the audit log"
         required

@@ -131,7 +131,7 @@ modelvend/
 │  │  ├─ apps/                          App release'leri ve adım şablonları (kara kutu iş akışları)
 │  │  ├─ billing/                       Fiyat ve maliyet hesabı; sonra ledger, hold ve tahsilat, Stripe
 │  │  ├─ identity/                      Kimlik ve erişim
-│  │  │  ├─ accounts/                   Workspace, kullanıcı, üyelik, tier (henüz yalnız doc.go)
+│  │  │  ├─ accounts/                   Workspace, kullanıcı, üyelik, limitler (henüz yalnız doc.go)
 │  │  │  ├─ keys/                       API anahtarları: üretme, hash, doğrulama
 │  │  │  └─ operators/                  Operatör oturumları ve izinleri (henüz yalnız doc.go)
 │  │  ├─ delivery/                      Sonucu müşteriye ulaştırma
@@ -573,7 +573,7 @@ Bu alan `api/public/rest` içinde okunur, `routing` içinde route listesine filt
 ### Bugün ne var, ne yok
 
 - **Var:**
-  - model, sürüm ve route kavramları; sürüm durumları (`draft`, `staging`, `live`, …);
+  - model, sürüm ve route kavramları; sürüm durumları (`draft`, `live`, …);
   - şema doğrulama ve YAML import;
   - `priority`, `cheapest`, `weighted` ve `fastest` routing stratejileri (`fastest` henüz gecikme verisi almıyor);
   - sahte sağlayıcıyla (`providers/fake`) uçtan uca task akışı;

@@ -10,7 +10,7 @@ type ProviderHealthRow = OverviewProvider;
 const SEVERITY: Record<HealthState, number> = { outage: 0, degraded: 1, operational: 2 };
 
 const bySeverity = (a: ProviderHealthRow, b: ProviderHealthRow) =>
-  SEVERITY[a.state] - SEVERITY[b.state] || b.requests24h - a.requests24h;
+  SEVERITY[a.state] - SEVERITY[b.state] || b.tasks24h - a.tasks24h;
 
 const none = <span className="text-muted-foreground">—</span>;
 
@@ -34,7 +34,7 @@ export function ProviderHealthTable({ providers }: { providers: ProviderHealthRo
               p50
             </th>
             <th scope="col" className="h-8 text-right font-medium whitespace-nowrap">
-              Requests 24h
+              Tasks 24h
             </th>
           </tr>
         </thead>
@@ -60,7 +60,7 @@ export function ProviderHealthTable({ providers }: { providers: ProviderHealthRo
               <td className="pl-3 text-right whitespace-nowrap tabular">
                 {provider.p50Ms === null ? none : milliseconds(provider.p50Ms)}
               </td>
-              <td className="pl-3 text-right tabular">{compact(provider.requests24h)}</td>
+              <td className="pl-3 text-right tabular">{compact(provider.tasks24h)}</td>
             </tr>
           ))}
         </tbody>

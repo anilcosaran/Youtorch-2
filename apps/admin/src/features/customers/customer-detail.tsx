@@ -10,7 +10,6 @@ import { getCustomer, resumeCustomer, suspendCustomer, type Customer } from "@mo
 import { EmptyState, ErrorState } from "@/components/data/states";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConfirm } from "@/components/shared/confirm";
-import { Pill } from "@/components/shared/pill";
 import { ReasonDialog } from "@/components/shared/reason-dialog";
 import { StatTile } from "@/components/shared/stat-tile";
 import { Button } from "@/components/ui/button";
@@ -22,8 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { integer, percent, usd } from "@/lib/format";
-import { TIER_LABELS } from "@/lib/labels";
+import { integer, percent, plural, usd } from "@/lib/format";
 import { toastError } from "@/lib/notify";
 import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
@@ -61,50 +59,45 @@ function SuspendedBanner({ reason, onResume }: { reason: string | null; onResume
 
 function Tiles({ data }: { data: Customer }) {
   const totals = data.usage.reduce(
-    (sum, d) => ({ requests: sum.requests + d.requests, errors: sum.errors + d.errors }),
-    { requests: 0, errors: 0 },
+    (sum, d) => ({ tasks: sum.tasks + d.tasks, errors: sum.errors + d.errors }),
+    { tasks: 0, errors: 0 },
   );
   const { autoReload, limits } = data;
   return (
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <StatTile
         label="Balance"
-        value={<Balance value={data.balance} />}
-        tone={data.balance < LOW_BALANCE ? "attention" : undefined}
+        value={<Balance value={data.balanceMicros} />}
+        tone={data.balanceMicros < LOW_BALANCE ? "attention" : undefined}
         hint={
-          autoReload.enabled
-            ? `Auto-reload ${usd(autoReload.amount)} below ${usd(autoReload.threshold)}`
-            : "Auto-reload off"
+          data.heldMicros > 0
+            ? `${usd(data.heldMicros)} held · ${usd(data.balanceMicros - data.heldMicros)} available`
+            : autoReload.enabled
+              ? `Auto-reload ${usd(autoReload.amountMicros)} below ${usd(autoReload.thresholdMicros)}`
+              : "Auto-reload off"
         }
-        info="Prepaid credit. Every request draws it down; operators can grant or take back credit."
+        info="Prepaid credit. Every task draws it down, and unfinished ones hold part of it: available is balance minus held. Operators can add or take back credit."
       />
       <StatTile
         label="Spend 30d"
-        value={usd(data.spend30d)}
-        hint={limits.monthlySpendCap === null ? "No monthly cap" : `Capped at ${usd(limits.monthlySpendCap)} a month`}
+        value={usd(data.spend30dMicros)}
+        hint={limits.monthlySpendMicros === null ? "No monthly limit" : `Limited to ${usd(limits.monthlySpendMicros)} a month`}
       />
       <StatTile
-        label="Requests 30d"
-        value={integer(data.requests30d)}
+        label="Tasks 30d"
+        value={integer(data.tasks30d)}
         hint={
-          totals.requests === 0
-            ? "No requests"
+          totals.tasks === 0
+            ? "No tasks"
             : totals.errors === 0
               ? "None failed"
-              : `${integer(totals.errors)} failed · ${percent(totals.errors / totals.requests)}`
+              : `${integer(totals.errors)} failed · ${percent(totals.errors / totals.tasks)}`
         }
       />
       <StatTile
         label="Active keys"
         value={integer(data.keys)}
-        hint={
-          <span className="flex items-center gap-1.5">
-            <Pill tone="info" className="h-5 px-2">
-              {TIER_LABELS[data.tier]}
-            </Pill>
-            {integer(limits.requestsPerMinute)} requests a minute
-          </span>
-        }
+        hint={`${plural(data.members, "member")} · ${integer(limits.requestsPerMinute)} requests a minute`}
       />
     </div>
   );
@@ -127,7 +120,7 @@ function DetailSkeleton() {
   );
 }
 
-/** The `…` menu: suspend or resume, and the customer's requests and audit trail elsewhere in the console. */
+/** The `…` menu: suspend or resume, and the customer's tasks and audit trail elsewhere in the console. */
 function MoreMenu({
   data,
   busy,
@@ -140,7 +133,7 @@ function MoreMenu({
   onResume: () => void;
 }) {
   const can = usePermissions();
-  const links = can.viewRequests || can.viewAudit;
+  const links = can.viewTasks || can.viewAudit;
   if (!can.editCustomers && !links) return null;
   return (
     <DropdownMenu>
@@ -150,16 +143,16 @@ function MoreMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
-        {can.viewRequests && (
+        {can.viewTasks && (
           <DropdownMenuItem asChild>
-            <Link href={`/requests?customerId=${encodeURIComponent(data.id)}`}>
-              <Activity /> View requests
+            <Link href={`/tasks?customerId=${encodeURIComponent(data.id)}`}>
+              <Activity /> View tasks
             </Link>
           </DropdownMenuItem>
         )}
         {can.viewAudit && (
           <DropdownMenuItem asChild>
-            {/* By customer, not target: refunds and key changes of theirs are filed under the request or key. */}
+            {/* By customer, not target: refunds and key changes of theirs are filed under the task or key. */}
             <Link href={`/audit?customerId=${encodeURIComponent(data.id)}`}>
               <History /> Audit trail
             </Link>
@@ -194,17 +187,22 @@ export function CustomerDetail({ id }: { id: string }) {
   const data = customer.data;
 
   const suspend = async (reason: string) => {
-    const updated = await suspendCustomer(id, reason);
-    storeCustomer(queryClient, updated);
-    setSuspending(false);
-    toast.success(`${updated.name} is suspended`, { description: "Their keys get 403 until you resume them." });
+    try {
+      const updated = await suspendCustomer(id, reason);
+      storeCustomer(queryClient, updated);
+      setSuspending(false);
+      toast.success(`${updated.name} is suspended`, { description: "Their keys get 403 until you resume them." });
+    } catch (error) {
+      void queryClient.invalidateQueries({ queryKey: keys.customer(id) });
+      throw error;
+    }
   };
 
   const resume = async () => {
     if (!data) return;
     const ok = await confirm({
       title: `Resume ${data.name}?`,
-      description: `Every active key of ${data.workspace} works again at once.`,
+      description: `Every active key of ${data.name} works again at once.`,
       action: "Resume",
     });
     if (!ok) return;
@@ -215,6 +213,7 @@ export function CustomerDetail({ id }: { id: string }) {
       toast.success(`${updated.name} is active again`);
     } catch (error) {
       toastError(error, "Couldn't resume the customer");
+      void queryClient.invalidateQueries({ queryKey: keys.customer(id) });
     } finally {
       setBusy(false);
     }
@@ -227,7 +226,7 @@ export function CustomerDetail({ id }: { id: string }) {
       <PageHeader
         title={data?.name ?? "Customer"}
         parent={{ href: "/customers", label: "Customers" }}
-        description={data && `${data.email} · ${data.workspace}`}
+        description={data && `Owner: ${data.owner.name} · ${data.owner.email}`}
       >
         {data && can.grantCredits && (
           <Button variant="outline" size="sm" onClick={() => setCrediting(true)} aria-label="Add credits">
@@ -284,10 +283,10 @@ export function CustomerDetail({ id }: { id: string }) {
             </div>
             {/* Without access to keys, the ledger takes their place next to the limits. */}
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              {can.viewKeys ? <CustomerKeys customerId={data.id} /> : <LedgerCard ledger={data.ledger} />}
+              {can.viewKeys ? <CustomerKeys customerId={data.id} /> : <LedgerCard customerId={data.id} />}
               <LimitsCard customer={data} onEdit={can.editCustomers ? () => setLimiting(true) : undefined} />
             </div>
-            {can.viewKeys && <LedgerCard ledger={data.ledger} />}
+            {can.viewKeys && <LedgerCard customerId={data.id} />}
             <CreditsDialog customer={data} open={crediting} onOpenChange={setCrediting} />
             <LimitsDialog customer={data} open={limiting} onOpenChange={setLimiting} />
           </>
@@ -299,9 +298,9 @@ export function CustomerDetail({ id }: { id: string }) {
         title={`Suspend ${data?.name ?? "customer"}`}
         description={
           <>
-            Every key of {data?.workspace ?? "this workspace"} gets 403{" "}
-            <code className="font-mono text-xs">account_suspended</code> at once, until you resume it. The balance and
-            keys are kept.
+            Every key of {data?.name ?? "this workspace"} gets 403{" "}
+            <code className="font-mono text-xs">account_suspended</code> at once, until you resume it. Queued tasks are canceled
+            and their holds released; running ones finish. The balance and keys are kept.
           </>
         }
         label="Reason"

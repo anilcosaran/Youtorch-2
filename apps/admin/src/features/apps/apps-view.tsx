@@ -14,7 +14,7 @@ import { PageFill, PageHeader } from "@/components/layout/page-header";
 import { AppStatusPill } from "@/components/shared/status";
 import { RelativeTime } from "@/components/shared/time";
 import { Button } from "@/components/ui/button";
-import { integer, unitPrice, usdCompact } from "@/lib/format";
+import { integer, usdCompact, usdPrecise } from "@/lib/format";
 import { APP_CATEGORY_LABELS, APP_STATUS_LABELS } from "@/lib/labels";
 import { keys } from "@/lib/query-keys";
 import { matchesQuery } from "@/lib/search";
@@ -65,9 +65,9 @@ const COLUMNS: Column<AppSummary>[] = [
         </span>
       ),
   },
-  { id: "price", header: "Price / run", align: "right", cell: (row) => <span className="tabular">{unitPrice(row.price)}</span> },
+  { id: "price", header: "Price / run", align: "right", cell: (row) => <span className="tabular">{usdPrecise(row.priceMicros)}</span> },
   { id: "runs", header: "Runs 24h", align: "right", cell: (row) => <span className="tabular">{integer(row.runs24h)}</span> },
-  { id: "revenue", header: "Revenue 30d", align: "right", cell: (row) => <span className="tabular">{usdCompact(row.revenue30d)}</span> },
+  { id: "revenue", header: "Revenue 30d", align: "right", cell: (row) => <span className="tabular">{usdCompact(row.revenue30dMicros)}</span> },
   { id: "updated", header: "Updated", cell: (row) => <RelativeTime value={row.updatedAt} /> },
 ];
 

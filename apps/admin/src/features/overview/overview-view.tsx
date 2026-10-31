@@ -14,7 +14,7 @@ import { RangeSwitch, useRange } from "@/components/shared/range-switch";
 import { StatTile } from "@/components/shared/stat-tile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { modelHref } from "@/lib/catalog";
-import { compact, day, dayLong, percent, usdCompact } from "@/lib/format";
+import { compact, day, dayLong, percent, usdAxis, usdCompact } from "@/lib/format";
 import { keys } from "@/lib/query-keys";
 import { useSession } from "@/lib/session";
 import { ProviderHealthTable } from "./provider-health";
@@ -42,15 +42,15 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
   if (show.traffic) {
     tiles.push(
       <StatTile
-        key="requests"
-        label="Requests"
-        value={t?.requests24h !== undefined ? compact(t.requests24h) : undefined}
+        key="tasks"
+        label="Tasks"
+        value={t?.tasks24h !== undefined ? compact(t.tasks24h) : undefined}
         hint={
-          <AccessLink permission="requests.view" href="/requests" className={hintLink}>
+          <AccessLink permission="tasks.view" href="/tasks" className={hintLink}>
             Last 24 hours
           </AccessLink>
         }
-        info="Calls to the public API in the last 24 hours, whatever their outcome."
+        info="Model calls and app runs in the last 24 hours, whatever their outcome."
       />,
       <StatTile
         key="error-rate"
@@ -58,11 +58,11 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
         value={t?.errorRate24h === undefined ? undefined : t.errorRate24h === null ? "—" : percent(t.errorRate24h)}
         tone={(t?.errorRate24h ?? 0) > ERROR_ALERT ? "attention" : undefined}
         hint={
-          <AccessLink permission="requests.view" href="/requests?status=failed" className={hintLink}>
+          <AccessLink permission="tasks.view" href="/tasks?status=failed" className={hintLink}>
             Failed, last 24 hours
           </AccessLink>
         }
-        info="Share of the last 24 hours' requests that failed after every attempt. Requests a fallback rescued count as succeeded."
+        info="Share of the last 24 hours' tasks that failed after every attempt. Tasks a fallback rescued count as succeeded."
       />,
     );
   }
@@ -74,10 +74,10 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
         value={t?.activeCustomers7d !== undefined ? compact(t.activeCustomers7d) : undefined}
         hint={
           <AccessLink permission="customers.view" href="/customers" className={hintLink}>
-            Made a request, 7 days
+            Ran a task, 7 days
           </AccessLink>
         }
-        info="Customers with at least one request in the last 7 days."
+        info="Customers with at least one task in the last 7 days."
       />,
     );
   }
@@ -86,8 +86,9 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
       <StatTile
         key="revenue"
         label="Revenue"
-        value={t?.revenue !== undefined ? usdCompact(t.revenue) : undefined}
-        hint={`What customers paid, ${rangeText}`}
+        value={t?.revenueMicros !== undefined ? usdCompact(t.revenueMicros) : undefined}
+        hint={`Purchased-credit usage minus refunds, ${rangeText}`}
+        info="What purchased credits paid for, less refunds. Gift credits and internal workspaces don't count."
       />,
     );
   }
@@ -96,7 +97,7 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
       <StatTile
         key="cost"
         label="Upstream cost"
-        value={t?.cost !== undefined ? usdCompact(t.cost) : undefined}
+        value={t?.costMicros !== undefined ? usdCompact(t.costMicros) : undefined}
         hint={`What providers charged, ${rangeText}`}
       />,
     );
@@ -108,7 +109,7 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
         label="Gross margin"
         value={t?.margin === undefined ? undefined : t.margin === null ? "—" : percent(t.margin)}
         tone={(t?.margin ?? 0) < 0 ? "attention" : undefined}
-        hint={t?.revenue !== undefined && t.cost !== undefined ? `${usdCompact(t.revenue - t.cost)} kept, ${rangeText}` : rangeText}
+        hint={t?.revenueMicros !== undefined && t.costMicros !== undefined ? `${usdCompact(t.revenueMicros - t.costMicros)} kept, ${rangeText}` : rangeText}
         info="Revenue minus upstream cost, as a share of revenue."
       />,
     );
@@ -128,7 +129,7 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
             </AccessLink>
           )
         }
-        info="Models taking requests. Paused models refuse new ones with 503 model_paused."
+        info="Models taking tasks. Paused models refuse new ones with 503 model_paused."
       />,
     );
   }
@@ -154,8 +155,8 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
         key="deprecated"
         label="Deprecated versions"
         value={t?.deprecatedVersions !== undefined ? compact(t.deprecatedVersions) : undefined}
-        hint="Sunsetting soon"
-        info="Versions that still answer, with Deprecation and Sunset headers, until their sunset date."
+        hint="Still answering"
+        info="Versions that still answer, with Deprecation and Sunset headers, until someone retires them. The sunset date allows that."
       />,
     );
   }
@@ -176,13 +177,13 @@ function Tiles({ totals: t, show, range }: { totals: OverviewTotals | undefined;
   );
 }
 
-/** Top models by requests, each linked to its page, with what it earned. */
+/** Top models by tasks, each linked to its page, with what it earned. */
 function TopModels({ models }: { models: OverviewModel[] }) {
   return (
     <BarList
       color="var(--series-2)"
       items={[...models]
-        .sort((a, b) => b.requests - a.requests)
+        .sort((a, b) => b.tasks - a.tasks)
         .map((model) => ({
           key: model.modelId,
           label: (
@@ -201,8 +202,8 @@ function TopModels({ models }: { models: OverviewModel[] }) {
               </span>
             </>
           ),
-          value: model.requests,
-          detail: usdCompact(model.revenue),
+          value: model.tasks,
+          detail: usdCompact(model.revenueMicros),
         }))}
     />
   );
@@ -273,19 +274,19 @@ export function OverviewView() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {show.traffic && (
             <ChartCard
-              title="Requests"
+              title="Tasks"
               description={`Succeeded and failed per day, ${rangeText}`}
-              info="A request fails when every attempt failed. Requests a fallback rescued count as succeeded."
+              info="A task fails when every attempt failed. Tasks a fallback rescued count as succeeded."
               accent="var(--series-1)"
             >
               {chart((d) =>
-                d.series.every((row) => !row.requests) ? (
-                  <ChartEmpty height={CHART_HEIGHT} message="No requests in this range" />
+                d.series.every((row) => !row.tasks) ? (
+                  <ChartEmpty height={CHART_HEIGHT} message="No tasks in this range" />
                 ) : (
                   <TimeSeriesChart
                     data={d.series.map((row) => ({
                       day: row.day,
-                      succeeded: Math.max(0, (row.requests ?? 0) - (row.failed ?? 0)),
+                      succeeded: Math.max(0, (row.tasks ?? 0) - (row.failed ?? 0)),
                       failed: row.failed ?? 0,
                     }))}
                     x="day"
@@ -309,21 +310,22 @@ export function OverviewView() {
               title={moneyTitle}
               description={
                 show.revenue && show.cost
-                  ? `What customers paid and what providers charged per day, ${rangeText}`
+                  ? `Purchased-credit usage minus refunds, and what providers charged, per day, ${rangeText}`
                   : show.revenue
-                    ? `What customers paid per day, ${rangeText}`
+                    ? `Purchased-credit usage minus refunds per day, ${rangeText}`
                     : `What providers charged per day, ${rangeText}`
               }
-              info="Revenue is what customers were billed for successful requests. Upstream cost is what providers charged us for them."
+              info="Revenue is what purchased credits paid for, less refunds; gift credits and internal workspaces don't count. Upstream cost is what providers charged us."
               accent={show.revenue ? "var(--series-3)" : "var(--series-2)"}
             >
               {chart((d) => (
                 <TimeSeriesChart
-                  data={d.series.map((row) => ({ day: row.day, revenue: row.revenue ?? 0, cost: row.cost ?? 0 }))}
+                  data={d.series.map((row) => ({ day: row.day, revenue: row.revenueMicros ?? 0, cost: row.costMicros ?? 0 }))}
                   x="day"
                   series={moneySeries}
                   legend="totals"
                   valueFormat={usdCompact}
+                  axisFormat={usdAxis}
                   tickFormat={day}
                   labelFormat={dayLong}
                 />
@@ -344,12 +346,13 @@ export function OverviewView() {
             >
               {chart((d) => (
                 <TimeSeriesChart
-                  data={d.series.map((row) => ({ day: row.day, margin: (row.revenue ?? 0) - (row.cost ?? 0) }))}
+                  data={d.series.map((row) => ({ day: row.day, margin: (row.revenueMicros ?? 0) - (row.costMicros ?? 0) }))}
                   x="day"
                   series={[{ key: "margin", label: "Gross margin", color: "var(--series-6)" }]}
                   variant="bar"
                   legend="totals"
                   valueFormat={usdCompact}
+                  axisFormat={usdAxis}
                   tickFormat={day}
                   labelFormat={dayLong}
                 />
@@ -380,12 +383,12 @@ export function OverviewView() {
           {show.catalog && (
             <ChartCard
               title="Top models"
-              description={`Most requested, with what each earned, ${rangeText}`}
+              description={`Most used, with what each earned, ${rangeText}`}
               accent="var(--series-2)"
             >
               {chart((d) =>
                 !d.topModels || d.topModels.length === 0 ? (
-                  <ChartEmpty height={CHART_HEIGHT} message="No requests in this range" />
+                  <ChartEmpty height={CHART_HEIGHT} message="No tasks in this range" />
                 ) : (
                   <TopModels models={d.topModels} />
                 ),

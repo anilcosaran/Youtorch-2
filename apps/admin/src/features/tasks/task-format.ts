@@ -1,20 +1,21 @@
 import type { BillingUnit } from "@modelvend/admin-api/models";
-import type { AttemptStatus, RequestDetail, RequestStatus } from "@modelvend/admin-api/requests";
-import { compact, unitPrice, usd } from "@/lib/format";
+import type { AttemptStatus, TaskDetail, TaskStatus } from "@modelvend/admin-api/tasks";
+import { compact, usdPrecise } from "@/lib/format";
 
 /** Still waiting for a result, so its status and numbers will change. */
-export const inFlight = (status: RequestStatus) => status === "queued" || status === "running";
+export const inFlight = (status: TaskStatus) => status === "queued" || status === "running";
 
 /** What the customer paid minus what the provider charged us. */
-export const marginOf = (request: { price: number; cost: number }) => request.price - request.cost;
+export const marginOf = (task: { amountMicros: number; costMicros: number }) => task.amountMicros - task.costMicros;
 
-/** A request's price, cost or margin. Under a dollar, fractions of a cent stay visible: "$0.0035". */
-export const money = (dollars: number) => (Math.abs(dollars) < 1 ? unitPrice(dollars) : usd(dollars));
+/** What a task paid, cost or kept, in micro-dollars. Under a dollar, fractions of a cent stay visible: "$0.0035". */
+export const money = usdPrecise;
 
 const unitsFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-/** What a request was billed for: "5 s", "2 images", "1.2 MP", "3.4K tokens". */
-export function unitsText(units: number, unit: BillingUnit): string {
+/** What a task was billed for: "5 s", "2 images", "1.2 MP", "3.4K tokens"; "—" until it is known. */
+export function unitsText(units: number | null, unit: BillingUnit | null): string {
+  if (units === null || unit === null) return "—";
   const n = unitsFormatter.format(units);
   const one = units === 1;
   switch (unit) {
@@ -27,7 +28,7 @@ export function unitsText(units: number, unit: BillingUnit): string {
     case "image":
       return `${n} ${one ? "image" : "images"}`;
     case "request":
-      return `${n} ${one ? "request" : "requests"}`;
+      return `${n} ${one ? "task" : "tasks"}`;
     case "mesh":
       return `${n} ${one ? "mesh" : "meshes"}`;
     case "1k_chars":
@@ -38,14 +39,16 @@ export function unitsText(units: number, unit: BillingUnit): string {
 }
 
 export const ATTEMPT_STATUS_LABELS: Record<AttemptStatus, string> = {
+  running: "Running",
   succeeded: "Succeeded",
   failed: "Failed",
   timeout: "Timed out",
   canceled: "Canceled",
 };
 
-/** How an attempt ended, inside a sentence: "Attempt 1 on fal timed out". */
+/** How an attempt went, inside a sentence: "Attempt 1 on kling timed out". */
 export const ATTEMPT_VERBS: Record<AttemptStatus, string> = {
+  running: "is running",
   succeeded: "succeeded",
   failed: "failed",
   timeout: "timed out",
@@ -54,12 +57,12 @@ export const ATTEMPT_VERBS: Record<AttemptStatus, string> = {
 
 const FINISHED = new Set<string>(["succeeded", "failed", "canceled"]);
 
-/** When the request finished: its last final event, else its start plus its latency. */
-export function finishedAt(request: RequestDetail): string | null {
-  const event = request.events.findLast((e) => FINISHED.has(e.status));
+/** When the task finished: its last final event, else its start plus its latency. */
+export function finishedAt(task: TaskDetail): string | null {
+  const event = task.events.findLast((e) => FINISHED.has(e.status));
   if (event) return event.at;
-  if (inFlight(request.status) || request.latencyMs === null) return null;
-  return new Date(Date.parse(request.createdAt) + request.latencyMs).toISOString();
+  if (inFlight(task.status) || task.latencyMs === null) return null;
+  return new Date(Date.parse(task.createdAt) + task.latencyMs).toISOString();
 }
 
 export interface OutputLink {
@@ -70,7 +73,13 @@ export interface OutputLink {
 
 const MAX_LINKS = 50;
 
-/** Every web URL in a request's output (media is stored and handed back as URLs), each once. */
+/** What a task ran: `google/veo-3.1@v2`, or the app for an app run. */
+export function subjectOf(task: Pick<TaskDetail, "model" | "version" | "app">): string {
+  if (task.model) return task.version ? `${task.model}@${task.version}` : task.model;
+  return task.app ? `App ${task.app}` : "Unknown";
+}
+
+/** Every web URL in a task's output (media is stored and handed back as URLs), each once. */
 export function outputLinks(output: unknown): OutputLink[] {
   const found = new Map<string, OutputLink>();
   const visit = (value: unknown, path: string) => {

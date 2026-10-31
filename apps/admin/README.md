@@ -39,7 +39,7 @@ asked to sign in again (unless you never signed out, in which case you are still
 ```
 src/
 ├─ app/                Routes only; app/api/[...path] forwards /api/admin/v1/* to the admin API (or the mock)
-├─ features/           One folder per screen: overview, requests, models, apps, providers,
+├─ features/           One folder per screen: overview, tasks, models, apps, providers,
 │                      customers, api-keys, audit, operators, auth
 ├─ components/         ui/ (shadcn), data/ (table, filters, pager), layout/ (shell, sidebar,
 │                      command palette, side panel), shared/ (pills, dialogs, tiles), charts/
@@ -50,14 +50,17 @@ src/
 
 Conventions:
 
-- The contract lives in [`packages/admin-api`](../../packages/admin-api), imported as `@modelvend/admin-api/<area>`:
-  types and typed client, one file per area. Its doc comments state the rules the server enforces (which lifecycle
-  moves are allowed, what returns 409 or 422). The Go admin API implements the same contract; keep the mock in step.
+- The contract is [`api/admin.yaml`](../../api/admin.yaml), with the rules the server enforces (which lifecycle moves
+  are allowed, what returns 409 or 422). `make gen` generates its types, and
+  [`packages/admin-api`](../../packages/admin-api) is the typed client on them, imported as
+  `@modelvend/admin-api/<area>`. `src/mock-api/contract.test.ts` checks every answer of the mock against the spec, so the
+  two can't drift; the Go admin API has to pass the same behaviour.
 - Filters, tabs and paging live in the query string, so every view can be shared and survives a reload.
 - Every change goes through the API, which writes the audit log; screens never keep their own copy of server state
   beyond the React Query cache.
-- Money is US dollars as numbers in the API (stored as integer micro-dollars server side). Use `usd`, `usdCompact` and
-  `unitPrice` from `lib/format.ts`.
+- Money: amounts are whole micro-dollars (`…Micros`), unit prices are decimal strings. `usd` and `usdCompact` take
+  micro-dollars and `unitPrice` a decimal, both from `lib/format.ts`. Forms take dollars and convert at the edge, with
+  `@modelvend/admin-api/money`.
 
 ## Environment
 

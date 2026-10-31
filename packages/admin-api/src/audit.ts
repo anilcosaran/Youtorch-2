@@ -1,15 +1,7 @@
-import { request, type Page, type PageParams } from "./client";
+import { request, type PageParams } from "./client";
+import type { S } from "./schema";
 
-export interface AuditEntry {
-  id: string;
-  operator: { id: string; name: string } | null;
-  action: string;
-  targetType: string;
-  targetId: string | null;
-  detail: Record<string, unknown>;
-  ip: string | null;
-  at: string;
-}
+export type AuditEntry = S["AuditEntry"];
 
 /** The dotted action names the server writes. */
 export const AUDIT_ACTIONS = [
@@ -23,7 +15,7 @@ export const AUDIT_ACTIONS = [
   "model.resume",
   "version.create",
   "version.update",
-  "version.promote",
+  "version.publish",
   "version.default",
   "version.deprecate",
   "version.retire",
@@ -40,6 +32,8 @@ export const AUDIT_ACTIONS = [
   "app.resume",
   "provider.create",
   "provider.update",
+  "provider.enable",
+  "provider.disable",
   "provider.pause",
   "provider.resume",
   "provider.credential",
@@ -49,25 +43,26 @@ export const AUDIT_ACTIONS = [
   "customer.credits",
   "api_key.update",
   "api_key.revoke",
-  "request.refund",
+  "task.refund",
   "operator.create",
   "operator.update",
   "operator.reset_password",
+  "settings.update",
 ] as const;
 
 export interface AuditFilters {
   operatorId?: string;
-  /** Also matches dotted children: "version" matches "version.promote". */
+  /** Also matches dotted children: "version" matches "version.publish". */
   action?: string;
   /** What was changed, e.g. "model" or "customer"; used with `targetId`. */
   targetType?: string;
   targetId?: string;
   /**
    * Everything about one customer: changes to the customer itself, to its API keys (`api_key`) and refunds of its
-   * requests (`request`). Entries about keys and requests carry the customer in `detail.customerId`.
+   * tasks (`task`). Entries about keys and tasks carry the customer in `detail.customerId`.
    */
   customerId?: string;
 }
 
 export const listAudit = (params: AuditFilters & PageParams) =>
-  request<Page<AuditEntry>>("/audit", { query: { ...params } });
+  request<S["AuditPage"]>("/audit", { query: { ...params } });

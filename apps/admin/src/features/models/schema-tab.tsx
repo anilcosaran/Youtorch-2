@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import { describeSchemaProblem, exampleInput, isEditable, parseSchema, schemaFields, schemaProblem } from "@/lib/catalog";
 import { usePermissions } from "@/lib/session";
-import { useApplyModel } from "./use-model-action";
+import { isStale, toastError } from "@/lib/notify";
+import { useApplyModel, useRefreshModel } from "./use-model-action";
 import { VersionBar } from "./version-picker";
 
 /** API origin shown in the example call. */
@@ -58,7 +59,7 @@ function SchemaWarning({ schema, editable }: { schema: JsonSchema; editable: boo
   return (
     <p role="alert" className="mb-3 rounded-lg bg-status-critical/10 px-3 py-2 text-xs text-status-critical">
       This schema isn&apos;t valid: {describeSchemaProblem(problem)} The table shows what can be read, and the version can&apos;t be
-      promoted until it is fixed{editable ? " with Edit JSON" : " in a new version"}.
+      published until it is fixed{editable ? " with Edit JSON" : " in a new version"}.
     </p>
   );
 }
@@ -77,6 +78,9 @@ function SchemaEditor({
   onClose: () => void;
 }) {
   const apply = useApplyModel();
+  const refresh = useRefreshModel();
+  // What the text was loaded from: a change made elsewhere since then is refused rather than overwritten.
+  const [revision] = useState(model.revision);
   const [text, setText] = useState(() => JSON.stringify(version[which], null, 2));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,9 +94,15 @@ function SchemaEditor({
     setBusy(true);
     setError(null);
     try {
-      apply(await updateVersion(model.id, version.id, { [which]: parsed.schema }));
+      apply(await updateVersion(model.id, version.id, revision, { [which]: parsed.schema }));
       onClose();
     } catch (err) {
+      refresh(model.id);
+      if (isStale(err)) {
+        toastError(err, "Couldn't save the schema");
+        onClose();
+        return;
+      }
       setError(errorMessage(err));
       setBusy(false);
     }
@@ -130,9 +140,9 @@ export function SchemaTab({ model, version, onPick }: { model: Model; version: M
   const [editing, setEditing] = useState<Which | null>(null);
   const editable = can.editCatalog && isEditable(version);
   const target = version.id === model.defaultVersion ? model.id : `${model.id}@${version.id}`;
-  const body = JSON.stringify({ model: target, ...exampleInput(version.inputSchema) }, null, 2).replace(/\n/g, "\n  ");
-  const example = `curl ${API_BASE}/generations \\
-  -H "Authorization: Bearer $MODELVEND_API_KEY" \\
+  const body = JSON.stringify({ model: target, input: exampleInput(version.inputSchema) }, null, 2).replace(/\n/g, "\n  ");
+  const example = `curl ${API_BASE}/tasks \\
+  -H "Authorization: Bearer mv_…" \\
   -H "Content-Type: application/json" \\
   -d '${body}'`;
 
@@ -170,7 +180,8 @@ export function SchemaTab({ model, version, onPick }: { model: Model; version: M
       <DetailSection title="Example call">
         <pre className="scroll-thin overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed">{example}</pre>
         <p className="mt-2 text-xs text-muted-foreground">
-          Media models answer with a request ID to poll or a webhook; see the request log for real calls.
+          Every task is queued and answers 202 with its ID, to poll or to follow with a webhook. <code className="font-mono">Prefer: wait=N</code>{" "}
+          waits up to N seconds, at most 60, for it to finish. See the task log for real calls.
         </p>
       </DetailSection>
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
@@ -179,7 +190,7 @@ export function SchemaTab({ model, version, onPick }: { model: Model; version: M
             <DialogTitle>
               {editing === "outputSchema" ? "Output" : "Input"} schema of {version.id}
             </DialogTitle>
-            <DialogDescription>JSON Schema (2020-12). The gateway validates every request against the input schema.</DialogDescription>
+            <DialogDescription>JSON Schema (2020-12). The gateway validates every task&apos;s input against the input schema.</DialogDescription>
           </DialogHeader>
           {editing && <SchemaEditor model={model} version={version} which={editing} onClose={() => setEditing(null)} />}
         </DialogContent>

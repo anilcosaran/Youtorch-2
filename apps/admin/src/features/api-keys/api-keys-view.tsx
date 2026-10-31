@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { KEY_ENVS, KEY_STATUSES, listApiKeys } from "@modelvend/admin-api/api-keys";
+import { KEY_STATUSES, listApiKeys } from "@modelvend/admin-api/api-keys";
 import { DataTable, rowsOf } from "@/components/data/data-table";
 import { ClearFilters, FilterBar, FilterSelect, SearchInput } from "@/components/data/filters";
 import { ListPanel } from "@/components/data/list-panel";
@@ -10,7 +10,7 @@ import { PagerBar } from "@/components/data/pager";
 import { EmptyState } from "@/components/data/states";
 import { PageFill, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { KEY_ENV_LABELS, KEY_STATUS_LABELS } from "@/lib/labels";
+import { KEY_STATUS_LABELS } from "@/lib/labels";
 import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
 import { pick, usePager, useUrlState } from "@/lib/use-url-state";
@@ -22,11 +22,10 @@ export function ApiKeysView() {
   const { get, set } = useUrlState();
   const pager = usePager();
   const query = get("query");
-  const env = pick(get("env"), KEY_ENVS);
   const status = pick(get("status"), KEY_STATUSES);
   // Customer pages link here for one workspace's keys.
   const customerId = get("customerId");
-  const filters = { query, env, status, customerId, cursor: pager.cursor };
+  const filters = { query, status, customerId, cursor: pager.cursor };
 
   const list = useQuery({
     queryKey: keys.apiKeyList(filters),
@@ -34,7 +33,7 @@ export function ApiKeysView() {
     placeholderData: keepPreviousData,
   });
   const actions = useKeyActions();
-  const filtered = Boolean(query || env || status || customerId);
+  const filtered = Boolean(query || status || customerId);
   // The chip names the customer once a key of theirs is on screen.
   const customerName = customerId
     ? list.data?.items.find((row) => row.customer.id === customerId)?.customer.name
@@ -55,12 +54,6 @@ export function ApiKeysView() {
             placeholder="Name, prefix, key ID or customer"
             value={query}
             onChange={(value) => set({ query: value })}
-          />
-          <FilterSelect
-            label="Env"
-            value={env}
-            onChange={(value) => set({ env: value })}
-            options={KEY_ENVS.map((e) => ({ value: e, label: KEY_ENV_LABELS[e] }))}
           />
           <FilterSelect
             label="Status"
@@ -86,7 +79,7 @@ export function ApiKeysView() {
           )}
           <ClearFilters
             active={filtered}
-            onClear={() => set({ query: null, env: null, status: null, customerId: null })}
+            onClear={() => set({ query: null, status: null, customerId: null })}
           />
         </FilterBar>
         <ListPanel>

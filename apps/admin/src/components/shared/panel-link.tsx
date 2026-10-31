@@ -16,7 +16,7 @@ const plainClick = (event: React.MouseEvent) =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
 /**
- * A link that opens an item, such as a request, in the side panel over
+ * A link that opens an item, such as a task, in the side panel over
  * the current page. Operators who may not open it see the text alone.
  */
 export function PanelLink({

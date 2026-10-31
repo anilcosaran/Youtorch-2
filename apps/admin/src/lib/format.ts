@@ -1,4 +1,5 @@
 import { differenceInMinutes, format, parseISO } from "date-fns";
+import { toDollars } from "@modelvend/admin-api/money";
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -24,16 +25,17 @@ export function percent(share: number, digits = 1): string {
   return `${(share * 100).toFixed(digits)}%`;
 }
 
-/** Money in US dollars: 1234.5 → "$1,234.50". Unknown amounts read "—". */
-export function usd(dollars: number | null | undefined): string {
-  if (dollars === null || dollars === undefined || !Number.isFinite(dollars)) return "—";
-  return usdFormatter.format(Math.round(dollars * 100) / 100);
+/** An amount in micro-dollars, as the API sends it: 1234500000 → "$1,234.50". Unknown amounts read "—". */
+export function usd(micros: number | null | undefined): string {
+  if (micros === null || micros === undefined || !Number.isFinite(micros)) return "—";
+  return usdFormatter.format(Math.round(toDollars(micros) * 100) / 100);
 }
 
-/** Large amounts in US dollars, shortened: 12840 → "$12.8K". */
-export function usdCompact(dollars: number | null | undefined): string {
-  if (dollars === null || dollars === undefined || !Number.isFinite(dollars)) return "—";
-  if (Math.abs(dollars) < 1000) return usd(dollars);
+/** Large amounts in micro-dollars, shortened: 12840000000 → "$12.8K". */
+export function usdCompact(micros: number | null | undefined): string {
+  if (micros === null || micros === undefined || !Number.isFinite(micros)) return "—";
+  const dollars = toDollars(micros);
+  if (Math.abs(dollars) < 1000) return usd(micros);
   return `${dollars < 0 ? "-" : ""}$${compactFormatter.format(Math.abs(dollars))}`;
 }
 
@@ -44,10 +46,25 @@ const unitFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 4,
 });
 
-/** A per-unit price, which often has fractions of a cent: 0.045 → "$0.045", 0.0035 → "$0.0035". */
-export function unitPrice(dollars: number | null | undefined): string {
-  if (dollars === null || dollars === undefined || !Number.isFinite(dollars)) return "—";
-  return unitFormatter.format(dollars);
+const axisFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/** A chart's axis tick for an amount in micro-dollars, kept short: "$0", "$2.5", "$12.8K". */
+export function usdAxis(micros: number): string {
+  const dollars = toDollars(micros);
+  return `${dollars < 0 ? "-" : ""}$${axisFormatter.format(Math.abs(dollars))}`;
+}
+
+/** A per-unit price, which often has fractions of a cent: "0.045" → "$0.045", 0.0035 → "$0.0035". */
+export function unitPrice(dollars: string | number | null | undefined): string {
+  if (dollars === null || dollars === undefined) return "—";
+  const value = Number(dollars);
+  return Number.isFinite(value) ? unitFormatter.format(value) : "—";
+}
+
+/** An amount in micro-dollars that may be small: under a dollar, fractions of a cent stay visible: "$0.0035", "$12.50". */
+export function usdPrecise(micros: number | null | undefined): string {
+  if (micros === null || micros === undefined || !Number.isFinite(micros)) return "—";
+  return Math.abs(micros) < 1_000_000 ? unitPrice(toDollars(micros)) : usd(micros);
 }
 
 /** Milliseconds as "820 ms" or "1.4 s". */

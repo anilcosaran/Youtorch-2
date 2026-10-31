@@ -14,12 +14,14 @@ COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/
 # Workspace packages the app depends on: npm links them, so their manifests must be here before npm ci.
 COPY packages/admin-api/package.json packages/admin-api/
+COPY packages/api-types/package.json packages/api-types/
 COPY packages/config-eslint/package.json packages/config-eslint/
 COPY packages/config-typescript/package.json packages/config-typescript/
 RUN npm ci --workspace apps/admin
 
 FROM deps AS builder
 COPY packages/admin-api packages/admin-api
+COPY packages/api-types packages/api-types
 COPY packages/config-eslint packages/config-eslint
 COPY packages/config-typescript packages/config-typescript
 COPY apps/admin apps/admin

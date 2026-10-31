@@ -24,8 +24,22 @@ export const PERMISSION_CATALOG: PermissionInfo[] = [
     id: "catalog.publish",
     area: "Catalog",
     label: "Publish",
-    description: "Promote, deprecate and retire versions, set defaults, deploy app releases, and pause models and apps.",
+    description: "Publish, deprecate and retire versions, set defaults, deploy app releases, pause models and apps, and widen visibility.",
     requires: ["catalog.edit"],
+  },
+  {
+    id: "pricing.edit",
+    area: "Catalog",
+    label: "Set prices",
+    description: "Change sell prices and promos.",
+    requires: ["catalog.edit"],
+  },
+  {
+    id: "pricing.below_cost",
+    area: "Catalog",
+    label: "Sell below cost",
+    description: "Publish a price that loses money on every call.",
+    requires: ["pricing.edit"],
   },
   { id: "providers.view", area: "Providers", label: "View providers", description: "See providers, their health, limits and spend.", requires: [] },
   {
@@ -40,14 +54,14 @@ export const PERMISSION_CATALOG: PermissionInfo[] = [
     id: "customers.edit",
     area: "Customers",
     label: "Edit customers",
-    description: "Change tiers and limits; suspend and resume workspaces.",
+    description: "Change limits; suspend and resume workspaces.",
     requires: ["customers.view"],
   },
   {
     id: "customers.credits",
     area: "Customers",
     label: "Grant credits",
-    description: "Grant or take back credits and refund requests.",
+    description: "Add or take back credits and refund tasks.",
     requires: ["customers.view"],
   },
   { id: "keys.view", area: "API keys", label: "View API keys", description: "See customers' keys by prefix, with scopes and spend.", requires: [] },
@@ -58,8 +72,10 @@ export const PERMISSION_CATALOG: PermissionInfo[] = [
     description: "Revoke keys and change their spend limits.",
     requires: ["keys.view"],
   },
-  { id: "requests.view", area: "Requests", label: "View requests", description: "See requests with their inputs, outputs and attempts.", requires: [] },
+  { id: "tasks.view", area: "Tasks", label: "View tasks", description: "See tasks with their inputs, outputs and attempts.", requires: [] },
   { id: "audit.view", area: "Audit log", label: "View audit log", description: "See every change operators made.", requires: [] },
+  { id: "settings.manage", area: "Settings", label: "Manage settings", description: "Change platform limits, the minimum margin, fees and credit lifetimes.", requires: [] },
+  { id: "announcements.manage", area: "Settings", label: "Manage announcements", description: "Post and remove site announcements.", requires: [] },
   {
     id: "operators.manage",
     area: "Operators",
@@ -73,13 +89,14 @@ const CATALOG_MANAGER: Permission[] = [
   "catalog.view",
   "catalog.edit",
   "catalog.publish",
+  "pricing.edit",
   "providers.view",
   "providers.edit",
-  "requests.view",
+  "tasks.view",
 ];
-const SUPPORT: Permission[] = ["catalog.view", "customers.view", "customers.edit", "keys.view", "keys.revoke", "requests.view"];
-const FINANCE: Permission[] = ["providers.view", "customers.view", "customers.credits", "requests.view", "audit.view"];
-const READ_ONLY: Permission[] = ["catalog.view", "providers.view", "customers.view", "keys.view", "requests.view", "audit.view"];
+const SUPPORT: Permission[] = ["catalog.view", "customers.view", "customers.edit", "keys.view", "keys.revoke", "tasks.view"];
+const FINANCE: Permission[] = ["providers.view", "customers.view", "customers.credits", "tasks.view", "audit.view"];
+const READ_ONLY: Permission[] = ["catalog.view", "providers.view", "customers.view", "keys.view", "tasks.view", "audit.view"];
 
 export const ACCESS_PRESETS: AccessPreset[] = [
   { id: "admin", label: "Admin", description: "Everything, including managing operators.", role: "admin", permissions: [...PERMISSIONS] },
@@ -93,7 +110,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
   {
     id: "support",
     label: "Support",
-    description: "Helps customers: tiers and limits, suspensions and API keys.",
+    description: "Helps customers: limits, suspensions and API keys.",
     role: "custom",
     permissions: SUPPORT,
   },

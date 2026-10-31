@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { ID_PART } from "@/lib/catalog";
 import { ADAPTER_LABELS, PROVIDER_KIND_DESCRIPTIONS, PROVIDER_KIND_LABELS } from "@/lib/labels";
 import { formErrors } from "@/lib/notify";
@@ -60,13 +62,15 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
   const store = useStoreProvider();
   const [id, setId] = useState(provider?.id ?? "");
   const [name, setName] = useState(provider?.name ?? "");
-  const [kind, setKind] = useState<ProviderKind>(provider?.kind ?? "aggregator");
-  const [adapter, setAdapter] = useState<Adapter>(provider?.adapter ?? "http");
+  const [kind, setKind] = useState<ProviderKind>(provider?.kind ?? "first_party");
+  const [adapter, setAdapter] = useState<Adapter>(provider?.adapter ?? "google");
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "https://");
   const [secret, setSecret] = useState("");
   const [regions, setRegions] = useState<string[]>(provider?.regions ?? ["global"]);
   const [concurrency, setConcurrency] = useState(provider?.limits.concurrency?.toString() ?? "");
   const [rpm, setRpm] = useState(provider?.limits.requestsPerMinute?.toString() ?? "");
+  const [whiteLabelAllowed, setWhiteLabelAllowed] = useState(provider?.whiteLabelAllowed ?? false);
+  const [licenseNotes, setLicenseNotes] = useState(provider?.licenseNotes ?? "");
   // Moving an existing provider to another endpoint asks once more before saving.
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -103,10 +107,12 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
           baseUrl,
           ...(needsSecret ? { secret: secret.trim() } : {}),
           regions,
+          whiteLabelAllowed,
+          licenseNotes: licenseNotes.trim(),
           limits: { concurrency: optional(concurrency), requestsPerMinute: optional(rpm) },
         });
       } else {
-        saved = await createProvider({ id, name: name.trim(), kind, adapter, baseUrl, regions });
+        saved = await createProvider({ id, name: name.trim(), kind, adapter, baseUrl, regions, whiteLabelAllowed, licenseNotes: licenseNotes.trim() });
       }
       store(saved);
       toast.success(provider ? "Provider saved" : `${saved.name} added`, {
@@ -114,12 +120,12 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
           ? moves
             ? `New attempts go to ${hostOf(saved.baseUrl)}.`
             : undefined
-          : "Set its key, then add routes to it from a model's routing tab.",
+          : "It starts disabled: set its key, then enable it.",
       });
       onDone();
     } catch (err) {
       // Errors on fields this form has no place for (regions, limits) go in the form error.
-      const shown = formErrors(err, ["id", "name", "baseUrl", "secret"], {
+      const shown = formErrors(err, ["id", "name", "baseUrl", "secret", "licenseNotes"], {
         "limits.concurrency": "Max in flight",
         "limits.requestsPerMinute": "Requests per minute",
       });
@@ -135,7 +141,7 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
       <FormError message={error} />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="provider-name" label="Name" error={fields.name}>
-          <Input id="provider-name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="fal" />
+          <Input id="provider-name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Google" />
         </Field>
         <Field id="provider-id" label="ID" hint={provider ? "Can't change." : "Used in routes and logs."} error={idError}>
           <Input
@@ -218,6 +224,16 @@ function ProviderForm({ provider, onDone }: { provider: Provider | null; onDone:
           </Field>
         </div>
       )}
+      <label className="flex items-start justify-between gap-4 text-sm">
+        <span>
+          <span className="block font-medium">White label allowed</span>
+          <span className="block text-xs text-muted-foreground">Whether its terms let us resell its models under our own name.</span>
+        </span>
+        <Switch checked={whiteLabelAllowed} onCheckedChange={setWhiteLabelAllowed} />
+      </label>
+      <Field id="provider-license" label="License notes" hint="What its terms say, for whoever adds models to it." error={fields.licenseNotes}>
+        <Textarea id="provider-license" value={licenseNotes} onChange={(e) => setLicenseNotes(e.target.value)} className="min-h-16" />
+      </Field>
       {confirming && provider && (
         <div role="alert" className="grid gap-1 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2.5 text-sm">
           <p className="font-medium">
@@ -255,13 +271,13 @@ export function ProviderDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="scroll-thin max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{provider ? `Edit ${provider.name}` : "Add a provider"}</DialogTitle>
           <DialogDescription>
             {provider
               ? "Limits apply across every route through this provider."
-              : "A provider needs an adapter the gateway already speaks. Adding a new protocol is a code change."}
+              : "A provider needs an adapter the gateway already speaks; adding a new protocol is a code change. It starts disabled."}
           </DialogDescription>
         </DialogHeader>
         {open && <ProviderForm provider={provider} onDone={() => onOpenChange(false)} />}
@@ -334,9 +350,9 @@ export function CredentialDialog({
         <DialogHeader>
           <DialogTitle>{provider.credential.configured ? `Rotate the ${provider.name} key` : `Set the ${provider.name} key`}</DialogTitle>
           <DialogDescription>
-            {provider.credential.source === "environment"
-              ? "A key set here replaces the one from the environment."
-              : "Revoke the old key at the provider once requests succeed with the new one."}
+            {provider.credential.configured
+              ? "Revoke the old key at the provider once attempts succeed with the new one."
+              : "The gateway uses it for every attempt through this provider. Enable the provider afterwards."}
           </DialogDescription>
         </DialogHeader>
         {open && <CredentialForm provider={provider} onDone={() => onOpenChange(false)} />}

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LoaderCircle, Lock, Plus, X } from "lucide-react";
-import { BILLING_UNITS, updateVersion, type BillingUnit, type Model, type ModelVersion, type PriceTier, type Pricing } from "@modelvend/admin-api/models";
+import { BILLING_UNITS, updateVersion, type BillingUnit, type Model, type ModelVersion, type Pricing, type PricingInput } from "@modelvend/admin-api/models";
 import { DetailSection } from "@/components/shared/detail-section";
 import { Field } from "@/components/shared/field";
 import { InfoTip } from "@/components/shared/info-tip";
@@ -10,10 +10,12 @@ import { Pill } from "@/components/shared/pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { isEditable, marginTone, slugify, soldPrice, tierMargin } from "@/lib/catalog";
-import { percent, unitPrice } from "@/lib/format";
+import { Textarea } from "@/components/ui/textarea";
+import { isDecimal, isEditable, marginTone, parseJsonObject, slugify, soldPrice, tierMargin } from "@/lib/catalog";
+import { percent, plural, unitPrice } from "@/lib/format";
 import { UNIT_LABELS } from "@/lib/labels";
 import { usePermissions } from "@/lib/session";
+import { useSettings } from "@/lib/use-settings";
 import { cn } from "@/lib/utils";
 import { useModelAction } from "./use-model-action";
 import { VersionBar } from "./version-picker";
@@ -27,6 +29,7 @@ const TONE_TEXT = {
 
 /** The price list as customers see it, with what each tier costs us. */
 function PriceTable({ pricing }: { pricing: Pricing }) {
+  const { minMargin } = useSettings();
   const promo = pricing.promo ?? 0;
   return (
     <table className="w-full text-sm">
@@ -54,7 +57,7 @@ function PriceTable({ pricing }: { pricing: Pricing }) {
               <td className="text-right tabular">{unitPrice(tier.price)}</td>
               {promo > 0 && <td className="text-right tabular">{unitPrice(sold)}</td>}
               <td className="text-right tabular text-muted-foreground">{unitPrice(tier.cost)}</td>
-              <td className={cn("text-right tabular", TONE_TEXT[marginTone(share)])}>{share === null ? "—" : percent(share)}</td>
+              <td className={cn("text-right tabular", TONE_TEXT[marginTone(share, minMargin)])}>{share === null ? "—" : percent(share)}</td>
             </tr>
           );
         })}
@@ -64,60 +67,78 @@ function PriceTable({ pricing }: { pricing: Pricing }) {
 }
 
 interface TierDraft {
-  id: string;
+  /** Tells rows apart on screen while their label is being typed. */
+  key: number;
+  /** A saved tier keeps its ID, since route costs are filed under it; a new one takes it from its label. */
+  id: string | null;
   label: string;
   price: string;
-  cost: number | null;
 }
 
+/** The part of a version's pricing the server takes back: tier costs are read-only. */
+const toInput = (pricing: Pricing): PricingInput => ({
+  unit: pricing.unit,
+  defaultTier: pricing.defaultTier,
+  tierField: pricing.tierField,
+  tierValues: pricing.tierValues,
+  input: pricing.input && { unit: pricing.input.unit, price: pricing.input.price, field: pricing.input.field },
+  promo: pricing.promo,
+  tiers: pricing.tiers.map((tier) => ({ id: tier.id, label: tier.label, price: tier.price })),
+});
+
 function PricingForm({ model, version }: { model: Model; version: ModelVersion }) {
-  const run = useModelAction();
+  const run = useModelAction(model.id);
   const pricing = version.pricing;
   const [unit, setUnit] = useState<BillingUnit>(pricing.unit);
-  const [tiers, setTiers] = useState<TierDraft[]>(pricing.tiers.map((t) => ({ ...t, price: String(t.price) })));
-  const [defaultId, setDefaultId] = useState(pricing.defaultTier);
+  const [tiers, setTiers] = useState<TierDraft[]>(() => pricing.tiers.map((t, key) => ({ key, id: t.id, label: t.label, price: t.price })));
+  const nextKey = useRef(pricing.tiers.length);
+  const [defaultKey, setDefaultKey] = useState(() => Math.max(0, pricing.tiers.findIndex((t) => t.id === pricing.defaultTier)));
+  const [tierField, setTierField] = useState(pricing.tierField ?? "");
+  const [tierValues, setTierValues] = useState(Object.keys(pricing.tierValues).length > 0 ? JSON.stringify(pricing.tierValues, null, 2) : "");
   // Exact, so a 12.5% promo reloads as 12.5 and saving again doesn't change the price.
   const [promo, setPromo] = useState(pricing.promo ? String(Number((pricing.promo * 100).toFixed(4))) : "");
-  const [inputPrice, setInputPrice] = useState(pricing.input ? String(pricing.input.price) : "");
+  const [inputPrice, setInputPrice] = useState(pricing.input?.price ?? "");
   const [inputUnit, setInputUnit] = useState<BillingUnit>(pricing.input?.unit ?? pricing.unit);
+  const [inputField, setInputField] = useState(pricing.input?.field ?? "");
   const [saving, setSaving] = useState(false);
 
-  const ids = tiers.map((t) => slugify(t.label));
+  const ids = tiers.map((t) => t.id ?? slugify(t.label));
+  const parsedValues = tierValues.trim() ? parseJsonObject(tierValues, "Tier values") : { value: {} };
+  const values = "value" in parsedValues ? parsedValues.value : {};
   const problems: string[] = [];
   if (tiers.length === 0) problems.push("Add at least one tier.");
-  if (tiers.some((t) => !t.label.trim())) problems.push("Every tier needs a label.");
+  if (tiers.some((t, i) => !t.label.trim() || !ids[i])) problems.push("Every tier needs a label with letters or digits.");
   if (new Set(ids).size !== ids.length) problems.push("Tier labels must differ.");
-  if (tiers.some((t) => !(Number(t.price) >= 0) || t.price === "")) problems.push("Prices are numbers of 0 or more.");
+  if (tiers.some((t) => !isDecimal(t.price.trim()))) problems.push("Prices are digits with a dot for decimals, such as 0.084.");
   if (promo && !(Number(promo) > 0 && Number(promo) <= 99)) problems.push("Promo is a percentage above 0 and at most 99.");
-  if (inputPrice && !(Number(inputPrice) >= 0)) problems.push("The input price is a number of 0 or more.");
-  // A route's cost is a number per unit, so the unit can't change under it (the server refuses too).
-  const staleRoutes = unit === pricing.unit ? [] : version.routes.filter((r) => r.cost.unit !== unit);
-  if (staleRoutes.length > 0) {
-    problems.push(
-      `${staleRoutes.map((r) => r.providerName).join(", ")} ${staleRoutes.length === 1 ? "costs" : "cost"} per ${UNIT_LABELS[staleRoutes[0].cost.unit]}. ` +
-        `Enter ${staleRoutes.length === 1 ? "its" : "their"} cost per ${UNIT_LABELS[unit]} on the Routing tab, or remove ${staleRoutes.length === 1 ? "it" : "them"}, before billing per ${UNIT_LABELS[unit]}.`,
-    );
+  if (inputPrice.trim() && !isDecimal(inputPrice.trim())) problems.push("The input price is digits with a dot for decimals, such as 0.04.");
+  if (Boolean(inputPrice.trim()) !== Boolean(inputField.trim())) problems.push("An input price needs both the price and the input field that holds the media.");
+  if ("error" in parsedValues) problems.push(parsedValues.error);
+  else if (Object.values(values).some((tier) => typeof tier !== "string" || !ids.includes(tier))) {
+    problems.push("Tier values map each value of the tier field to the ID of a tier.");
   }
-  const defaultIndex = Math.max(0, tiers.findIndex((t) => t.id === defaultId));
+  const defaultIndex = Math.max(0, tiers.findIndex((t) => t.key === defaultKey));
 
-  const next = (): Pricing => ({
+  const next = (): PricingInput => ({
     unit,
     defaultTier: ids[defaultIndex] ?? "",
-    tiers: tiers.map(
-      (t, i): PriceTier => ({ id: ids[i], label: t.label.trim(), price: Number(t.price), cost: t.cost }),
-    ),
-    input: inputPrice ? { unit: inputUnit, price: Number(inputPrice) } : null,
+    tierField: tierField.trim() || null,
+    tierValues: values as Record<string, string>,
+    input: inputPrice.trim() ? { unit: inputUnit, price: inputPrice.trim(), field: inputField.trim() } : null,
     // Percent to a share, kept to six decimals: 12.5 → 0.125.
     promo: promo ? Math.round(Number(promo) * 10_000) / 1_000_000 : null,
+    tiers: tiers.map((t, i) => ({ id: ids[i], label: t.label.trim(), price: t.price.trim() })),
   });
-  const changed = JSON.stringify(next()) !== JSON.stringify(pricing);
+  const changed = JSON.stringify(next()) !== JSON.stringify(toInput(pricing));
+  // The numbers on the routes meant the old unit, so the server clears them.
+  const clearsCosts = unit !== pricing.unit && version.routes.length > 0;
 
   const update = (index: number, patch: Partial<TierDraft>) =>
     setTiers((list) => list.map((t, i) => (i === index ? { ...t, ...patch } : t)));
 
   const save = async () => {
     setSaving(true);
-    await run(() => updateVersion(model.id, version.id, { pricing: next() }), "Pricing saved", "Couldn't save the pricing");
+    await run(() => updateVersion(model.id, version.id, model.revision, { pricing: next() }), "Pricing saved", "Couldn't save the pricing");
     setSaving(false);
   };
 
@@ -132,7 +153,7 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
       }
       bodyClassName="grid gap-4"
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field id="unit" label="Billing unit" hint="What one unit of output is.">
           <Select value={unit} onValueChange={(value) => setUnit(value as BillingUnit)}>
             <SelectTrigger id="unit" className="w-full">
@@ -150,46 +171,62 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
         <Field id="promo" label="Launch promo %" hint="Off every tier, not the input price; empty for none.">
           <Input id="promo" type="number" min={0} max={99} step="any" value={promo} onChange={(e) => setPromo(e.target.value)} />
         </Field>
-        <Field id="input-price" label="Input price" hint="Charged per unit of reference media sent in; empty for free.">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-            <Input
-              id="input-price"
-              type="number"
-              min={0}
-              step="any"
-              value={inputPrice}
-              onChange={(e) => setInputPrice(e.target.value)}
-            />
-            <Select value={inputUnit} onValueChange={(value) => setInputUnit(value as BillingUnit)} disabled={!inputPrice}>
-              <SelectTrigger aria-label="Input price unit" className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {BILLING_UNITS.map((u) => (
-                  <SelectItem key={u} value={u}>
-                    Per {UNIT_LABELS[u]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </Field>
       </div>
+      {clearsCosts && (
+        <p role="alert" className="rounded-lg bg-status-warning/10 px-3 py-2 text-xs">
+          Saving clears the tier costs of {plural(version.routes.length, "route")}, as they are per {UNIT_LABELS[pricing.unit]}. Enter them
+          again per {UNIT_LABELS[unit]} on the Routing tab; publishing asks for them.
+        </p>
+      )}
+      <fieldset className="grid gap-1.5">
+        <legend className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+          Input price
+          <InfoTip label="Input price">Charged for reference media on top of the tier. Promos don&apos;t apply to it. Empty for free.</InfoTip>
+        </legend>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <Input
+            aria-label="Input price"
+            inputMode="decimal"
+            placeholder="0.04"
+            value={inputPrice}
+            onChange={(e) => setInputPrice(e.target.value)}
+          />
+          <Select value={inputUnit} onValueChange={(value) => setInputUnit(value as BillingUnit)}>
+            <SelectTrigger aria-label="Input price unit" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BILLING_UNITS.map((u) => (
+                <SelectItem key={u} value={u}>
+                  Per {UNIT_LABELS[u]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            aria-label="Input field that holds the media"
+            placeholder="Input field, e.g. image_urls"
+            value={inputField}
+            onChange={(e) => setInputField(e.target.value)}
+            className="font-mono"
+          />
+        </div>
+      </fieldset>
       <fieldset className="grid gap-2">
         <legend className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
           Tiers
           <InfoTip label="Tiers">
-            Resolution or quality options with their own price. The request picks one; the default applies otherwise.
+            Resolution or quality options with their own price. The input picks one through the tier field; the default applies otherwise.
           </InfoTip>
         </legend>
         {tiers.map((tier, i) => (
-          <div key={i} className="grid grid-cols-[auto_minmax(0,1fr)_8rem_auto] items-center gap-2">
+          <div key={tier.key} className="grid grid-cols-[auto_minmax(0,1fr)_8rem_auto] items-center gap-2">
             <input
               type="radio"
               name="default-tier"
               aria-label={`Make ${tier.label || "this tier"} the default`}
               checked={i === defaultIndex}
-              onChange={() => setDefaultId(tier.id)}
+              onChange={() => setDefaultKey(tier.key)}
               className="accent-[var(--brand)]"
             />
             <Input
@@ -200,10 +237,9 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
             />
             <Input
               aria-label="Tier price"
-              type="number"
-              min={0}
-              step="0.0001"
+              inputMode="decimal"
               value={tier.price}
+              placeholder="0.084"
               onChange={(e) => update(i, { price: e.target.value })}
             />
             <Button
@@ -223,12 +259,30 @@ function PricingForm({ model, version }: { model: Model; version: ModelVersion }
             type="button"
             variant="outline"
             size="xs"
-            onClick={() => setTiers((list) => [...list, { id: `tier-${list.length + 1}`, label: "", price: "", cost: null }])}
+            onClick={() => {
+              const key = nextKey.current++;
+              setTiers((list) => [...list, { key, id: null, label: "", price: "" }]);
+            }}
           >
             <Plus /> Add tier
           </Button>
         </div>
       </fieldset>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="tier-field" label="Tier field" hint="The input field whose value picks the tier, such as resolution. Empty when every task bills the default.">
+          <Input id="tier-field" value={tierField} onChange={(e) => setTierField(e.target.value)} className="font-mono" />
+        </Field>
+        <Field id="tier-values" label="Tier values" hint={`Values of the field that aren't tier IDs themselves, mapped to one: {"4k": "${ids[0] || "tier"}"}. Tier IDs: ${ids.filter(Boolean).join(", ")}.`}>
+          <Textarea
+            id="tier-values"
+            value={tierValues}
+            spellCheck={false}
+            onChange={(e) => setTierValues(e.target.value)}
+            aria-invalid={"error" in parsedValues}
+            className="min-h-16 font-mono text-xs md:text-xs"
+          />
+        </Field>
+      </div>
       {problems.length > 0 && changed && (
         <ul role="alert" className="list-inside list-disc text-xs text-destructive">
           {problems.map((p) => (
@@ -253,7 +307,9 @@ export function PricingTab({
   onNewVersion: () => void;
 }) {
   const can = usePermissions();
-  const editable = isEditable(version) && can.editCatalog;
+  const { minMargin } = useSettings();
+  const editable = isEditable(version) && can.editPrices;
+  const { pricing } = version;
   return (
     <div className="flex flex-col gap-4">
       <VersionBar model={model} version={version} onPick={onPick} />
@@ -268,19 +324,38 @@ export function PricingTab({
           )}
         </p>
       )}
+      {isEditable(version) && !can.editPrices && (
+        <p className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+          <Lock className="size-3.5" />
+          Changing prices needs the Set prices permission.
+        </p>
+      )}
       <DetailSection title="Price list">
-        <PriceTable pricing={version.pricing} />
-        {version.pricing.input && (
+        <PriceTable pricing={pricing} />
+        {pricing.tierField && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Plus {unitPrice(version.pricing.input.price)} per {UNIT_LABELS[version.pricing.input.unit]} of reference media.
+            The input field <code className="font-mono">{pricing.tierField}</code> picks the tier
+            {Object.keys(pricing.tierValues).length > 0 && (
+              <>
+                {" "}
+                ({Object.entries(pricing.tierValues).map(([value, tier]) => `${value} → ${tier}`).join(", ")})
+              </>
+            )}
+            .
+          </p>
+        )}
+        {pricing.input && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Plus {unitPrice(pricing.input.price)} per {UNIT_LABELS[pricing.input.unit]} of reference media in{" "}
+            <code className="font-mono">{pricing.input.field}</code>.
           </p>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Costs come from the first active route; the routing tab shows each route&apos;s margin. Failed requests and queue time
-          aren&apos;t billed.
+          Costs come from the primary route, per tier; the routing tab shows each route&apos;s margin. A tier under the {percent(minMargin, 0)} minimum
+          margin needs a reason to publish. Failed tasks and queue time aren&apos;t billed.
         </p>
       </DetailSection>
-      {editable && <PricingForm key={`${version.id}:${JSON.stringify(version.pricing)}`} model={model} version={version} />}
+      {editable && <PricingForm key={`${version.id}:${JSON.stringify(pricing)}`} model={model} version={version} />}
     </div>
   );
 }

@@ -1,9 +1,9 @@
-import type { KeyEnv, KeyStatus } from "@modelvend/admin-api/api-keys";
+import type { KeyStatus } from "@modelvend/admin-api/api-keys";
 import type { AppCategory, AppStatus, ReleaseStatus } from "@modelvend/admin-api/apps";
-import type { CustomerStatus, LedgerKind, Tier } from "@modelvend/admin-api/customers";
-import type { BillingUnit, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "@modelvend/admin-api/models";
+import type { CreditKind, CustomerStatus, LedgerKind } from "@modelvend/admin-api/customers";
+import type { BillingUnit, Disclosure, Modality, ModelState, RouteStatus, RoutingStrategy, VersionStatus, Visibility } from "@modelvend/admin-api/models";
 import type { Adapter, HealthState, ProviderKind, ProviderStatus } from "@modelvend/admin-api/providers";
-import type { RequestStatus } from "@modelvend/admin-api/requests";
+import type { TaskStatus } from "@modelvend/admin-api/tasks";
 
 export const MODALITY_LABELS: Record<Modality, string> = {
   image: "Image",
@@ -27,12 +27,21 @@ export const VISIBILITY_LABELS: Record<Visibility, string> = {
 export const VISIBILITY_DESCRIPTIONS: Record<Visibility, string> = {
   public: "Listed in the catalog and callable by every workspace.",
   unlisted: "Callable by every workspace, but not listed in the catalog.",
-  private: "Callable only by allowlisted workspaces and internal keys.",
+  private: "Only internal workspaces can reach it for now. Allowing other workspaces comes later.",
+};
+
+export const DISCLOSURE_LABELS: Record<Disclosure, string> = {
+  open: "Open",
+  white_label: "White label",
+};
+
+export const DISCLOSURE_DESCRIPTIONS: Record<Disclosure, string> = {
+  open: "Customers may be shown who made it.",
+  white_label: "Customers never see who made it. Only routes on providers whose terms allow it can serve it.",
 };
 
 export const VERSION_STATUS_LABELS: Record<VersionStatus, string> = {
   draft: "Draft",
-  staging: "Staging",
   live: "Live",
   deprecated: "Deprecated",
   retired: "Retired",
@@ -40,10 +49,9 @@ export const VERSION_STATUS_LABELS: Record<VersionStatus, string> = {
 
 export const VERSION_STATUS_DESCRIPTIONS: Record<VersionStatus, string> = {
   draft: "Being set up. Nobody can call it.",
-  staging: "Callable with internal keys only, for testing routes and schema.",
   live: "Callable by customers when pinned, or by default when it is the default version.",
-  deprecated: "Still answers, with Deprecation and Sunset headers, until its sunset date; it can be retired after that.",
-  retired: "No longer answers: requests get 410, or go to its replacement.",
+  deprecated: "Still answers, with Deprecation and Sunset headers. Its sunset date allows retiring it; it doesn't retire by itself.",
+  retired: "No longer answers: calls get 410 version_retired, with the replacement as a suggestion. They are never forwarded.",
 };
 
 export const ROUTE_STATUS_LABELS: Record<RouteStatus, string> = {
@@ -60,9 +68,9 @@ export const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
 };
 
 export const STRATEGY_DESCRIPTIONS: Record<RoutingStrategy, string> = {
-  priority: "Routes are tried in priority order; the first healthy one serves the request.",
-  cheapest: "The cheapest healthy route serves the request.",
-  fastest: "The route with the lowest recent p50 latency serves the request.",
+  priority: "Routes are tried in priority order; the first healthy one serves the task.",
+  cheapest: "The cheapest healthy route serves the task.",
+  fastest: "The route with the lowest recent p50 latency serves the task.",
   weighted: "Traffic is split by weight between healthy routes of the same priority.",
 };
 
@@ -72,7 +80,8 @@ export const UNIT_LABELS: Record<BillingUnit, string> = {
   megapixel: "megapixel",
   second: "second",
   minute: "minute",
-  request: "request",
+  // The API's name for this unit stays `request`: one task is one unit.
+  request: "task",
   "1k_chars": "1K characters",
   "1m_tokens": "1M tokens",
   mesh: "mesh",
@@ -84,20 +93,18 @@ export const UNIT_SHORT: Record<BillingUnit, string> = {
   megapixel: "/MP",
   second: "/s",
   minute: "/min",
-  request: "/req",
+  request: "/task",
   "1k_chars": "/1K chars",
   "1m_tokens": "/1M tok",
   mesh: "/mesh",
 };
 
 export const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
-  aggregator: "Aggregator",
   first_party: "First party",
   managed: "Managed GPUs",
 };
 
 export const PROVIDER_KIND_DESCRIPTIONS: Record<ProviderKind, string> = {
-  aggregator: "Resells many labs' models behind one API, e.g. fal or Replicate.",
   first_party: "The lab's own API, e.g. OpenAI or Google.",
   managed: "Capacity we run ourselves.",
 };
@@ -115,13 +122,11 @@ export const HEALTH_LABELS: Record<HealthState, string> = {
 };
 
 export const ADAPTER_LABELS: Record<Adapter, string> = {
-  fal: "fal queue",
-  replicate: "Replicate predictions",
-  openai: "OpenAI compatible",
-  vertex: "Google Vertex AI",
+  google: "Google",
+  openai: "OpenAI",
   elevenlabs: "ElevenLabs",
-  runway: "Runway",
-  http: "Generic HTTP",
+  kling: "Kling",
+  fake: "Fake, outside production only",
 };
 
 export const APP_STATUS_LABELS: Record<AppStatus, string> = {
@@ -148,24 +153,19 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
   suspended: "Suspended",
 };
 
-export const TIER_LABELS: Record<Tier, string> = {
-  free: "Free",
-  standard: "Standard",
-  scale: "Scale",
-  enterprise: "Enterprise",
-};
-
 export const LEDGER_KIND_LABELS: Record<LedgerKind, string> = {
   top_up: "Top-up",
   grant: "Grant",
   usage: "Usage",
   refund: "Refund",
   adjustment: "Adjustment",
+  expire: "Expired",
+  fee: "Fee",
 };
 
-export const KEY_ENV_LABELS: Record<KeyEnv, string> = {
-  live: "Live",
-  test: "Test",
+export const CREDIT_KIND_LABELS: Record<CreditKind, string> = {
+  purchased: "Purchased, lasts 1 year",
+  gift: "Gift, lasts 90 days",
 };
 
 export const KEY_STATUS_LABELS: Record<KeyStatus, string> = {
@@ -173,7 +173,7 @@ export const KEY_STATUS_LABELS: Record<KeyStatus, string> = {
   revoked: "Revoked",
 };
 
-export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "Queued",
   running: "Running",
   succeeded: "Succeeded",

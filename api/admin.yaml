@@ -1,0 +1,3447 @@
+openapi: 3.1.0
+info:
+  title: Modelvend Admin API
+  version: "1"
+  description: |
+    What the operator panel calls. Only the panel is a client, so field names stay camelCase, as its code does.
+
+    Money: unit prices and costs are decimal strings in US dollars per billing unit, such as "0.084". Amounts are
+    whole micro-dollars and end in `Micros` (1,000,000 = $1), so they add up without rounding.
+
+    Times are UTC. Every request that changes state must be `Content-Type: application/json`, or the server answers
+    415 `unsupported_media_type`.
+
+    Errors are `{"error": {"code", "message", "fields"}}`. `fields` names the fields at fault; nothing changes unless
+    every field is valid.
+
+    Operations with `x-phase` come later, in that phase of docs/roadmap.md. They are written down so the shapes are
+    settled, and they aren't served yet. The rest are checked against the mock API by
+    apps/admin/src/mock-api/contract.test.ts, until the Go server replaces it in phase 1.
+servers:
+  - url: https://admin.modelvend.ai/admin/v1
+security:
+  - session: []
+tags:
+  - name: Auth
+  - name: Operators
+  - name: Audit
+  - name: Overview
+  - name: Settings
+  - name: Models
+  - name: Apps
+  - name: Providers
+  - name: Customers
+  - name: API keys
+  - name: Tasks
+  - name: Announcements
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Sign in
+      description: |
+        401 `unauthorized` for an unknown email, a wrong password or a disabled account alike, so the answer doesn't
+        tell which. After a few failures per account or address the server answers 429 `rate_limited` with
+        `Retry-After`, even to the right password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Signed in. Sets the session cookie.
+          headers:
+            Set-Cookie:
+              description: "`__Host-mv_admin_session=<value>; Path=/; Secure; HttpOnly; SameSite=Lax`"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operator" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: End this session and clear the cookie
+      security: []
+      responses:
+        "204": { description: Signed out, even without a session. }
+  /me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: The signed-in operator
+      responses:
+        "200":
+          description: The operator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operator" }
+        "401": { $ref: "#/components/responses/Error" }
+  /me/password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change your own password
+      description: |
+        Ends the operator's other sessions. 422 `fields.currentPassword` when it is wrong, `fields.newPassword` when
+        the new one is shorter than 12 characters or the same as the current one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePassword" }
+      responses:
+        "204": { description: Changed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /me/two-factor:
+    post:
+      x-phase: 7
+      tags: [Auth]
+      operationId: enrollTwoFactor
+      summary: Start two-factor enrollment
+      description: Two-factor sign-in is required for operators before production.
+      responses:
+        "200":
+          description: The secret to add to an authenticator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoFactorEnrollment" }
+        "401": { $ref: "#/components/responses/Error" }
+  /permissions:
+    get:
+      tags: [Operators]
+      operationId: getPermissionCatalog
+      summary: Every permission and access preset
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionCatalog" }
+        "401": { $ref: "#/components/responses/Error" }
+  /operators:
+    get:
+      tags: [Operators]
+      operationId: listOperators
+      summary: List operators
+      responses:
+        "200":
+          description: Every operator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Operator" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Operators]
+      operationId: createOperator
+      summary: Add an operator
+      description: |
+        A generated password comes back once and never again; a chosen one comes back as null. 409 `fields.email`
+        when the email is taken. 403 when it gives access the signed-in operator doesn't hold.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewOperator" }
+      responses:
+        "200":
+          description: The operator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedOperator" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /operators/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    patch:
+      tags: [Operators]
+      operationId: updateOperator
+      summary: Change an operator
+      description: |
+        Operators can't change their own role or permissions, or disable themselves (422 with the field). 422
+        `invalid_state` when the change would leave no active admin. 403 for an operator who has access the signed-in
+        one doesn't.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperatorUpdate" }
+      responses:
+        "200":
+          description: The operator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operator" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /operators/{id}/reset-password:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Operators]
+      operationId: resetOperatorPassword
+      summary: Reset an operator's password
+      description: |
+        Ends the operator's sessions. Without `password` one is generated and returned. 422 `own_password` for your
+        own account, which goes through /me/password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPassword" }
+      responses:
+        "200":
+          description: The generated password, or null for a chosen one.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetPasswordResult" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /audit:
+    get:
+      tags: [Audit]
+      operationId: listAudit
+      summary: The audit log, newest first
+      parameters:
+        - { name: operatorId, in: query, schema: { type: string } }
+        - name: action
+          in: query
+          description: 'Also matches dotted children: "version" matches "version.publish".'
+          schema: { type: string }
+        - name: targetType
+          in: query
+          description: What was changed, such as "model" or "customer"; used with `targetId`.
+          schema: { type: string }
+        - { name: targetId, in: query, schema: { type: string } }
+        - name: customerId
+          in: query
+          description: Everything about one customer, including its API keys and task refunds.
+          schema: { type: string }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /overview:
+    get:
+      tags: [Overview]
+      operationId: getOverview
+      summary: Company-wide figures
+      description: |
+        Any signed-in operator may load it, but each figure needs the permission that guards the same data on its own
+        screen, and the server leaves out what the operator can't see:
+
+        | Figures | Needs |
+        | ------- | ----- |
+        | `tasks24h`, `errorRate24h`; per day `tasks`, `failed` | tasks.view |
+        | `revenueMicros`; per day `revenueMicros` | catalog.view or customers.view |
+        | `costMicros`; per day `costMicros` | providers.view |
+        | `margin` | providers.view, and catalog.view or customers.view |
+        | `activeCustomers7d`; per day `signups` | customers.view |
+        | `liveModels`, `pausedModels`, `deprecatedVersions`, `topModels` | catalog.view |
+        | `providersDegraded`, `providers` | providers.view |
+
+        Revenue is what purchased credits paid for, less refunds. Gift credits and internal workspaces don't count.
+      parameters:
+        - name: range
+          in: query
+          schema: { $ref: "#/components/schemas/Range" }
+      responses:
+        "200":
+          description: The figures the operator may see.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Overview" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Platform settings
+      description: Any signed-in operator may read them, since the price and limit screens need them.
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Change platform settings
+      description: Takes effect at once, without a deploy. Written to the audit log with `reason`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsUpdate" }
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models:
+    get:
+      tags: [Models]
+      operationId: listModels
+      summary: List models, busiest first
+      parameters:
+        - { name: query, in: query, schema: { type: string } }
+        - { name: modality, in: query, schema: { $ref: "#/components/schemas/Modality" } }
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/ModelState" } }
+        - { name: visibility, in: query, schema: { $ref: "#/components/schemas/Visibility" } }
+        - { name: provider, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of models.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Models]
+      operationId: createModel
+      summary: Add a model
+      description: |
+        The model starts private with an empty draft version `v1`. 409 `fields.slug` when the ID is taken. Starting it
+        wider than private needs `catalog.publish`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewModel" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/import:
+    post:
+      x-phase: 1
+      tags: [Models]
+      operationId: importModel
+      summary: Import a model exported from another environment
+      description: It arrives as a draft and is tested again before it can go live. Keys and usage don't move.
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: { type: string }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/templates:
+    get:
+      x-phase: 1
+      tags: [Models]
+      operationId: listModelTemplates
+      summary: Upstream templates from catalog/templates
+      description: The templates a new model can start from; they ship with deploys and customers never see them.
+      responses:
+        "200":
+          description: Every template.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ModelTemplate" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    get:
+      tags: [Models]
+      operationId: getModel
+      summary: One model with its versions
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Models]
+      operationId: updateModel
+      summary: Change a model's details
+      description: |
+        Widening `visibility` (private > unlisted > public) needs `catalog.publish`; narrowing needs only
+        `catalog.edit`. 409 `stale` when the model changed since `If-Match`.
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelUpdate" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      x-phase: 1
+      tags: [Models]
+      operationId: deleteModel
+      summary: Delete a model that was never published
+      description: 422 `invalid_state` once any version has gone live; those stay, retired.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/export:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    get:
+      x-phase: 1
+      tags: [Models]
+      operationId: exportModel
+      summary: The model as a YAML manifest
+      responses:
+        "200":
+          description: The manifest.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/access:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    get:
+      x-phase: 1
+      tags: [Models]
+      operationId: getModelAccess
+      summary: Workspaces allowed to call a private model
+      responses:
+        "200":
+          description: The allowlist.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelAccess" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      x-phase: 1
+      tags: [Models]
+      operationId: setModelAccess
+      summary: Replace the allowlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelAccess" }
+      responses:
+        "200":
+          description: The allowlist.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelAccess" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/pause:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Models]
+      operationId: pauseModel
+      summary: Stop new tasks
+      description: |
+        New tasks get 503 `model_paused`. Running tasks finish; queued ones wait, and fail with `queue_timeout` after
+        the queue wait limit if the model isn't resumed. The model stays readable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/resume:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Models]
+      operationId: resumeModel
+      summary: Take new tasks again
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Models]
+      operationId: createVersion
+      summary: Add a draft version
+      description: "`from` copies schema, pricing, routing and routes from another version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewVersion" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    patch:
+      tags: [Models]
+      operationId: updateVersion
+      summary: Change a version
+      description: |
+        Schemas and pricing change only on drafts (422 `version_locked`); a live version's price moves through a price
+        change, and its schema through a new version. `pricing` needs `pricing.edit`.
+
+        Changing `pricing.unit` clears every route's tier costs, as their numbers meant another unit; publishing asks
+        for them again. 409 `stale` when the model changed since `If-Match`.
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VersionUpdate" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/publish:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    post:
+      tags: [Models]
+      operationId: publishVersion
+      summary: Put a draft live
+      description: |
+        The first live version becomes the default. Refused with 422 and one of:
+
+        - `invalid_schema`: a schema isn't usable.
+        - `invalid_pricing`: `tierField` or `input.field` isn't in the input schema, or one of the field's values picks
+          no tier.
+        - `no_route`: no active route on an active provider.
+        - `no_price`: a tier has no price.
+        - `no_cost`: a usable route has no cost for a tier.
+        - `white_label_not_allowed`: the model is white label and no usable route's provider allows it. The router
+          skips the others.
+        - `low_margin`: a tier is under the minimum margin and there is no `reason`.
+        - `no_test`: from phase 1, a usable route has no passing test for the current schema, mapping and provider.
+
+        403 `below_cost` when a tier sells below cost and the operator lacks `pricing.below_cost`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublishVersion" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/default:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    post:
+      tags: [Models]
+      operationId: setDefaultVersion
+      summary: Make a live version the default
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/deprecate:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    post:
+      tags: [Models]
+      operationId: deprecateVersion
+      summary: Announce that a live version will stop
+      description: |
+        It keeps answering, with `Deprecation` and `Sunset` headers. The default version may be deprecated too. The
+        sunset date allows retiring it; it doesn't retire it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeprecateVersion" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/retire:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    post:
+      tags: [Models]
+      operationId: retireVersion
+      summary: Stop a deprecated version for good
+      description: |
+        Calls answer 410 `version_retired` with `replacement` as the suggestion, and are never forwarded. Can't be
+        undone, so it waits until nothing counts on the version: 422 `before_sunset` until its sunset date has passed,
+        `pinned_by_app` while a live app release pins it, `is_replacement` while another deprecated version suggests
+        it, and `is_default` while it is the default and another version is live.
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/price-changes:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    get:
+      x-phase: 1
+      tags: [Models]
+      operationId: listPriceChanges
+      summary: The version's price revisions, newest first
+      responses:
+        "200":
+          description: Every revision.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PriceChange" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      x-phase: 1
+      tags: [Models]
+      operationId: createPriceChange
+      summary: Change a live version's prices, now or on a date
+      description: |
+        Needs `pricing.edit`; a tier below cost also needs `pricing.below_cost`. Removing a tier or changing the unit
+        needs a new version. With `dryRun` nothing changes and the answer is the preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewPriceChange" }
+      responses:
+        "200":
+          description: The revision, or its preview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PriceChange" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/promos:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    get:
+      x-phase: 1
+      tags: [Models]
+      operationId: listPromos
+      summary: The version's promos
+      responses:
+        "200":
+          description: Every promo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Promo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      x-phase: 1
+      tags: [Models]
+      operationId: createPromo
+      summary: Add a dated promo
+      description: This replaces `pricing.promo`, which has no dates. Customers pay the lowest of list, promo, private and locked prices.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewPromo" }
+      responses:
+        "200":
+          description: The promo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Promo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/routes:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+    post:
+      tags: [Models]
+      operationId: addRoute
+      summary: Add a route
+      description: |
+        Costs are in the version's billing unit. On a version that answers customers it needs `catalog.publish`, and
+        from phase 1 it isn't active until tested. 409 `stale` when the model changed since `If-Match`.
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewRoute" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/routes/{routeId}:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+      - { $ref: "#/components/parameters/RouteId" }
+    patch:
+      tags: [Models]
+      operationId: updateRoute
+      summary: Change a route
+      description: |
+        A version that answers customers keeps at least one active route (422 `no_route`; pause the model instead).
+        The last route of a deprecated version with a sunset date may go `draining`. 409 `stale` when the model
+        changed since `If-Match`.
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteUpdate" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Models]
+      operationId: deleteRoute
+      summary: Remove a route
+      description: 422 `no_route` when it is the last active route of a version that answers customers.
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      responses:
+        "200":
+          description: The model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Model" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /models/{publisher}/{slug}/versions/{version}/routes/{routeId}/test:
+    parameters:
+      - { $ref: "#/components/parameters/Publisher" }
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/Version" }
+      - { $ref: "#/components/parameters/RouteId" }
+    post:
+      x-phase: 1
+      tags: [Models]
+      operationId: testRoute
+      summary: Run the version through this route with a real request
+      description: |
+        Billed to the internal workspace and not counted as revenue. The result holds until the schema, the mapping or
+        the provider changes. Publishing needs a passing test for every usable route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteTestRequest" }
+      responses:
+        "200":
+          description: The result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteTest" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps:
+    get:
+      tags: [Apps]
+      operationId: listApps
+      summary: List apps, busiest first
+      responses:
+        "200":
+          description: Every app.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AppSummary" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Apps]
+      operationId: createApp
+      summary: Add an app
+      description: The app starts as a draft with an empty release 1. 409 `fields.slug` when it is taken.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewApp" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+    get:
+      tags: [Apps]
+      operationId: getApp
+      summary: One app with its releases
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Apps]
+      operationId: updateApp
+      summary: Change an app's details and schemas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppUpdate" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/releases:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Apps]
+      operationId: createRelease
+      summary: Start a draft release
+      description: Copied from the live one when there is one. 409 when a draft exists.
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/releases/{number}:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/ReleaseNumber" }
+    patch:
+      tags: [Apps]
+      operationId: updateRelease
+      summary: Change a draft release
+      description: |
+        Steps run in order and may read `{{input.x}}` and `{{steps.<id>.output.x}}` of earlier steps; `outputMap` builds
+        what the customer gets. Parameters aren't merged: a step's input is exactly its template.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReleaseUpdate" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/releases/{number}/publish:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+      - { $ref: "#/components/parameters/ReleaseNumber" }
+    post:
+      tags: [Apps]
+      operationId: publishRelease
+      summary: Deploy a draft release
+      description: |
+        It becomes the live release and the previous one is superseded. A paused app stays paused until resumed. 422
+        `no_steps`, `invalid_release` (a template or the output map), `version_not_live`, `no_price`, or `low_margin`
+        under the minimum margin without a `reason`. 403 `below_cost` below cost without `pricing.below_cost`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublishRelease" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/rollback:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Apps]
+      operationId: rollbackApp
+      summary: Make a superseded release live again
+      description: Its steps may use deprecated versions, which still answer. A paused app stays paused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RollbackApp" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/pause:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Apps]
+      operationId: pauseApp
+      summary: Stop new runs
+      description: New runs fail with 503 `app_paused` until resumed; deploys and rollbacks don't lift it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /apps/{slug}/resume:
+    parameters:
+      - { $ref: "#/components/parameters/Slug" }
+    post:
+      tags: [Apps]
+      operationId: resumeApp
+      summary: Take new runs again
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /providers:
+    get:
+      tags: [Providers]
+      operationId: listProviders
+      summary: List providers
+      responses:
+        "200":
+          description: Every provider.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Providers]
+      operationId: createProvider
+      summary: Add a provider
+      description: It starts disabled. Add a credential, then enable it. 409 `fields.id` when the ID is taken.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewProvider" }
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    patch:
+      tags: [Providers]
+      operationId: updateProvider
+      summary: Change a provider
+      description: |
+        A new `baseUrl` needs `secret` while a credential is set, so a stored secret only goes to the endpoint it was
+        entered for: 422 `credential_required` with `fields.secret`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderUpdate" }
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}/enable:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Providers]
+      operationId: enableProvider
+      summary: Turn a disabled provider on
+      description: 422 `no_credential` without a credential.
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}/disable:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Providers]
+      operationId: disableProvider
+      summary: Turn a provider off
+      description: Its routes stop counting as usable, and new versions can't go live on it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}/pause:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Providers]
+      operationId: pauseProvider
+      summary: Stop new attempts for now
+      description: Every route through it stops taking new attempts; tasks fall through to other routes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}/resume:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Providers]
+      operationId: resumeProvider
+      summary: Take new attempts again
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /providers/{id}/credential:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    put:
+      tags: [Providers]
+      operationId: setProviderCredential
+      summary: Store the provider's secret
+      description: Write-only. It is stored encrypted and only its hint comes back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetCredential" }
+      responses:
+        "200":
+          description: The provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /providers/{id}/check:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Providers]
+      operationId: checkProvider
+      summary: Call the provider's cheapest health endpoint
+      description: Uses the stored credential and records the result in its health.
+      responses:
+        "200":
+          description: The result. A failed check is still a 200.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderCheck" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /customers:
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      summary: List customers, newest first
+      description: A customer is a workspace. `query` also matches the email of any member.
+      parameters:
+        - { name: query, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/CustomerStatus" } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of customers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /customers/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [Customers]
+      operationId: getCustomer
+      summary: One customer
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Customers]
+      operationId: updateCustomer
+      summary: Set the workspace's own limits
+      description: |
+        `limits` replaces the workspace's own values; a limit left out or null follows the platform default. Lowering a
+        limit in force, or adding a spend limit where there was none, takes effect on the next task and needs `reason`
+        (422 `fields.reason`). Running tasks aren't touched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerUpdate" }
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /customers/{id}/suspend:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Customers]
+      operationId: suspendCustomer
+      summary: Suspend a workspace
+      description: |
+        Its keys get 403 `account_suspended`. Queued tasks are canceled and their holds released; running ones finish.
+        The console turns read-only and top-ups close.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /customers/{id}/resume:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Customers]
+      operationId: resumeCustomer
+      summary: Lift a suspension
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /customers/{id}/credits:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Customers]
+      operationId: adjustCredits
+      summary: Add or take back credits
+      description: |
+        A positive amount needs `kind`: `purchased` lasts a year, `gift` 90 days. A negative one needs no kind. 422
+        `negative_balance` when it would take the balance below zero without `confirmNegative`. Above $1,000 either
+        way only an admin may do it (403). Written to the ledger and the audit log with the reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdjustCredits" }
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /customers/{id}/ledger:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [Customers]
+      operationId: listLedger
+      summary: The workspace's ledger, newest first
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LedgerPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /customers/{id}/members:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      x-phase: 3
+      tags: [Customers]
+      operationId: listMembers
+      summary: The workspace's members
+      responses:
+        "200":
+          description: Every member.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /customers/{id}/flags:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      x-phase: 2
+      tags: [Customers]
+      operationId: listCustomerFlags
+      summary: What needs an operator's eye on this workspace
+      description: Content policy refusals over the threshold, frequent cancels, output above the estimate.
+      responses:
+        "200":
+          description: Every flag, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CustomerFlag" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /customers/{id}/payments/{paymentId}/refund:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { name: paymentId, in: path, required: true, schema: { type: string } }
+    post:
+      x-phase: 4
+      tags: [Customers]
+      operationId: refundPayment
+      summary: Refund the unused part of a payment
+      description: |
+        Within 14 days of the payment. The card fee isn't refunded. That payment's bonus is removed, and what was spent
+        of it comes off the refund.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /users/{id}/suspend:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      x-phase: 3
+      tags: [Customers]
+      operationId: suspendUser
+      summary: Suspend a person
+      description: Their sign-in closes. Workspaces only they own are suspended; memberships elsewhere are frozen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "204": { description: Suspended. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api-keys:
+    get:
+      tags: [API keys]
+      operationId: listApiKeys
+      summary: List customers' API keys, newest first
+      parameters:
+        - name: query
+          in: query
+          description: Matches the key's ID, name and prefix, and its customer's name and owner.
+          schema: { type: string }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/KeyStatus" } }
+        - { name: customerId, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api-keys/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    patch:
+      tags: [API keys]
+      operationId: updateApiKey
+      summary: Set a key's monthly spend limit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiKeyUpdate" }
+      responses:
+        "200":
+          description: The key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api-keys/{id}/revoke:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [API keys]
+      operationId: revokeApiKey
+      summary: Revoke a key, at once and for good
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKey" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks, newest first
+      description: The steps of an app run aren't listed; read the run for them.
+      parameters:
+        - name: query
+          in: query
+          description: Matches the start of a task ID, or part of a model ID.
+          schema: { type: string }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/TaskStatus" } }
+        - { name: model, in: query, schema: { type: string } }
+        - { name: provider, in: query, schema: { type: string } }
+        - { name: customerId, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: A page of tasks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /tasks/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: One task with its attempts and steps
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /tasks/{id}/refund:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Tasks]
+      operationId: refundTask
+      summary: Give the customer back what a task cost
+      description: |
+        Written to their ledger. The amount returns to the credit it came from, with its expiry, and comes off their
+        spend limits. Only succeeded tasks were charged, so only they can be refunded (422), and only once (409).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonBody" }
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /announcements:
+    get:
+      x-phase: 1
+      tags: [Announcements]
+      operationId: listAnnouncements
+      summary: Site announcements, newest first
+      responses:
+        "200":
+          description: Every announcement.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Announcement" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      x-phase: 1
+      tags: [Announcements]
+      operationId: createAnnouncement
+      summary: Add an announcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAnnouncement" }
+      responses:
+        "200":
+          description: The announcement.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Announcement" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /announcements/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    delete:
+      x-phase: 1
+      tags: [Announcements]
+      operationId: deleteAnnouncement
+      summary: Take an announcement down
+      responses:
+        "204": { description: Removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-mv_admin_session
+      description: |
+        Set by /auth/login. The value carries no permissions, which are read from the operator on every request.
+        Sessions expire, and end at once when the password is reset or the operator is disabled.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Publisher:
+      name: publisher
+      in: path
+      required: true
+      schema: { type: string }
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string }
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: { type: string }
+    RouteId:
+      name: routeId
+      in: path
+      required: true
+      schema: { type: string }
+    ReleaseNumber:
+      name: number
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The model's `revision` this edit is based on, so an edit made elsewhere isn't overwritten.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+  responses:
+    Error:
+      description: See `error.code`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            fields:
+              type: object
+              description: The fields at fault, by dotted path.
+              additionalProperties: { type: string }
+    Decimal:
+      type: string
+      description: US dollars per unit, such as "0.084".
+      pattern: ^[0-9]+(\.[0-9]+)?$
+    Micros:
+      type: integer
+      description: Micro-dollars. 1,000,000 is $1.
+    Time:
+      type: string
+      format: date-time
+    NullableTime:
+      type: [string, "null"]
+      format: date-time
+    JsonObject:
+      type: object
+      additionalProperties: true
+    ReasonBody:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    Range:
+      type: string
+      enum: ["7d", "30d", "90d"]
+
+    # Auth and operators
+    Role:
+      type: string
+      description: "`admin` holds every permission; `custom` holds the ones listed."
+      enum: [admin, custom]
+    Permission:
+      type: string
+      enum:
+        - catalog.view
+        - catalog.edit
+        - catalog.publish
+        - pricing.edit
+        - pricing.below_cost
+        - providers.view
+        - providers.edit
+        - customers.view
+        - customers.edit
+        - customers.credits
+        - keys.view
+        - keys.revoke
+        - tasks.view
+        - audit.view
+        - settings.manage
+        - announcements.manage
+        - operators.manage
+    Operator:
+      type: object
+      required: [id, email, name, role, permissions, createdAt, lastLoginAt, disabled]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          description: Every permission for an admin.
+          items: { $ref: "#/components/schemas/Permission" }
+        createdAt: { $ref: "#/components/schemas/Time" }
+        lastLoginAt: { $ref: "#/components/schemas/NullableTime" }
+        disabled: { type: boolean }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+    ChangePassword:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string }
+        newPassword: { type: string, minLength: 12 }
+    TwoFactorEnrollment:
+      type: object
+      required: [secret, otpauthUrl]
+      properties:
+        secret: { type: string }
+        otpauthUrl: { type: string }
+    PermissionInfo:
+      type: object
+      required: [id, area, label, description, requires]
+      properties:
+        id: { $ref: "#/components/schemas/Permission" }
+        area: { type: string }
+        label: { type: string }
+        description: { type: string }
+        requires:
+          type: array
+          description: Granted with it.
+          items: { $ref: "#/components/schemas/Permission" }
+    AccessPreset:
+      type: object
+      required: [id, label, description, role, permissions]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        description: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/Permission" }
+    PermissionCatalog:
+      type: object
+      required: [permissions, presets]
+      properties:
+        permissions:
+          type: array
+          description: Grouped by area, in display order.
+          items: { $ref: "#/components/schemas/PermissionInfo" }
+        presets:
+          type: array
+          items: { $ref: "#/components/schemas/AccessPreset" }
+    NewOperator:
+      type: object
+      required: [email, name, role]
+      properties:
+        email: { type: string }
+        name: { type: string }
+        password:
+          type: string
+          description: At least 12 characters; without it the server generates one.
+        role: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          description: Required for `custom`, ignored for `admin`; what they require is added.
+          items: { $ref: "#/components/schemas/Permission" }
+    CreatedOperator:
+      type: object
+      required: [operator, password]
+      properties:
+        operator: { $ref: "#/components/schemas/Operator" }
+        password: { type: [string, "null"] }
+    OperatorUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/Permission" }
+        disabled: { type: boolean }
+    ResetPassword:
+      type: object
+      properties:
+        password: { type: string, minLength: 12 }
+    ResetPasswordResult:
+      type: object
+      required: [password]
+      properties:
+        password: { type: [string, "null"] }
+
+    # Audit
+    AuditEntry:
+      type: object
+      required: [id, operator, action, targetType, targetId, detail, ip, at]
+      properties:
+        id: { type: string }
+        operator:
+          description: Null for what the system did by itself, such as a circuit breaker.
+          type: [object, "null"]
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        action:
+          type: string
+          description: A dotted name, such as `version.publish`.
+        targetType: { type: string }
+        targetId: { type: [string, "null"] }
+        detail: { $ref: "#/components/schemas/JsonObject" }
+        ip: { type: [string, "null"] }
+        at: { $ref: "#/components/schemas/Time" }
+    AuditPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEntry" }
+        nextCursor: { type: [string, "null"] }
+
+    # Overview
+    OverviewDay:
+      type: object
+      required: [day]
+      properties:
+        day:
+          type: string
+          description: "`YYYY-MM-DD`, UTC."
+        tasks: { type: integer }
+        failed: { type: integer }
+        revenueMicros: { $ref: "#/components/schemas/Micros" }
+        costMicros: { $ref: "#/components/schemas/Micros" }
+        signups: { type: integer }
+    OverviewTotals:
+      type: object
+      properties:
+        tasks24h: { type: integer }
+        errorRate24h: { type: [number, "null"] }
+        revenueMicros: { $ref: "#/components/schemas/Micros" }
+        costMicros: { $ref: "#/components/schemas/Micros" }
+        margin:
+          type: [number, "null"]
+          description: (revenue - cost) / revenue over the range; null without revenue.
+        activeCustomers7d: { type: integer }
+        liveModels: { type: integer }
+        pausedModels: { type: integer }
+        providersDegraded: { type: integer }
+        deprecatedVersions: { type: integer }
+    OverviewModel:
+      type: object
+      required: [modelId, name, tasks, revenueMicros]
+      properties:
+        modelId: { type: string }
+        name: { type: string }
+        tasks: { type: integer }
+        revenueMicros: { $ref: "#/components/schemas/Micros" }
+    OverviewProvider:
+      type: object
+      required: [id, name, state, successRate, p50Ms, tasks24h]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        state: { $ref: "#/components/schemas/HealthState" }
+        successRate: { type: [number, "null"] }
+        p50Ms: { type: [integer, "null"] }
+        tasks24h: { type: integer }
+    Overview:
+      type: object
+      required: [totals, series]
+      properties:
+        totals: { $ref: "#/components/schemas/OverviewTotals" }
+        series:
+          type: array
+          description: One entry per UTC day of the range, oldest first.
+          items: { $ref: "#/components/schemas/OverviewDay" }
+        topModels:
+          type: array
+          items: { $ref: "#/components/schemas/OverviewModel" }
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/OverviewProvider" }
+
+    # Settings
+    Limits:
+      type: object
+      description: |
+        The limits in force. Each has a platform default in settings, and a workspace may have its own value.
+        A null spend limit means none.
+      required:
+        - requestsPerMinute
+        - concurrency
+        - queueSize
+        - queueWaitSeconds
+        - dailySpendMicros
+        - monthlySpendMicros
+        - subAccounts
+        - topUpMinMicros
+        - topUpMaxMicros
+        - firstWeekDailyTopUpMicros
+      properties:
+        requestsPerMinute: { type: integer, minimum: 1 }
+        concurrency:
+          type: integer
+          minimum: 1
+          description: Tasks running at once. Beyond it they wait in the queue.
+        queueSize:
+          type: integer
+          minimum: 0
+          description: Tasks waiting at once. Beyond it the API answers 429 `queue_full`.
+        queueWaitSeconds:
+          type: integer
+          minimum: 1
+          description: Longest wait in the queue. Beyond it the task fails with `queue_timeout`, free of charge.
+        dailySpendMicros:
+          type: [integer, "null"]
+          description: Beyond it the API answers 402 `daily_spend_limit_reached`. Resets at 00:00 UTC.
+        monthlySpendMicros:
+          type: [integer, "null"]
+          description: Beyond it the API answers 402.
+        subAccounts: { type: integer, minimum: 0 }
+        topUpMinMicros: { $ref: "#/components/schemas/Micros" }
+        topUpMaxMicros: { $ref: "#/components/schemas/Micros" }
+        firstWeekDailyTopUpMicros:
+          description: Top-ups per day during a workspace's first 7 days, the main guard against stolen cards.
+          $ref: "#/components/schemas/Micros"
+    LimitOverrides:
+      type: object
+      description: The workspace's own values; a limit left out or null follows the platform default.
+      properties:
+        requestsPerMinute: { type: [integer, "null"], minimum: 1, maximum: 100000 }
+        concurrency: { type: [integer, "null"], minimum: 1, maximum: 10000 }
+        queueSize: { type: [integer, "null"], minimum: 0, maximum: 100000 }
+        queueWaitSeconds: { type: [integer, "null"], minimum: 1, maximum: 86400 }
+        dailySpendMicros: { type: [integer, "null"], minimum: 1 }
+        monthlySpendMicros: { type: [integer, "null"], minimum: 1 }
+        subAccounts: { type: [integer, "null"], minimum: 0, maximum: 1000 }
+        topUpMinMicros: { type: [integer, "null"], minimum: 1 }
+        topUpMaxMicros: { type: [integer, "null"], minimum: 1 }
+        firstWeekDailyTopUpMicros: { type: [integer, "null"], minimum: 1 }
+    BonusStep:
+      type: object
+      required: [minTopUpMicros, rate]
+      properties:
+        minTopUpMicros: { $ref: "#/components/schemas/Micros" }
+        rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Share added as gift credit, on top-ups of at least this much.
+    Settings:
+      type: object
+      required:
+        - limits
+        - minMargin
+        - cardFeeRate
+        - welcomeCreditMicros
+        - purchasedCreditDays
+        - giftCreditDays
+        - refundWindowDays
+        - bonus
+      properties:
+        limits: { $ref: "#/components/schemas/Limits" }
+        minMargin:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Prices under it need a reason. The card fee is charged apart, so it doesn't count.
+        cardFeeRate: { type: number, minimum: 0, maximum: 1 }
+        welcomeCreditMicros: { $ref: "#/components/schemas/Micros" }
+        purchasedCreditDays: { type: integer, minimum: 1 }
+        giftCreditDays: { type: integer, minimum: 1 }
+        refundWindowDays: { type: integer, minimum: 0 }
+        bonus:
+          type: object
+          required: [enabled, steps]
+          properties:
+            enabled: { type: boolean }
+            steps:
+              type: array
+              items: { $ref: "#/components/schemas/BonusStep" }
+    SettingsUpdate:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        limits: { $ref: "#/components/schemas/Limits" }
+        minMargin: { type: number, minimum: 0, maximum: 1 }
+        cardFeeRate: { type: number, minimum: 0, maximum: 1 }
+        welcomeCreditMicros: { $ref: "#/components/schemas/Micros" }
+        purchasedCreditDays: { type: integer, minimum: 1 }
+        giftCreditDays: { type: integer, minimum: 1 }
+        refundWindowDays: { type: integer, minimum: 0 }
+        bonus:
+          type: object
+          required: [enabled, steps]
+          properties:
+            enabled: { type: boolean }
+            steps:
+              type: array
+              items: { $ref: "#/components/schemas/BonusStep" }
+
+    # Catalog
+    Modality:
+      type: string
+      enum: [image, video, audio, 3d, text]
+    Medium:
+      type: string
+      enum: [text, image, video, audio, 3d]
+    ModelState:
+      type: string
+      description: The kill switch. A paused model refuses new tasks with 503 `model_paused`.
+      enum: [active, paused]
+    Visibility:
+      type: string
+      description: |
+        Public models are listed; unlisted ones answer but aren't listed; private ones answer allowlisted workspaces
+        only. Widening is a release decision and needs `catalog.publish`.
+      enum: [public, unlisted, private]
+    Disclosure:
+      type: string
+      description: Open models may show their author to customers; white label models never do.
+      enum: [open, white_label]
+    VersionStatus:
+      type: string
+      description: draft > live > deprecated > retired. Deprecated still answers; retired answers 410 `version_retired`.
+      enum: [draft, live, deprecated, retired]
+    BillingUnit:
+      type: string
+      enum: [image, megapixel, second, minute, request, 1k_chars, 1m_tokens, mesh]
+    PriceTier:
+      type: object
+      required: [id, label, price, cost]
+      properties:
+        id: { type: string }
+        label:
+          type: string
+          description: What the tier is, such as "1080p".
+        price: { $ref: "#/components/schemas/Decimal" }
+        cost:
+          description: The primary route's cost at this tier, null without one. Read-only.
+          oneOf:
+            - { $ref: "#/components/schemas/Decimal" }
+            - { type: "null" }
+    PriceTierInput:
+      type: object
+      required: [id, label, price]
+      properties:
+        id: { type: string }
+        label: { type: string, maxLength: 40 }
+        price: { $ref: "#/components/schemas/Decimal" }
+    InputPrice:
+      type: object
+      description: Charged for reference media on top of the tier. Promos don't apply to it.
+      required: [unit, price, field]
+      properties:
+        unit: { $ref: "#/components/schemas/BillingUnit" }
+        price: { $ref: "#/components/schemas/Decimal" }
+        field:
+          type: string
+          description: The input field that holds the media. A list counts its items, a number is the count, anything else counts as one.
+    PricingBase:
+      type: object
+      required: [unit, defaultTier, tierField, tierValues, input, promo]
+      properties:
+        unit: { $ref: "#/components/schemas/BillingUnit" }
+        defaultTier:
+          type: string
+          description: The tier billed when the input doesn't pick one.
+        tierField:
+          type: [string, "null"]
+          description: The input field whose value picks the tier, such as `resolution`.
+        tierValues:
+          type: object
+          description: Values of `tierField` that aren't tier IDs themselves, mapped to one.
+          additionalProperties: { type: string }
+        input:
+          oneOf:
+            - { $ref: "#/components/schemas/InputPrice" }
+            - { type: "null" }
+        promo:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 0.99
+          description: Discount taken off every tier; margins are worked out on the result.
+    Pricing:
+      allOf:
+        - { $ref: "#/components/schemas/PricingBase" }
+        - type: object
+          required: [tiers]
+          properties:
+            tiers:
+              type: array
+              items: { $ref: "#/components/schemas/PriceTier" }
+    PricingInput:
+      allOf:
+        - { $ref: "#/components/schemas/PricingBase" }
+        - type: object
+          required: [tiers]
+          properties:
+            tiers:
+              type: array
+              minItems: 1
+              items: { $ref: "#/components/schemas/PriceTierInput" }
+    PriceSummary:
+      type: object
+      required: [unit, price]
+      properties:
+        unit: { $ref: "#/components/schemas/BillingUnit" }
+        price: { $ref: "#/components/schemas/Decimal" }
+    RoutingStrategy:
+      type: string
+      enum: [priority, cheapest, fastest, weighted]
+    RoutingPolicy:
+      type: object
+      required: [strategy, fallbacks, maxAttempts, timeoutSeconds]
+      properties:
+        strategy: { $ref: "#/components/schemas/RoutingStrategy" }
+        fallbacks:
+          type: boolean
+          description: Try the next route when one fails before producing output.
+        maxAttempts: { type: integer, minimum: 1, maximum: 5 }
+        timeoutSeconds: { type: integer, minimum: 5, maximum: 3600 }
+    RouteStatus:
+      type: string
+      enum: [active, paused, draining]
+    RouteHealth:
+      type: object
+      required: [successRate, p50Ms, p95Ms, tasks24h]
+      properties:
+        successRate:
+          type: [number, "null"]
+          description: Share of the last 24 hours' attempts that succeeded; null without traffic.
+        p50Ms: { type: [integer, "null"] }
+        p95Ms: { type: [integer, "null"] }
+        tasks24h: { type: integer }
+    TierCosts:
+      type: object
+      description: What the provider charges per billing unit at each tier, by tier ID, in the version's billing unit.
+      additionalProperties: { $ref: "#/components/schemas/Decimal" }
+    Route:
+      type: object
+      description: One way to serve a version.
+      required:
+        - id
+        - providerId
+        - providerName
+        - upstreamModel
+        - status
+        - priority
+        - weight
+        - tierCosts
+        - region
+        - maxConcurrency
+        - mapping
+        - transform
+        - health
+        - updatedAt
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        providerName: { type: string }
+        upstreamModel:
+          type: string
+          description: The provider's own ID for the model.
+        status: { $ref: "#/components/schemas/RouteStatus" }
+        priority:
+          type: integer
+          description: Lower goes first under the priority strategy.
+        weight:
+          type: integer
+          description: Share of traffic under the weighted strategy (0-100).
+        tierCosts: { $ref: "#/components/schemas/TierCosts" }
+        region: { type: string }
+        maxConcurrency: { type: [integer, "null"] }
+        mapping:
+          oneOf:
+            - { $ref: "#/components/schemas/JsonObject" }
+            - { type: "null" }
+          description: Our input to the provider's parameters. See services/internal/providers/mapping.
+        transform:
+          type: [string, "null"]
+          description: A registered Go transform, for mappings the declarative form can't express.
+        health: { $ref: "#/components/schemas/RouteHealth" }
+        lastTest:
+          x-phase: 1
+          description: The latest test still valid for this route; null means untested.
+          oneOf:
+            - { $ref: "#/components/schemas/RouteTest" }
+            - { type: "null" }
+        updatedAt: { $ref: "#/components/schemas/Time" }
+    NewRoute:
+      type: object
+      required: [providerId, upstreamModel, tierCosts]
+      properties:
+        providerId: { type: string }
+        upstreamModel: { type: string, maxLength: 200 }
+        priority: { type: integer, minimum: 1, maximum: 100 }
+        weight: { type: integer, minimum: 0, maximum: 100 }
+        tierCosts: { $ref: "#/components/schemas/TierCosts" }
+        region: { type: string, maxLength: 50 }
+        maxConcurrency: { type: [integer, "null"], minimum: 1 }
+        mapping:
+          oneOf:
+            - { $ref: "#/components/schemas/JsonObject" }
+            - { type: "null" }
+        transform: { type: [string, "null"], maxLength: 100 }
+    RouteUpdate:
+      type: object
+      properties:
+        upstreamModel: { type: string, maxLength: 200 }
+        status: { $ref: "#/components/schemas/RouteStatus" }
+        priority: { type: integer, minimum: 1, maximum: 100 }
+        weight: { type: integer, minimum: 0, maximum: 100 }
+        tierCosts: { $ref: "#/components/schemas/TierCosts" }
+        region: { type: string, maxLength: 50 }
+        maxConcurrency: { type: [integer, "null"], minimum: 1 }
+        mapping:
+          oneOf:
+            - { $ref: "#/components/schemas/JsonObject" }
+            - { type: "null" }
+        transform: { type: [string, "null"], maxLength: 100 }
+    RouteTestRequest:
+      type: object
+      required: [input]
+      properties:
+        input: { $ref: "#/components/schemas/JsonObject" }
+    RouteTest:
+      type: object
+      required: [id, ok, input, output, error, latencyMs, costMicros, at]
+      properties:
+        id: { type: string }
+        ok: { type: boolean }
+        input: { $ref: "#/components/schemas/JsonObject" }
+        output:
+          oneOf:
+            - { $ref: "#/components/schemas/JsonObject" }
+            - { type: "null" }
+        error: { type: [string, "null"] }
+        latencyMs: { type: [integer, "null"] }
+        costMicros: { $ref: "#/components/schemas/Micros" }
+        at: { $ref: "#/components/schemas/Time" }
+    ModelVersion:
+      type: object
+      required:
+        - id
+        - modelId
+        - label
+        - status
+        - isDefault
+        - changelog
+        - inputSchema
+        - outputSchema
+        - pricing
+        - routing
+        - routes
+        - replacement
+        - createdAt
+        - createdBy
+        - releasedAt
+        - deprecatedAt
+        - sunsetAt
+        - tasks24h
+      properties:
+        id:
+          type: string
+          description: Stable, URL-safe and unique within the model, such as "v3".
+        modelId: { type: string }
+        label:
+          type: string
+          description: Human version, such as "3.0".
+        status: { $ref: "#/components/schemas/VersionStatus" }
+        isDefault: { type: boolean }
+        changelog: { type: string }
+        inputSchema:
+          description: JSON Schema (draft 2020-12). `x-ui` on a property tells the console how to render it.
+          $ref: "#/components/schemas/JsonObject"
+        outputSchema: { $ref: "#/components/schemas/JsonObject" }
+        pricing: { $ref: "#/components/schemas/Pricing" }
+        routing: { $ref: "#/components/schemas/RoutingPolicy" }
+        routes:
+          type: array
+          items: { $ref: "#/components/schemas/Route" }
+        replacement:
+          type: [string, "null"]
+          description: The version suggested once this one is deprecated or retired. Calls are never forwarded to it.
+        createdAt: { $ref: "#/components/schemas/Time" }
+        createdBy: { type: [string, "null"] }
+        releasedAt: { $ref: "#/components/schemas/NullableTime" }
+        deprecatedAt: { $ref: "#/components/schemas/NullableTime" }
+        sunsetAt:
+          description: When the version may be retired. It doesn't retire by itself.
+          $ref: "#/components/schemas/NullableTime"
+        tasks24h: { type: integer }
+    VersionCounts:
+      type: object
+      required: [total, live, draft, deprecated]
+      properties:
+        total: { type: integer }
+        live: { type: integer }
+        draft: { type: integer }
+        deprecated: { type: integer }
+    ModelSummary:
+      type: object
+      required:
+        - id
+        - publisher
+        - slug
+        - name
+        - modality
+        - tasks
+        - state
+        - visibility
+        - disclosure
+        - featured
+        - defaultVersion
+        - versions
+        - providers
+        - price
+        - tasks24h
+        - errorRate24h
+        - revenue30dMicros
+        - revision
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "`publisher/slug`."
+        publisher: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        modality: { $ref: "#/components/schemas/Modality" }
+        tasks:
+          type: array
+          description: What it does, such as "text-to-video".
+          items: { type: string }
+        state: { $ref: "#/components/schemas/ModelState" }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        disclosure: { $ref: "#/components/schemas/Disclosure" }
+        featured: { type: boolean }
+        defaultVersion: { type: [string, "null"] }
+        versions: { $ref: "#/components/schemas/VersionCounts" }
+        providers:
+          type: array
+          description: Providers with an active route on the default version.
+          items: { type: string }
+        price:
+          description: The default tier of the default version.
+          oneOf:
+            - { $ref: "#/components/schemas/PriceSummary" }
+            - { type: "null" }
+        tasks24h: { type: integer }
+        errorRate24h: { type: [number, "null"] }
+        revenue30dMicros: { $ref: "#/components/schemas/Micros" }
+        revision:
+          type: integer
+          description: Goes up with every change to the model, its versions or routes. Send it back as `If-Match`.
+        createdAt: { $ref: "#/components/schemas/Time" }
+        updatedAt: { $ref: "#/components/schemas/Time" }
+    GalleryItem:
+      type: object
+      required: [url, kind, caption]
+      properties:
+        url: { type: string }
+        kind: { type: string, enum: [image, video, audio] }
+        caption: { type: string }
+    MaxOutput:
+      type: object
+      description: The largest output the model makes; what applies to its modality is set.
+      properties:
+        width: { type: integer }
+        height: { type: integer }
+        seconds: { type: number }
+    ModelDetails:
+      type: object
+      required:
+        - author
+        - description
+        - inputs
+        - outputs
+        - tags
+        - license
+        - capabilities
+        - maxOutput
+        - gallery
+        - pausedReason
+        - versionList
+      properties:
+        author:
+          type: string
+          description: Who really made the model. Customers see the publisher, never this.
+        description: { type: string }
+        inputs:
+          type: array
+          items: { $ref: "#/components/schemas/Medium" }
+        outputs:
+          type: array
+          items: { $ref: "#/components/schemas/Medium" }
+        tags:
+          type: array
+          items: { type: string }
+        license: { type: [string, "null"] }
+        capabilities:
+          type: array
+          description: What it can do, such as "camera-control". Measured values like latency aren't entered here.
+          items: { type: string }
+        maxOutput:
+          oneOf:
+            - { $ref: "#/components/schemas/MaxOutput" }
+            - { type: "null" }
+        gallery:
+          type: array
+          items: { $ref: "#/components/schemas/GalleryItem" }
+        pausedReason: { type: [string, "null"] }
+        versionList:
+          type: array
+          items: { $ref: "#/components/schemas/ModelVersion" }
+    Model:
+      allOf:
+        - { $ref: "#/components/schemas/ModelSummary" }
+        - { $ref: "#/components/schemas/ModelDetails" }
+    ModelPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ModelSummary" }
+        nextCursor: { type: [string, "null"] }
+    NewModel:
+      type: object
+      required: [publisher, slug, name, modality]
+      properties:
+        publisher: { type: string }
+        slug: { type: string }
+        name: { type: string, maxLength: 80 }
+        modality: { $ref: "#/components/schemas/Modality" }
+        tasks:
+          type: array
+          items: { type: string }
+        description: { type: string, maxLength: 2000 }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        disclosure: { $ref: "#/components/schemas/Disclosure" }
+        author: { type: string, maxLength: 80 }
+    ModelUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 2000 }
+        tasks:
+          type: array
+          items: { type: string }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        disclosure: { $ref: "#/components/schemas/Disclosure" }
+        author: { type: string, maxLength: 80 }
+        featured: { type: boolean }
+        tags:
+          type: array
+          items: { type: string }
+        license: { type: [string, "null"], maxLength: 120 }
+        inputs:
+          type: array
+          items: { $ref: "#/components/schemas/Medium" }
+        outputs:
+          type: array
+          items: { $ref: "#/components/schemas/Medium" }
+        capabilities:
+          type: array
+          items: { type: string }
+        maxOutput:
+          oneOf:
+            - { $ref: "#/components/schemas/MaxOutput" }
+            - { type: "null" }
+        gallery:
+          type: array
+          items: { $ref: "#/components/schemas/GalleryItem" }
+    NewVersion:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string, maxLength: 64 }
+        label: { type: string, maxLength: 40 }
+        from: { type: string }
+        changelog: { type: string, maxLength: 4000 }
+    VersionUpdate:
+      type: object
+      properties:
+        label: { type: string, maxLength: 40 }
+        changelog: { type: string, maxLength: 4000 }
+        inputSchema: { $ref: "#/components/schemas/JsonObject" }
+        outputSchema: { $ref: "#/components/schemas/JsonObject" }
+        pricing: { $ref: "#/components/schemas/PricingInput" }
+        routing: { $ref: "#/components/schemas/RoutingPolicy" }
+    PublishVersion:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Why a tier may sell under the minimum margin. Written to the audit log.
+    DeprecateVersion:
+      type: object
+      required: [sunsetAt, replacement]
+      properties:
+        sunsetAt: { $ref: "#/components/schemas/Time" }
+        replacement: { type: [string, "null"] }
+    ModelTemplate:
+      type: object
+      required: [id, adapter, upstreamModel, name, modality, inputSchema, outputSchema, mapping, unit, tierCosts, exampleInput]
+      properties:
+        id:
+          type: string
+          description: "`<provider>/<model>` under catalog/templates."
+        adapter: { $ref: "#/components/schemas/Adapter" }
+        upstreamModel: { type: string }
+        name: { type: string }
+        modality: { $ref: "#/components/schemas/Modality" }
+        inputSchema: { $ref: "#/components/schemas/JsonObject" }
+        outputSchema: { $ref: "#/components/schemas/JsonObject" }
+        mapping: { $ref: "#/components/schemas/JsonObject" }
+        unit: { $ref: "#/components/schemas/BillingUnit" }
+        tierCosts: { $ref: "#/components/schemas/TierCosts" }
+        exampleInput: { $ref: "#/components/schemas/JsonObject" }
+    ModelAccess:
+      type: object
+      required: [workspaces]
+      properties:
+        workspaces:
+          type: array
+          description: Customer IDs.
+          items: { type: string }
+    PriceProtection:
+      type: object
+      description: Who keeps the old price. By default everyone gets the new one.
+      required: [specialPrices, signedUpBefore, customerIds, until]
+      properties:
+        specialPrices:
+          type: boolean
+          description: Those with a private price or a promo.
+        signedUpBefore: { $ref: "#/components/schemas/NullableTime" }
+        customerIds:
+          type: array
+          items: { type: string }
+        until:
+          description: When the protection ends; null for no end.
+          $ref: "#/components/schemas/NullableTime"
+    NewPriceChange:
+      type: object
+      required: [tiers, effectiveAt, protection, announce, reason]
+      properties:
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/PriceTierInput" }
+        effectiveAt:
+          description: Null for now.
+          $ref: "#/components/schemas/NullableTime"
+        protection: { $ref: "#/components/schemas/PriceProtection" }
+        announce:
+          type: array
+          description: Sent only to those who used the model in the last 90 days. Empty for no announcement.
+          items: { type: string, enum: [email, site] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        dryRun: { type: boolean }
+    PriceChange:
+      type: object
+      required: [revision, tiers, effectiveAt, protection, announce, reason, affected, protected, createdAt, createdBy]
+      properties:
+        revision: { type: integer }
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/PriceTier" }
+        effectiveAt: { $ref: "#/components/schemas/Time" }
+        protection: { $ref: "#/components/schemas/PriceProtection" }
+        announce:
+          type: array
+          items: { type: string, enum: [email, site] }
+        reason: { type: string }
+        affected: { type: integer }
+        protected: { type: integer }
+        createdAt: { $ref: "#/components/schemas/Time" }
+        createdBy: { type: [string, "null"] }
+    NewPromo:
+      type: object
+      required: [rate, startsAt, endsAt, tiers]
+      properties:
+        rate: { type: number, exclusiveMinimum: 0, maximum: 0.99 }
+        startsAt: { $ref: "#/components/schemas/Time" }
+        endsAt: { $ref: "#/components/schemas/Time" }
+        tiers:
+          type: array
+          description: Tier IDs; empty for every tier.
+          items: { type: string }
+    Promo:
+      allOf:
+        - { $ref: "#/components/schemas/NewPromo" }
+        - type: object
+          required: [id, createdAt, createdBy]
+          properties:
+            id: { type: string }
+            createdAt: { $ref: "#/components/schemas/Time" }
+            createdBy: { type: [string, "null"] }
+
+    # Apps
+    AppCategory:
+      type: string
+      enum: [image, video, audio, 3d]
+    AppStatus:
+      type: string
+      enum: [draft, live, paused]
+    ReleaseStatus:
+      type: string
+      enum: [draft, live, superseded]
+    AppStep:
+      type: object
+      description: One model call of a release. Customers only see the app task, its stage and the mapped output.
+      required: [id, stage, model, input]
+      properties:
+        id:
+          type: string
+          description: Lowercase letters, digits, dots and dashes. Later steps read it as `steps.<id>.output`.
+        stage:
+          type: [string, "null"]
+          description: One of the release's `stages`, shown while this step runs.
+        model:
+          type: string
+          description: "`publisher/slug@version`. Apps always pin, so a new model version never changes a live app."
+        input:
+          description: Exactly what the step sends, with `{{input.x}}` and `{{steps.<id>.output.x}}` filled in.
+          $ref: "#/components/schemas/JsonObject"
+    AppRelease:
+      type: object
+      required: [number, status, steps, stages, outputMap, priceMicros, costMicros, notes, createdAt, createdBy, publishedAt]
+      properties:
+        number: { type: integer }
+        status: { $ref: "#/components/schemas/ReleaseStatus" }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/AppStep" }
+        stages:
+          type: array
+          description: Public progress stage names, in order.
+          items: { type: string }
+        outputMap:
+          description: What the customer gets, built from templates.
+          $ref: "#/components/schemas/JsonObject"
+        priceMicros:
+          description: What one run costs the customer.
+          $ref: "#/components/schemas/Micros"
+        costMicros:
+          description: Upstream cost of one run at the steps' default tiers. Read-only.
+          $ref: "#/components/schemas/Micros"
+        notes: { type: string }
+        createdAt: { $ref: "#/components/schemas/Time" }
+        createdBy: { type: [string, "null"] }
+        publishedAt: { $ref: "#/components/schemas/NullableTime" }
+    AppSummary:
+      type: object
+      required:
+        - slug
+        - name
+        - tagline
+        - category
+        - status
+        - liveRelease
+        - draftRelease
+        - models
+        - priceMicros
+        - runs24h
+        - revenue30dMicros
+        - updatedAt
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        tagline: { type: string }
+        category: { $ref: "#/components/schemas/AppCategory" }
+        status: { $ref: "#/components/schemas/AppStatus" }
+        liveRelease: { type: [integer, "null"] }
+        draftRelease: { type: [integer, "null"] }
+        models:
+          type: array
+          description: Models the live release calls.
+          items: { type: string }
+        priceMicros: { type: [integer, "null"] }
+        runs24h: { type: integer }
+        revenue30dMicros: { $ref: "#/components/schemas/Micros" }
+        updatedAt: { $ref: "#/components/schemas/Time" }
+    AppDetails:
+      type: object
+      required: [description, inputSchema, outputSchema, pausedReason, releases]
+      properties:
+        description: { type: string }
+        inputSchema:
+          description: What a run takes.
+          $ref: "#/components/schemas/JsonObject"
+        outputSchema:
+          description: What a run gives back.
+          $ref: "#/components/schemas/JsonObject"
+        pausedReason: { type: [string, "null"] }
+        releases:
+          type: array
+          items: { $ref: "#/components/schemas/AppRelease" }
+    App:
+      allOf:
+        - { $ref: "#/components/schemas/AppSummary" }
+        - { $ref: "#/components/schemas/AppDetails" }
+    NewApp:
+      type: object
+      required: [slug, name, category]
+      properties:
+        slug: { type: string }
+        name: { type: string, maxLength: 80 }
+        tagline: { type: string, maxLength: 120 }
+        category: { $ref: "#/components/schemas/AppCategory" }
+    AppUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 80 }
+        tagline: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        category: { $ref: "#/components/schemas/AppCategory" }
+        inputSchema: { $ref: "#/components/schemas/JsonObject" }
+        outputSchema: { $ref: "#/components/schemas/JsonObject" }
+    ReleaseUpdate:
+      type: object
+      properties:
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/AppStep" }
+        stages:
+          type: array
+          items: { type: string }
+        outputMap: { $ref: "#/components/schemas/JsonObject" }
+        priceMicros: { $ref: "#/components/schemas/Micros" }
+        notes: { type: string, maxLength: 2000 }
+    PublishRelease:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Why a run may sell under the minimum margin. Written to the audit log.
+    RollbackApp:
+      type: object
+      required: [release]
+      properties:
+        release: { type: integer, minimum: 1 }
+
+    # Providers
+    ProviderKind:
+      type: string
+      description: "`first_party` is the lab's own API; `managed` is capacity we run ourselves."
+      enum: [first_party, managed]
+    ProviderStatus:
+      type: string
+      description: Paused and disabled providers get no new attempts; their routes fall through to the next one.
+      enum: [active, paused, disabled]
+    Adapter:
+      type: string
+      description: How the gateway talks to the provider, one per wire protocol. `fake` exists outside production only.
+      enum: [google, openai, elevenlabs, kling, fake]
+    HealthState:
+      type: string
+      enum: [operational, degraded, outage]
+    Provider:
+      type: object
+      required:
+        - id
+        - name
+        - kind
+        - adapter
+        - status
+        - baseUrl
+        - regions
+        - whiteLabelAllowed
+        - licenseNotes
+        - credential
+        - limits
+        - health
+        - routes
+        - models
+        - tasks24h
+        - cost30dMicros
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/ProviderKind" }
+        adapter: { $ref: "#/components/schemas/Adapter" }
+        status: { $ref: "#/components/schemas/ProviderStatus" }
+        baseUrl: { type: string }
+        regions:
+          type: array
+          items: { type: string }
+        whiteLabelAllowed:
+          type: boolean
+          description: Whether its terms let us resell its models under our own name. Off by default.
+        licenseNotes: { type: string }
+        credential:
+          type: object
+          required: [configured, hint]
+          properties:
+            configured: { type: boolean }
+            hint:
+              type: [string, "null"]
+              description: Last characters of the secret. The secret never comes back.
+        limits:
+          type: object
+          required: [concurrency, requestsPerMinute]
+          properties:
+            concurrency:
+              type: [integer, "null"]
+              description: Tasks in flight at once, across every route.
+            requestsPerMinute: { type: [integer, "null"] }
+        health:
+          type: object
+          required: [state, successRate24h, p50Ms, checkedAt]
+          properties:
+            state: { $ref: "#/components/schemas/HealthState" }
+            successRate24h: { type: [number, "null"] }
+            p50Ms: { type: [integer, "null"] }
+            checkedAt: { $ref: "#/components/schemas/NullableTime" }
+        routes: { type: integer }
+        models: { type: integer }
+        tasks24h: { type: integer }
+        cost30dMicros:
+          description: What we paid the provider in the last 30 days.
+          $ref: "#/components/schemas/Micros"
+        createdAt: { $ref: "#/components/schemas/Time" }
+        updatedAt: { $ref: "#/components/schemas/Time" }
+    NewProvider:
+      type: object
+      required: [id, name, kind, adapter, baseUrl, regions]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/ProviderKind" }
+        adapter: { $ref: "#/components/schemas/Adapter" }
+        baseUrl: { type: string }
+        regions:
+          type: array
+          items: { type: string }
+        whiteLabelAllowed: { type: boolean }
+        licenseNotes: { type: string, maxLength: 2000 }
+    ProviderUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        baseUrl: { type: string }
+        regions:
+          type: array
+          items: { type: string }
+        whiteLabelAllowed: { type: boolean }
+        licenseNotes: { type: string, maxLength: 2000 }
+        limits:
+          type: object
+          required: [concurrency, requestsPerMinute]
+          properties:
+            concurrency: { type: [integer, "null"] }
+            requestsPerMinute: { type: [integer, "null"] }
+        secret:
+          type: string
+          description: The credential, entered again. Required with a new `baseUrl` while one is set.
+    SetCredential:
+      type: object
+      required: [secret]
+      properties:
+        secret: { type: string, minLength: 1 }
+    ProviderCheck:
+      type: object
+      required: [ok, latencyMs, message, provider]
+      properties:
+        ok: { type: boolean }
+        latencyMs: { type: integer }
+        message: { type: string }
+        provider: { $ref: "#/components/schemas/Provider" }
+
+    # Customers
+    CustomerStatus:
+      type: string
+      enum: [active, suspended]
+    LedgerKind:
+      type: string
+      enum: [top_up, grant, usage, refund, adjustment, expire, fee]
+    CustomerRow:
+      type: object
+      description: A customer is a workspace, the billing account.
+      required:
+        - id
+        - name
+        - owner
+        - status
+        - balanceMicros
+        - heldMicros
+        - spend30dMicros
+        - tasks30d
+        - keys
+        - members
+        - createdAt
+        - lastActiveAt
+      properties:
+        id: { type: string }
+        name:
+          type: string
+          description: The workspace's name.
+        owner:
+          type: object
+          required: [id, name, email]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            email: { type: string }
+        status: { $ref: "#/components/schemas/CustomerStatus" }
+        balanceMicros:
+          description: Can be below zero, when a task cost more than its hold.
+          $ref: "#/components/schemas/Micros"
+        heldMicros:
+          description: Held for unfinished tasks. Available is balance minus this.
+          $ref: "#/components/schemas/Micros"
+        spend30dMicros: { $ref: "#/components/schemas/Micros" }
+        tasks30d: { type: integer }
+        keys:
+          type: integer
+          description: Active API keys.
+        members: { type: integer }
+        createdAt: { $ref: "#/components/schemas/Time" }
+        lastActiveAt: { $ref: "#/components/schemas/NullableTime" }
+    CustomerPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerRow" }
+        nextCursor: { type: [string, "null"] }
+    LimitName:
+      type: string
+      enum:
+        - requestsPerMinute
+        - concurrency
+        - queueSize
+        - queueWaitSeconds
+        - dailySpendMicros
+        - monthlySpendMicros
+        - subAccounts
+        - topUpMinMicros
+        - topUpMaxMicros
+        - firstWeekDailyTopUpMicros
+    CustomerDetails:
+      type: object
+      required: [limits, overrides, autoReload, suspendedReason, usage, topModels]
+      properties:
+        limits: { $ref: "#/components/schemas/Limits" }
+        overrides:
+          type: array
+          description: Which limits are the workspace's own rather than the platform default.
+          items: { $ref: "#/components/schemas/LimitName" }
+        autoReload:
+          type: object
+          required: [enabled, thresholdMicros, amountMicros]
+          properties:
+            enabled: { type: boolean }
+            thresholdMicros: { $ref: "#/components/schemas/Micros" }
+            amountMicros: { $ref: "#/components/schemas/Micros" }
+        suspendedReason: { type: [string, "null"] }
+        usage:
+          type: array
+          description: The last 30 UTC days, oldest first.
+          items:
+            type: object
+            required: [day, tasks, spendMicros, errors]
+            properties:
+              day: { type: string }
+              tasks: { type: integer }
+              spendMicros: { $ref: "#/components/schemas/Micros" }
+              errors: { type: integer }
+        topModels:
+          type: array
+          items:
+            type: object
+            required: [modelId, tasks, spendMicros, unit]
+            properties:
+              modelId: { type: string }
+              tasks: { type: integer }
+              spendMicros: { $ref: "#/components/schemas/Micros" }
+              unit: { $ref: "#/components/schemas/BillingUnit" }
+    Customer:
+      allOf:
+        - { $ref: "#/components/schemas/CustomerRow" }
+        - { $ref: "#/components/schemas/CustomerDetails" }
+    CustomerUpdate:
+      type: object
+      properties:
+        limits: { $ref: "#/components/schemas/LimitOverrides" }
+        reason:
+          type: string
+          maxLength: 500
+          description: Why. Required when the change lowers a limit in force; written to the audit log.
+    AdjustCredits:
+      type: object
+      required: [amountMicros, reason]
+      properties:
+        amountMicros:
+          description: Positive adds credit, negative takes it.
+          $ref: "#/components/schemas/Micros"
+        kind:
+          type: string
+          description: Required for a positive amount. `purchased` lasts a year, `gift` 90 days.
+          enum: [purchased, gift]
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        confirmNegative:
+          type: boolean
+          description: Allows the balance to go below zero.
+    LedgerEntry:
+      type: object
+      required: [id, kind, amountMicros, note, operator, at]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/LedgerKind" }
+        amountMicros:
+          description: Positive adds credit, negative takes it. Usage is summed per day.
+          $ref: "#/components/schemas/Micros"
+        note: { type: string }
+        operator: { type: [string, "null"] }
+        at: { $ref: "#/components/schemas/Time" }
+    LedgerPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/LedgerEntry" }
+        nextCursor: { type: [string, "null"] }
+    Member:
+      type: object
+      required: [userId, name, email, role, joinedAt]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [owner, admin, developer, billing] }
+        joinedAt: { $ref: "#/components/schemas/Time" }
+    CustomerFlag:
+      type: object
+      required: [kind, count, since, detail]
+      properties:
+        kind: { type: string, enum: [content_policy, cancels, overrun] }
+        count: { type: integer }
+        since: { $ref: "#/components/schemas/Time" }
+        detail: { type: string }
+
+    # API keys
+    KeyStatus:
+      type: string
+      enum: [active, revoked]
+    ApiKey:
+      type: object
+      required:
+        - id
+        - name
+        - prefix
+        - status
+        - customer
+        - createdBy
+        - scopes
+        - spendLimitMicros
+        - spend30dMicros
+        - tasks30d
+        - createdAt
+        - lastUsedAt
+        - revokedAt
+        - revokedReason
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: The first characters, such as "mv_3fa9"; enough to find a key a customer pastes in a ticket.
+        status: { $ref: "#/components/schemas/KeyStatus" }
+        customer:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        createdBy:
+          description: The member who made it; their keys are revoked when they leave. Null once they are deleted.
+          type: [object, "null"]
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        scopes:
+          type: array
+          description: Model IDs or app slugs it may call; empty for everything.
+          items: { type: string }
+        spendLimitMicros:
+          type: [integer, "null"]
+          description: Stops the key once its spend this month reaches it.
+        spend30dMicros: { $ref: "#/components/schemas/Micros" }
+        tasks30d: { type: integer }
+        createdAt: { $ref: "#/components/schemas/Time" }
+        lastUsedAt: { $ref: "#/components/schemas/NullableTime" }
+        revokedAt: { $ref: "#/components/schemas/NullableTime" }
+        revokedReason: { type: [string, "null"] }
+    ApiKeyPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKey" }
+        nextCursor: { type: [string, "null"] }
+    ApiKeyUpdate:
+      type: object
+      required: [spendLimitMicros]
+      properties:
+        spendLimitMicros: { type: [integer, "null"], minimum: 1 }
+
+    # Tasks
+    TaskStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, canceled]
+    AttemptStatus:
+      type: string
+      enum: [running, succeeded, failed, timeout, canceled]
+    TaskRow:
+      type: object
+      description: |
+        Every model call and app run is a task. A task makes one or more attempts: the router tries routes in order and
+        falls back when one fails before producing output.
+      required:
+        - id
+        - model
+        - version
+        - app
+        - parentId
+        - stage
+        - customer
+        - keyPrefix
+        - status
+        - provider
+        - attempts
+        - latencyMs
+        - units
+        - unit
+        - tier
+        - amountMicros
+        - costMicros
+        - holdMicros
+        - errorCode
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: "`task_…`, the ID callers poll and receive in webhooks."
+        model:
+          type: [string, "null"]
+          description: Null for an app run.
+        version: { type: [string, "null"] }
+        app:
+          type: [string, "null"]
+          description: The app's slug, on an app run and on its steps.
+        parentId:
+          type: [string, "null"]
+          description: On a step of an app run, the run.
+        stage:
+          type: [string, "null"]
+          description: The stage it is in or ran in, on app runs and their steps.
+        customer:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        keyPrefix:
+          type: [string, "null"]
+          description: Null when the console's playground made it.
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        provider:
+          type: [string, "null"]
+          description: Provider of the attempt that finished it.
+        attempts: { type: integer }
+        latencyMs:
+          type: [integer, "null"]
+          description: From accepted to finished.
+        units:
+          type: [number, "null"]
+          description: Billed units, known once it succeeds.
+        unit:
+          oneOf:
+            - { $ref: "#/components/schemas/BillingUnit" }
+            - { type: "null" }
+        tier: { type: [string, "null"] }
+        amountMicros:
+          description: What the customer paid. Failed and canceled tasks cost them nothing.
+          $ref: "#/components/schemas/Micros"
+        costMicros:
+          description: What the provider charged us, which a failure can still have.
+          $ref: "#/components/schemas/Micros"
+        holdMicros:
+          description: Held until it finishes.
+          $ref: "#/components/schemas/Micros"
+        errorCode: { type: [string, "null"] }
+        createdAt: { $ref: "#/components/schemas/Time" }
+    TaskPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TaskRow" }
+        nextCursor: { type: [string, "null"] }
+    Attempt:
+      type: object
+      required: [number, provider, routeId, upstreamModel, upstreamId, status, latencyMs, error, costMicros, startedAt]
+      properties:
+        number: { type: integer }
+        provider: { type: string }
+        routeId: { type: string }
+        upstreamModel: { type: string }
+        upstreamId:
+          type: [string, "null"]
+          description: The provider's own task ID, for their support.
+        status: { $ref: "#/components/schemas/AttemptStatus" }
+        latencyMs: { type: [integer, "null"] }
+        error: { type: [string, "null"] }
+        costMicros:
+          description: What this attempt cost us. An accepted attempt that failed carries the route's estimate.
+          $ref: "#/components/schemas/Micros"
+        startedAt: { $ref: "#/components/schemas/Time" }
+    TaskEvent:
+      type: object
+      required: [at, status, detail]
+      properties:
+        at: { $ref: "#/components/schemas/Time" }
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, canceled, attempt]
+        detail: { type: string }
+    TaskDetails:
+      type: object
+      required: [input, output, metadata, errorMessage, webhookUrl, refundedAt, attemptList, events, steps]
+      properties:
+        input: { $ref: "#/components/schemas/JsonObject" }
+        output:
+          description: Output with media as storage URLs; null until it succeeds.
+          oneOf:
+            - { $ref: "#/components/schemas/JsonObject" }
+            - { type: "null" }
+        metadata:
+          description: What the caller attached to the task.
+          $ref: "#/components/schemas/JsonObject"
+        errorMessage: { type: [string, "null"] }
+        webhookUrl: { type: [string, "null"] }
+        refundedAt:
+          description: A task is refunded at most once.
+          $ref: "#/components/schemas/NullableTime"
+        attemptList:
+          type: array
+          items: { $ref: "#/components/schemas/Attempt" }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/TaskEvent" }
+        steps:
+          type: array
+          description: On an app run, the tasks its steps ran as.
+          items: { $ref: "#/components/schemas/TaskRow" }
+    TaskDetail:
+      allOf:
+        - { $ref: "#/components/schemas/TaskRow" }
+        - { $ref: "#/components/schemas/TaskDetails" }
+
+    # Announcements
+    NewAnnouncement:
+      type: object
+      required: [title, body, startsAt, endsAt]
+      properties:
+        title: { type: string, maxLength: 120 }
+        body: { type: string, maxLength: 2000 }
+        startsAt: { $ref: "#/components/schemas/Time" }
+        endsAt: { $ref: "#/components/schemas/NullableTime" }
+    Announcement:
+      allOf:
+        - { $ref: "#/components/schemas/NewAnnouncement" }
+        - type: object
+          required: [id, createdAt, createdBy]
+          properties:
+            id: { type: string }
+            createdAt: { $ref: "#/components/schemas/Time" }
+            createdBy: { type: [string, "null"] }

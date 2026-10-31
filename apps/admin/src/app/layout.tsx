@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     default: BRAND.name,
     template: `%s · ${BRAND.name}`,
   },
-  description: "Operator console for Modelvend: catalog, providers, customers and requests.",
+  description: "Operator console for Modelvend: catalog, providers, customers and tasks.",
   robots: { index: false, follow: false },
 };
 

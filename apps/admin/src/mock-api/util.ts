@@ -17,11 +17,19 @@ export function round(value: number, digits = 2): number {
   return Math.round(value * factor) / factor;
 }
 
-/** Dollars to the micro-dollar, as the API stores them. */
+/** Dollars rounded to the micro-dollar, for sums while seeding. */
 export const money = (value: number) => round(value, 6);
 
-/** "$1.20" for messages. */
-export const dollars = (value: number) => `$${value.toFixed(2)}`;
+/** Dollars as whole micro-dollars, as the API sends them. */
+export const toMicros = (dollars: number) => Math.round(dollars * 1_000_000);
+
+export const micros = toMicros;
+
+/** A dollar amount per unit as the API writes it: 0.084 becomes "0.084". */
+export const decimal = (dollars: number) => String(round(dollars, 9));
+
+/** "$1.20" for messages, from micro-dollars. */
+export const dollars = (amountMicros: number) => `$${(amountMicros / 1_000_000).toFixed(2)}`;
 
 export const clone = <T>(value: T): T => structuredClone(value);
 

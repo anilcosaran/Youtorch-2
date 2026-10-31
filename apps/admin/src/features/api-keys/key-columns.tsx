@@ -1,21 +1,13 @@
 "use client";
 
-import type { ApiKeyRow, KeyEnv } from "@modelvend/admin-api/api-keys";
+import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
 import type { Column } from "@/components/data/data-table";
 import { AccessLink } from "@/components/shared/access-link";
 import { CopyButton } from "@/components/shared/copy-field";
-import { Pill, type Tone } from "@/components/shared/pill";
 import { KeyStatusPill } from "@/components/shared/status";
 import { DateTime, RelativeTime } from "@/components/shared/time";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { dateTime, integer, plural, usd } from "@/lib/format";
-import { KEY_ENV_LABELS } from "@/lib/labels";
-
-const ENV_TONES: Record<KeyEnv, Tone> = { live: "info", test: "neutral" };
-
-export function EnvPill({ env }: { env: KeyEnv }) {
-  return <Pill tone={ENV_TONES[env]}>{KEY_ENV_LABELS[env]}</Pill>;
-}
 
 /** The key's name and the prefix a customer can quote from a ticket. */
 function KeyName({ row }: { row: ApiKeyRow }) {
@@ -104,22 +96,18 @@ export function keyColumns({
       header: "Customer",
       className: "min-w-44 max-w-64",
       cell: (row) => (
-        <span className="flex min-w-0 flex-col">
-          <AccessLink
-            permission="customers.view"
-            href={`/customers/${row.customer.id}`}
-            className="truncate outline-none hover:underline focus-visible:underline"
-            plainClassName="truncate"
-          >
-            {row.customer.name}
-          </AccessLink>
-          <span className="truncate text-xs text-muted-foreground">{row.customer.workspace}</span>
-        </span>
+        <AccessLink
+          permission="customers.view"
+          href={`/customers/${row.customer.id}`}
+          className="block truncate outline-none hover:underline focus-visible:underline"
+          plainClassName="block truncate"
+        >
+          {row.customer.name}
+        </AccessLink>
       ),
     });
   }
   columns.push(
-    { id: "env", header: "Env", cell: (row) => <EnvPill env={row.env} /> },
     { id: "status", header: "Status", cell: (row) => <KeyStatusCell row={row} /> },
   );
   if (!compact) columns.push({ id: "scopes", header: "Scopes", cell: (row) => <Scopes scopes={row.scopes} /> });
@@ -129,28 +117,36 @@ export function keyColumns({
       header: "Spend limit",
       align: "right",
       cell: (row) =>
-        row.spendLimit === null ? (
+        row.spendLimitMicros === null ? (
           <span className="text-muted-foreground">None</span>
         ) : (
-          <span className="tabular">{usd(row.spendLimit)}</span>
+          <span className="tabular">{usd(row.spendLimitMicros)}</span>
         ),
     },
     {
       id: "spend",
       header: "Spend 30d",
       align: "right",
-      cell: (row) => <span className="tabular">{usd(row.spend30d)}</span>,
+      cell: (row) => <span className="tabular">{usd(row.spend30dMicros)}</span>,
     },
     {
-      id: "requests",
-      header: "Requests 30d",
+      id: "tasks",
+      header: "Tasks 30d",
       align: "right",
-      cell: (row) => <span className="tabular">{integer(row.requests30d)}</span>,
+      cell: (row) => <span className="tabular">{integer(row.tasks30d)}</span>,
     },
     { id: "used", header: "Last used", cell: (row) => <RelativeTime value={row.lastUsedAt} /> },
   );
   if (!compact) {
-    columns.push({ id: "created", header: "Created", cell: (row) => <DateTime value={row.createdAt} time={false} /> });
+    columns.push(
+      {
+        id: "created-by",
+        header: "Created by",
+        // Null once the member is deleted, by which time the key is revoked too.
+        cell: (row) => row.createdBy?.name ?? <span className="text-muted-foreground">Deleted member</span>,
+      },
+      { id: "created", header: "Created", cell: (row) => <DateTime value={row.createdAt} time={false} /> },
+    );
   }
   if (actions) {
     columns.push({

@@ -3,11 +3,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { Ellipsis, KeyRound, OctagonPause, Pencil, Play, Plus, Stethoscope } from "lucide-react";
+import { Ellipsis, KeyRound, OctagonPause, Pencil, Play, Plus, Power, PowerOff, Stethoscope } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "@modelvend/admin-api/client";
 import {
   checkProvider,
+  disableProvider,
+  enableProvider,
   listProviders,
   pauseProvider,
   resumeProvider,
@@ -31,7 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { integer, milliseconds, percent, plural, usd, usdCompact } from "@/lib/format";
+import { integer, milliseconds, percent, plural, usdCompact } from "@/lib/format";
 import { toastError } from "@/lib/notify";
 import { ADAPTER_LABELS, PROVIDER_KIND_DESCRIPTIONS, PROVIDER_KIND_LABELS } from "@/lib/labels";
 import { keys } from "@/lib/query-keys";
@@ -77,14 +79,18 @@ function CardActions({
   onEdit,
   onCredential,
   onPause,
+  onDisable,
 }: {
   provider: Provider;
   onEdit: () => void;
   onCredential: () => void;
   onPause: () => void;
+  onDisable: () => void;
 }) {
   const confirm = useConfirm();
   const apply = useApplyProvider();
+  const queryClient = useQueryClient();
+  const reload = () => void queryClient.invalidateQueries({ queryKey: keys.providers });
   const [checking, setChecking] = useState(false);
 
   const check = async () => {
@@ -110,9 +116,26 @@ function CardActions({
     if (!ok) return;
     try {
       apply(await resumeProvider(provider.id));
-      toast.success(`${provider.name} is taking requests again`);
+      toast.success(`${provider.name} is taking attempts again`);
     } catch (error) {
       toastError(error, "Couldn't resume the provider");
+      reload();
+    }
+  };
+
+  const enable = async () => {
+    const ok = await confirm({
+      title: `Enable ${provider.name}?`,
+      description: "Its active routes start taking attempts, and versions can go live on it.",
+      action: "Enable",
+    });
+    if (!ok) return;
+    try {
+      apply(await enableProvider(provider.id));
+      toast.success(`${provider.name} is enabled`);
+    } catch (error) {
+      toastError(error, "Couldn't enable the provider");
+      reload();
     }
   };
 
@@ -133,7 +156,7 @@ function CardActions({
         <DropdownMenuItem onSelect={onEdit}>
           <Pencil /> Edit
         </DropdownMenuItem>
-        {provider.status !== "disabled" && <DropdownMenuSeparator />}
+        <DropdownMenuSeparator />
         {provider.status === "active" && (
           <DropdownMenuItem variant="destructive" onSelect={onPause}>
             <OctagonPause /> Pause
@@ -144,6 +167,15 @@ function CardActions({
             <Play /> Resume
           </DropdownMenuItem>
         )}
+        {provider.status === "disabled" ? (
+          <DropdownMenuItem onSelect={() => void enable()} disabled={!provider.credential.configured}>
+            <Power /> {provider.credential.configured ? "Enable" : "Enable (set a key first)"}
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem variant="destructive" onSelect={onDisable}>
+            <PowerOff /> Disable
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -152,9 +184,20 @@ function CardActions({
 function ProviderCard({ provider }: { provider: Provider }) {
   const can = usePermissions();
   const apply = useApplyProvider();
+  const queryClient = useQueryClient();
+  // After a refused change the card may be behind, so it loads again; the dialog shows the error.
+  const reloading = async (change: () => Promise<void>) => {
+    try {
+      await change();
+    } catch (error) {
+      void queryClient.invalidateQueries({ queryKey: keys.providers });
+      throw error;
+    }
+  };
   const [editing, setEditing] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [disabling, setDisabling] = useState(false);
   const { health, credential, limits } = provider;
 
   return (
@@ -183,47 +226,31 @@ function ProviderCard({ provider }: { provider: Provider }) {
               onEdit={() => setEditing(true)}
               onCredential={() => setRotating(true)}
               onPause={() => setPausing(true)}
+              onDisable={() => setDisabling(true)}
             />
           )}
         </div>
       </header>
       <div className="flex flex-1 flex-col gap-4 px-4 py-3">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Figure
             label="Success 24h"
             value={health.successRate24h === null ? "—" : percent(health.successRate24h)}
             info="Attempts on this provider's routes that produced output in the last 24 hours."
           />
           <Figure label="p50" value={health.p50Ms === null ? "—" : milliseconds(health.p50Ms)} />
-          <Figure label="Requests 24h" value={integer(provider.requests24h)} />
-          <Figure label="Cost 30d" value={usdCompact(provider.cost30d)} info="What we paid this provider in the last 30 days." />
-          <Figure
-            label="Balance"
-            value={provider.balance === null ? "—" : usd(provider.balance)}
-            info="Prepaid credit at the provider, when its API reports it. Low balances fail requests."
-          />
-          <Figure label="Incidents 7d" value={integer(health.incidents7d)} />
+          <Figure label="Tasks 24h" value={integer(provider.tasks24h)} />
+          <Figure label="Cost 30d" value={usdCompact(provider.cost30dMicros)} info="What we paid this provider in the last 30 days." />
         </div>
         <div className="grid gap-3 border-t pt-3 text-sm">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">Key</span>
             {credential.configured ? (
-              <span className="flex min-w-0 items-center gap-2 text-xs">
-                <span className="font-mono">{credential.hint}</span>
-                <Pill tone={credential.source === "console" ? "info" : "neutral"}>
-                  {credential.source === "console" ? "Set in console" : "From environment"}
-                </Pill>
-              </span>
+              <span className="font-mono text-xs">{credential.hint}</span>
             ) : (
               <span className="text-xs font-medium text-status-critical">Not set</span>
             )}
           </div>
-          {credential.rotatedAt && (
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-muted-foreground">Rotated</span>
-              <RelativeTime value={credential.rotatedAt} />
-            </div>
-          )}
           <div className="flex items-center justify-between gap-3 text-xs">
             <span className="text-muted-foreground">Limits</span>
             <span className="tabular">
@@ -242,6 +269,19 @@ function ProviderCard({ provider }: { provider: Provider }) {
             <span className="text-muted-foreground">Regions</span>
             <span className="uppercase">{provider.regions.join(", ") || "—"}</span>
           </div>
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              White label
+              <InfoTip label="White label">Whether its terms let us resell its models under our own name.</InfoTip>
+            </span>
+            <Pill tone={provider.whiteLabelAllowed ? "good" : "neutral"}>{provider.whiteLabelAllowed ? "Allowed" : "Not allowed"}</Pill>
+          </div>
+          {provider.licenseNotes && (
+            <div className="flex items-start justify-between gap-3 text-xs">
+              <span className="text-muted-foreground">License notes</span>
+              <span className="min-w-0 text-right">{provider.licenseNotes}</span>
+            </div>
+          )}
         </div>
         <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
           {provider.routes > 0 ? (
@@ -260,6 +300,24 @@ function ProviderCard({ provider }: { provider: Provider }) {
           )}
         </div>
       </div>
+      <ReasonDialog
+        open={disabling}
+        onOpenChange={setDisabling}
+        title={`Disable ${provider.name}?`}
+        description="Its routes stop counting as usable and new versions can't go live on it, until you enable it again."
+        label="Reason"
+        required
+        action="Disable provider"
+        destructive
+        describeError={errorMessage}
+        onSubmit={(reason) =>
+          reloading(async () => {
+            apply(await disableProvider(provider.id, reason));
+            setDisabling(false);
+            toast.success(`${provider.name} is disabled`);
+          })
+        }
+      />
       <ProviderDialog provider={provider} open={editing} onOpenChange={setEditing} />
       <CredentialDialog provider={provider} open={rotating} onOpenChange={setRotating} />
       <ReasonDialog
@@ -273,11 +331,13 @@ function ProviderCard({ provider }: { provider: Provider }) {
         action="Pause provider"
         destructive
         describeError={errorMessage}
-        onSubmit={async (reason) => {
-          apply(await pauseProvider(provider.id, reason));
-          setPausing(false);
-          toast.success(`${provider.name} is paused`);
-        }}
+        onSubmit={(reason) =>
+          reloading(async () => {
+            apply(await pauseProvider(provider.id, reason));
+            setPausing(false);
+            toast.success(`${provider.name} is paused`);
+          })
+        }
       />
     </section>
   );
@@ -304,7 +364,7 @@ export function ProvidersView() {
         <p className="text-sm text-muted-foreground">
           Models reach providers through routes on each version. Pausing a provider skips its routes everywhere at once; to stop one
           model, pause its route instead.
-          {attention > 0 && <span className="font-medium text-status-warning"> {plural(attention, "provider")} need attention.</span>}
+          {attention > 0 && <span className="font-medium text-status-warning"> {plural(attention, "provider")} {attention === 1 ? "needs" : "need"} attention.</span>}
         </p>
         {providers.error && !list ? (
           <ErrorState

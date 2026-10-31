@@ -3,7 +3,7 @@ import type { AppStatus, ReleaseStatus } from "@modelvend/admin-api/apps";
 import type { CustomerStatus } from "@modelvend/admin-api/customers";
 import type { ModelState, RouteStatus, VersionStatus, Visibility } from "@modelvend/admin-api/models";
 import type { HealthState, ProviderStatus } from "@modelvend/admin-api/providers";
-import type { RequestStatus } from "@modelvend/admin-api/requests";
+import type { TaskStatus } from "@modelvend/admin-api/tasks";
 import {
   APP_STATUS_LABELS,
   CUSTOMER_STATUS_LABELS,
@@ -12,7 +12,7 @@ import {
   MODEL_STATE_LABELS,
   PROVIDER_STATUS_LABELS,
   RELEASE_STATUS_LABELS,
-  REQUEST_STATUS_LABELS,
+  TASK_STATUS_LABELS,
   ROUTE_STATUS_LABELS,
   VERSION_STATUS_DESCRIPTIONS,
   VERSION_STATUS_LABELS,
@@ -39,7 +39,6 @@ export function VisibilityPill({ visibility }: { visibility: Visibility }) {
 
 const VERSION_TONES: Record<VersionStatus, Tone> = {
   draft: "neutral",
-  staging: "info",
   live: "good",
   deprecated: "warning",
   retired: "critical",
@@ -95,7 +94,7 @@ export function KeyStatusPill({ status }: { status: KeyStatus }) {
   return <Pill tone={KEY_TONES[status]}>{KEY_STATUS_LABELS[status]}</Pill>;
 }
 
-const REQUEST_TONES: Record<RequestStatus, Tone> = {
+const TASK_TONES: Record<TaskStatus, Tone> = {
   queued: "neutral",
   running: "info",
   succeeded: "good",
@@ -103,6 +102,6 @@ const REQUEST_TONES: Record<RequestStatus, Tone> = {
   canceled: "neutral",
 };
 
-export function RequestStatusPill({ status }: { status: RequestStatus }) {
-  return <Pill tone={REQUEST_TONES[status]}>{REQUEST_STATUS_LABELS[status]}</Pill>;
+export function TaskStatusPill({ status }: { status: TaskStatus }) {
+  return <Pill tone={TASK_TONES[status]}>{TASK_STATUS_LABELS[status]}</Pill>;
 }

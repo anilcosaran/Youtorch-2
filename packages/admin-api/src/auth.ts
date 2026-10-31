@@ -1,34 +1,9 @@
 import { request } from "./client";
+import type { S } from "./schema";
 
-/** `admin` holds every permission; `custom` holds the ones listed. */
-export type Role = "admin" | "custom";
-
-export type Permission =
-  | "catalog.view"
-  | "catalog.edit"
-  | "catalog.publish"
-  | "providers.view"
-  | "providers.edit"
-  | "customers.view"
-  | "customers.edit"
-  | "customers.credits"
-  | "keys.view"
-  | "keys.revoke"
-  | "requests.view"
-  | "audit.view"
-  | "operators.manage";
-
-export interface Operator {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-  /** Every permission for an admin. */
-  permissions: Permission[];
-  createdAt: string;
-  lastLoginAt: string | null;
-  disabled: boolean;
-}
+export type Role = S["Role"];
+export type Permission = S["Permission"];
+export type Operator = S["Operator"];
 
 /*
  * Sessions. Signing in sets one cookie, and the server must issue it as
@@ -56,25 +31,12 @@ export interface Operator {
  *   password; that one may get a fresh cookie in the response.
  */
 
-/**
- * 401 `unauthorized` for an unknown email, a wrong password or a disabled
- * account alike, so the answer doesn't tell which. Sign-in is throttled per
- * account and per address: after a few failures the server answers 429
- * `rate_limited` with `Retry-After` (seconds) until the window passes, even to
- * the right password, and `client.ts` turns that into "Try again in …".
- */
 export const login = (body: { email: string; password: string }) =>
   request<Operator>("/auth/login", { method: "POST", body, redirectOnUnauthorized: false });
 
-/** Ends this session server side and clears the cookie; 204 even without a session. */
 export const logout = () => request("/auth/logout", { method: "POST", redirectOnUnauthorized: false });
 
 export const getMe = () => request<Operator>("/me");
 
-/**
- * Ends the operator's other sessions; this one carries on. 422
- * `fields.currentPassword` when it is wrong, `fields.newPassword` when the new
- * one is shorter than 12 characters or the same as the current one.
- */
 export const changePassword = (body: { currentPassword: string; newPassword: string }) =>
   request("/me/password", { method: "POST", body });

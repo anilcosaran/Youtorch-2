@@ -7,7 +7,7 @@ const day = { day: "2026-10-26" };
 
 describe("overview sections", () => {
   it("shows what the server sent and hides what it left out", () => {
-    const data: Overview = { totals: { cost: 10, providersDegraded: 1 }, series: [{ ...day, cost: 10 }], providers: [] };
+    const data: Overview = { totals: { costMicros: 10_000_000, providersDegraded: 1 }, series: [{ ...day, costMicros: 10_000_000 }], providers: [] };
     expect(overviewSections(data, null)).toEqual({
       traffic: false,
       revenue: false,
@@ -20,7 +20,7 @@ describe("overview sections", () => {
   });
 
   it("keeps a null margin, which means no revenue yet", () => {
-    const data: Overview = { totals: { revenue: 0, cost: 0, margin: null }, series: [day] };
+    const data: Overview = { totals: { revenueMicros: 0, costMicros: 0, margin: null }, series: [day] };
     expect(overviewSections(data, null)).toMatchObject({ revenue: true, cost: true, margin: true });
   });
 

@@ -219,7 +219,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
 
   let customerStatus: ReactNode = null;
   if (term.length < MIN_SEARCH) {
-    customerStatus = "Type a name, email or workspace to find a customer.";
+    customerStatus = "Type a workspace name or a member's email to find a customer.";
   } else if (customers.error && !customers.data) {
     customerStatus = `Couldn't search customers. ${errorMessage(customers.error)}`;
   } else if (!searching || customers.isPending || (customers.isFetching && people.length === 0)) {
@@ -318,7 +318,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                     <Monogram name={customer.name} className="size-6 text-[9px]" />
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{customer.name}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{customer.email}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{customer.owner.email}</span>
                     </span>
                     <CustomerStatusPill status={customer.status} />
                   </div>

@@ -1,14 +1,14 @@
 import type { ApiKeyRow } from "@modelvend/admin-api/api-keys";
 import type { App, AppRelease, AppSummary } from "@modelvend/admin-api/apps";
 import type { Operator } from "@modelvend/admin-api/auth";
-import { TIER_LIMITS, type Customer, type CustomerRow, type Limits } from "@modelvend/admin-api/customers";
+import { LIMIT_NAMES, limitsFor, type Customer, type CustomerRow } from "@modelvend/admin-api/customers";
 import type { Model, ModelSummary, ModelVersion } from "@modelvend/admin-api/models";
 import type { Provider } from "@modelvend/admin-api/providers";
-import type { RequestDetail, RequestRow } from "@modelvend/admin-api/requests";
+import type { TaskDetail, TaskRow } from "@modelvend/admin-api/tasks";
 import { PERMISSIONS } from "@/lib/permissions";
 import { TYPICAL_UNITS, activeRoutes, byPriority, defaultTier, withTierCosts } from "./catalog";
 import type { ApiKeyRecord, AppRecord, CustomerRecord, ModelRecord, OperatorRecord, ProviderRecord, ReleaseRecord, Store } from "./types";
-import { clone, round, sum, unique } from "./util";
+import { clone, sum, toMicros, unique } from "./util";
 
 /*
  * Records as the API answers them, with derived fields computed now.
@@ -60,19 +60,21 @@ export function modelSummary(store: Store, model: ModelRecord): ModelSummary {
     tasks: [...model.tasks],
     state: model.state,
     visibility: model.visibility,
+    disclosure: model.disclosure,
     featured: model.featured,
     defaultVersion: model.defaultVersion,
     versions: {
       total: statuses.length,
       live: statuses.filter((s) => s === "live").length,
-      draft: statuses.filter((s) => s === "draft" || s === "staging").length,
+      draft: statuses.filter((s) => s === "draft").length,
       deprecated: statuses.filter((s) => s === "deprecated").length,
     },
     providers: current ? unique(activeRoutes(current).sort(byPriority).map((route) => route.providerId)) : [],
     price: current && tier ? { unit: current.pricing.unit, price: tier.price } : null,
-    requests24h: model.requests24h,
+    tasks24h: model.tasks24h,
     errorRate24h: model.errorRate24h,
-    revenue30d: model.revenue30d,
+    revenue30dMicros: model.revenue30dMicros,
+    revision: model.revision,
     createdAt: model.createdAt,
     updatedAt: model.updatedAt,
   };
@@ -86,6 +88,10 @@ export function modelView(store: Store, model: ModelRecord): Model {
     outputs: [...model.outputs],
     tags: [...model.tags],
     license: model.license,
+    author: model.author,
+    capabilities: [...model.capabilities],
+    maxOutput: model.maxOutput ? { ...model.maxOutput } : null,
+    gallery: clone(model.gallery),
     pausedReason: model.pausedReason,
     versionList: [...model.versionList].sort(newestFirst).map((version) => versionView(store, model, version)),
   };
@@ -106,7 +112,7 @@ export function providerView(store: Store, provider: ProviderRecord): Provider {
     ...clone(provider),
     routes: routes.length,
     models: unique(routes.map(({ model }) => model.id)).length,
-    requests24h: sum(routes, ({ route }) => route.health.requests24h),
+    tasks24h: sum(routes, ({ route }) => route.health.tasks24h),
   };
 }
 
@@ -114,15 +120,16 @@ export function providerView(store: Store, provider: ProviderRecord): Provider {
 export function releaseView(store: Store, release: ReleaseRecord): AppRelease {
   let cost = 0;
   for (const step of release.steps) {
-    const model = store.models.find((m) => m.id === step.modelId);
-    const version = model ? findVersion(model, step.version) : null;
+    const [modelId, versionId] = step.model.split("@");
+    const model = store.models.find((m) => m.id === modelId);
+    const version = model ? findVersion(model, versionId) : null;
     if (!version) continue;
     const { unit } = version.pricing;
-    const tierCost = defaultTier(withTierCosts(version.pricing, version.routes)).cost ?? 0;
-    const fixed = unit === "second" ? step.params.duration : unit === "image" ? step.params.num_images : undefined;
+    const tierCost = Number(defaultTier(withTierCosts(version.pricing, version.routes)).cost ?? 0);
+    const fixed = unit === "second" ? step.input.duration : unit === "image" ? step.input.num_images : undefined;
     cost += (typeof fixed === "number" ? fixed : TYPICAL_UNITS[unit]) * tierCost;
   }
-  return { ...clone(release), cost: round(cost, 4) };
+  return { ...clone(release), costMicros: toMicros(cost) };
 }
 
 export function appSummary(store: Store, app: AppRecord): AppSummary {
@@ -136,10 +143,10 @@ export function appSummary(store: Store, app: AppRecord): AppSummary {
     status: app.status,
     liveRelease: live?.number ?? null,
     draftRelease: draft?.number ?? null,
-    models: live ? unique(live.steps.map((step) => step.modelId)) : [],
-    price: live?.price ?? null,
+    models: live ? unique(live.steps.map((step) => step.model.split("@")[0])) : [],
+    priceMicros: live?.priceMicros ?? null,
     runs24h: app.runs24h,
-    revenue30d: app.revenue30d,
+    revenue30dMicros: app.revenue30dMicros,
     updatedAt: app.updatedAt,
   };
 }
@@ -148,6 +155,8 @@ export function appView(store: Store, app: AppRecord): App {
   return {
     ...appSummary(store, app),
     description: app.description,
+    inputSchema: clone(app.inputSchema),
+    outputSchema: clone(app.outputSchema),
     pausedReason: app.status === "paused" ? app.pausedReason : null,
     releases: [...app.releases].sort((a, b) => b.number - a.number).map((release) => releaseView(store, release)),
   };
@@ -160,30 +169,29 @@ export function customerRow(store: Store, customer: CustomerRecord): CustomerRow
   return {
     id: customer.id,
     name: customer.name,
-    email: customer.email,
-    workspace: customer.workspace,
-    tier: customer.tier,
+    owner: { ...customer.owner },
     status: customer.status,
-    balance: customer.balance,
-    spend30d: customer.spend30d,
-    requests30d: customer.requests30d,
+    balanceMicros: customer.balanceMicros,
+    heldMicros: customer.heldMicros,
+    spend30dMicros: customer.spend30dMicros,
+    tasks30d: customer.tasks30d,
     keys: activeKeyCount(store, customer.id),
+    members: customer.memberEmails.length,
     createdAt: customer.createdAt,
     lastActiveAt: customer.lastActiveAt,
   };
 }
 
 export function customerView(store: Store, customer: CustomerRecord): Customer {
-  const overrides = (Object.keys(customer.limitOverrides) as (keyof Limits)[]).filter((key) => customer.limitOverrides[key] !== undefined);
+  const overrides = LIMIT_NAMES.filter((name) => customer.limitOverrides[name] !== undefined && customer.limitOverrides[name] !== null);
   return {
     ...customerRow(store, customer),
-    limits: { ...TIER_LIMITS[customer.tier], ...customer.limitOverrides },
+    limits: limitsFor(store.settings.limits, customer.limitOverrides),
     overrides,
     autoReload: { ...customer.autoReload },
     suspendedReason: customer.suspendedReason,
     usage: clone(customer.usage),
     topModels: clone(customer.topModels),
-    ledger: clone(customer.ledger),
   };
 }
 
@@ -192,29 +200,33 @@ export function apiKeyView(store: Store, key: ApiKeyRecord): ApiKeyRow {
   const { customerId, ...row } = key;
   return {
     ...clone(row),
-    customer: { id: customerId, name: customer?.name ?? "", workspace: customer?.workspace ?? "" },
+    customer: { id: customerId, name: customer?.name ?? "" },
   };
 }
 
-export function requestRow(request: RequestDetail): RequestRow {
+export function taskRow(task: TaskDetail): TaskRow {
   return {
-    id: request.id,
-    model: request.model,
-    version: request.version,
-    app: request.app,
-    customer: { ...request.customer },
-    keyPrefix: request.keyPrefix,
-    status: request.status,
-    provider: request.provider,
-    attempts: request.attempts,
-    latencyMs: request.latencyMs,
-    units: request.units,
-    unit: request.unit,
-    price: request.price,
-    cost: request.cost,
-    errorCode: request.errorCode,
-    createdAt: request.createdAt,
+    id: task.id,
+    model: task.model,
+    version: task.version,
+    app: task.app,
+    parentId: task.parentId,
+    stage: task.stage,
+    customer: { ...task.customer },
+    keyPrefix: task.keyPrefix,
+    status: task.status,
+    provider: task.provider,
+    attempts: task.attempts,
+    latencyMs: task.latencyMs,
+    units: task.units,
+    unit: task.unit,
+    tier: task.tier,
+    amountMicros: task.amountMicros,
+    costMicros: task.costMicros,
+    holdMicros: task.holdMicros,
+    errorCode: task.errorCode,
+    createdAt: task.createdAt,
   };
 }
 
-export const requestView = (request: RequestDetail): RequestDetail => clone(request);
+export const taskView = (task: TaskDetail): TaskDetail => clone(task);

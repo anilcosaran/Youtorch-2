@@ -128,7 +128,7 @@ Sonraki her şeyin üstüne oturacağı yapı.
 - Namespace içinde CNPG cluster (dev'de tek kopya) ve Redis. Küme operatörleri ortak kullanılır.
 - Secret sözleşmesi: boş örnek env dosyaları ve eksik anahtarı bildiren kontrol. Değerler Git'e girmez.
 - Küme bağlantısı Anıl'dan gelince Argo tanımları uygulanır. O zamana kadar chart `helm template` ve yerel kümede doğrulanır.
-- `api/public.yaml`, `console.yaml`, `admin.yaml`, `webhooks.yaml`; `packages/api-types` üretimi; contract testi. Önce [audit.md](audit.md) bölüm 1 kapanır: para biçimi, `task_` kimliği, app biçimi, birimler, tek anahtar türü, kademe seçimi ve kademe maliyeti.
+- `api/public.yaml`, `console.yaml`, `admin.yaml`, `webhooks.yaml`; `packages/api-types` üretimi; contract testi (public gerçek handler'lara, admin mock'a karşı; konsol Faz 3'te). Önce [audit.md](audit.md) bölüm 1 kapanır: para biçimi, `task_` kimliği, app biçimi, birimler, tek anahtar türü, kademe seçimi ve kademe maliyeti.
 - Sözleşme eksiklerini kapatma: `disclosure`, route `mapping`/`transform`, `x-ui`, `white_label_allowed`. Kaldırılanlar: `tier` ve `TIER_LIMITS`. Yeniler: limit ayarları ve katalog alanları. Mock da birlikte güncellenir ([product-rules.md](product-rules.md) bölüm 9).
 - Doküman güncellemeleri.
 

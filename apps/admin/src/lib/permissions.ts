@@ -6,6 +6,8 @@ export const PERMISSIONS: readonly Permission[] = [
   "catalog.view",
   "catalog.edit",
   "catalog.publish",
+  "pricing.edit",
+  "pricing.below_cost",
   "providers.view",
   "providers.edit",
   "customers.view",
@@ -13,8 +15,10 @@ export const PERMISSIONS: readonly Permission[] = [
   "customers.credits",
   "keys.view",
   "keys.revoke",
-  "requests.view",
+  "tasks.view",
   "audit.view",
+  "settings.manage",
+  "announcements.manage",
   "operators.manage",
 ];
 
@@ -43,6 +47,8 @@ const NAMED = {
   viewCatalog: "catalog.view",
   editCatalog: "catalog.edit",
   publishCatalog: "catalog.publish",
+  editPrices: "pricing.edit",
+  sellBelowCost: "pricing.below_cost",
   viewProviders: "providers.view",
   manageProviders: "providers.edit",
   viewCustomers: "customers.view",
@@ -50,8 +56,10 @@ const NAMED = {
   grantCredits: "customers.credits",
   viewKeys: "keys.view",
   revokeKeys: "keys.revoke",
-  viewRequests: "requests.view",
+  viewTasks: "tasks.view",
   viewAudit: "audit.view",
+  manageSettings: "settings.manage",
+  manageAnnouncements: "announcements.manage",
   manageOperators: "operators.manage",
 } as const satisfies Record<string, Permission>;
 

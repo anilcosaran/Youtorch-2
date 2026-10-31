@@ -33,11 +33,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { defaultTier, marginTone, routeMargin, soldPrice } from "@/lib/catalog";
+import { answersCustomers, defaultTier, lastRouteRule, marginTone, routeMargin, soldPrice } from "@/lib/catalog";
 import { integer, milliseconds, percent, unitPrice } from "@/lib/format";
-import { STRATEGY_DESCRIPTIONS, STRATEGY_LABELS, UNIT_LABELS, UNIT_SHORT } from "@/lib/labels";
+import { PROVIDER_STATUS_LABELS, STRATEGY_DESCRIPTIONS, STRATEGY_LABELS, UNIT_SHORT } from "@/lib/labels";
 import { keys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/session";
+import { useSettings } from "@/lib/use-settings";
 import { cn } from "@/lib/utils";
 import { RouteDialog } from "./route-dialog";
 import { useModelAction } from "./use-model-action";
@@ -52,7 +53,7 @@ const TONE_TEXT = {
 
 function PolicyForm({ model, version }: { model: Model; version: ModelVersion }) {
   const can = usePermissions();
-  const run = useModelAction();
+  const run = useModelAction(model.id);
   const [draft, setDraft] = useState<RoutingPolicy>(version.routing);
   const [saving, setSaving] = useState(false);
   const locked = !can.editCatalog || version.status === "retired";
@@ -61,7 +62,7 @@ function PolicyForm({ model, version }: { model: Model; version: ModelVersion })
 
   const save = async () => {
     setSaving(true);
-    await run(() => updateVersion(model.id, version.id, { routing: draft }), "Routing saved", "Couldn't save the routing");
+    await run(() => updateVersion(model.id, version.id, model.revision, { routing: draft }), "Routing saved", "Couldn't save the routing");
     setSaving(false);
   };
 
@@ -144,9 +145,14 @@ function RouteActions({
   route: Route;
   onEdit: (route: Route) => void;
 }) {
+  const can = usePermissions();
   const confirm = useConfirm();
-  const run = useModelAction();
+  const run = useModelAction(model.id);
   const at = `${model.id}@${version.id}`;
+  // The last active route of a version that answers customers stays, or may only drain; the server refuses the rest.
+  const last = lastRouteRule(version, route);
+  // Opening a route to customers is a release decision, like publishing a version.
+  const opensLocked = answersCustomers(version) && !can.publishCatalog;
 
   const setStatus = async (status: Route["status"]) => {
     if (status !== "active") {
@@ -154,14 +160,14 @@ function RouteActions({
         title: status === "paused" ? `Pause the ${route.providerName} route?` : `Drain the ${route.providerName} route?`,
         description:
           status === "paused"
-            ? `New requests to ${at} skip it at once; attempts in flight finish.`
-            : `It finishes what it has and takes nothing new, so you can remove it without failing requests.`,
+            ? `New tasks on ${at} skip it at once; attempts in flight finish.`
+            : `It finishes what it has and takes nothing new, so you can remove it without failing tasks.`,
         action: status === "paused" ? "Pause route" : "Drain route",
       });
       if (!ok) return;
     }
     await run(
-      () => updateRoute(model.id, version.id, route.id, { status }),
+      () => updateRoute(model.id, version.id, route.id, model.revision, { status }),
       status === "active" ? "Route active" : status === "paused" ? "Route paused" : "Route draining",
       "Couldn't change the route",
     );
@@ -170,11 +176,11 @@ function RouteActions({
   const remove = async () => {
     const ok = await confirm({
       title: `Remove the ${route.providerName} route?`,
-      description: `${at} stops using ${route.upstreamModel}. Its history stays in the request log.`,
+      description: `${at} stops using ${route.upstreamModel}. Its history stays in the task log.`,
       action: "Remove route",
       destructive: true,
     });
-    if (ok) await run(() => deleteRoute(model.id, version.id, route.id), "Route removed", "Couldn't remove the route");
+    if (ok) await run(() => deleteRoute(model.id, version.id, route.id, model.revision), "Route removed", "Couldn't remove the route");
   };
 
   return (
@@ -185,35 +191,42 @@ function RouteActions({
             <Ellipsis />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuItem onSelect={() => onEdit(route)}>
             <Pencil /> Edit
           </DropdownMenuItem>
           {route.status === "active" ? (
             <>
-              <DropdownMenuItem onSelect={() => void setStatus("paused")}>
+              <DropdownMenuItem onSelect={() => void setStatus("paused")} disabled={last !== null}>
                 <Pause /> Pause
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void setStatus("draining")}>Drain</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void setStatus("draining")} disabled={last !== null && !last.mayDrain}>
+                Drain
+              </DropdownMenuItem>
             </>
           ) : (
-            <DropdownMenuItem onSelect={() => void setStatus("active")}>
+            <DropdownMenuItem onSelect={() => void setStatus("active")} disabled={opensLocked}>
               <Play /> Make active
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => void remove()}>
+          <DropdownMenuItem variant="destructive" onSelect={() => void remove()} disabled={last !== null}>
             <Trash /> Remove
           </DropdownMenuItem>
+          {last && <p className="px-2 py-1.5 text-xs text-muted-foreground">{last.message}</p>}
+          {route.status !== "active" && opensLocked && (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">Making a route active on a {version.status} version needs the Publish permission.</p>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </span>
   );
 }
 
-/** Where a version's requests go: the policy that orders routes, and the routes themselves. */
+/** Where a version's tasks go: the policy that orders routes, and the routes themselves. */
 export function RoutingTab({ model, version, onPick }: { model: Model; version: ModelVersion; onPick: (id: string) => void }) {
   const can = usePermissions();
+  const { minMargin } = useSettings();
   const providers = useQuery({ queryKey: keys.providers, queryFn: listProviders, enabled: can.viewProviders });
   const [editing, setEditing] = useState<Route | "new" | null>(null);
   const editable = can.editCatalog && version.status !== "retired";
@@ -242,8 +255,8 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
           <span className="flex items-center gap-2">
             <span className="font-medium">{r.providerName}</span>
             {providerStatus(r.providerId) && providerStatus(r.providerId) !== "active" && (
-              <Pill tone="critical" title="The provider is paused, so this route is skipped">
-                Provider paused
+              <Pill tone="critical" title="The provider isn't active, so this route is skipped">
+                Provider {PROVIDER_STATUS_LABELS[providerStatus(r.providerId) ?? "active"].toLowerCase()}
               </Pill>
             )}
           </span>
@@ -258,30 +271,28 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
       id: "cost",
       header: "Cost",
       align: "right",
-      cell: (r) => (
-        <span className="whitespace-nowrap tabular">
-          {unitPrice(r.cost.price)}
-          <span className="text-muted-foreground">{UNIT_SHORT[r.cost.unit]}</span>
-        </span>
-      ),
+      cell: (r) => {
+        const cost = tier ? r.tierCosts[tier.id] : undefined;
+        const each = version.pricing.tiers.map((t) => `${t.label}: ${unitPrice(r.tierCosts[t.id])}`).join(", ");
+        return cost === undefined ? (
+          <span className="font-medium text-status-warning" title={each}>
+            No cost
+          </span>
+        ) : (
+          <span className="whitespace-nowrap tabular" title={each}>
+            {unitPrice(cost)}
+            <span className="text-muted-foreground">{UNIT_SHORT[version.pricing.unit]}</span>
+          </span>
+        );
+      },
     },
     {
       id: "margin",
       header: "Margin",
       align: "right",
       cell: (r) => {
-        if (r.cost.unit !== version.pricing.unit) {
-          return (
-            <span
-              className="font-medium text-status-warning"
-              title={`This route costs ${UNIT_SHORT[r.cost.unit]} but the version bills ${UNIT_SHORT[version.pricing.unit]}; enter its cost in the version's unit.`}
-            >
-              Other unit
-            </span>
-          );
-        }
-        const share = routeMargin(version.pricing, r.cost);
-        return <span className={cn("tabular", TONE_TEXT[marginTone(share)])}>{share === null ? "—" : percent(share, 0)}</span>;
+        const share = routeMargin(version.pricing, r);
+        return <span className={cn("tabular", TONE_TEXT[marginTone(share, minMargin)])}>{share === null ? "—" : percent(share, 0)}</span>;
       },
     },
     {
@@ -311,7 +322,7 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
           </span>
         ),
     },
-    { id: "requests", header: "Requests 24h", align: "right", cell: (r) => <span className="tabular">{integer(r.health.requests24h)}</span> },
+    { id: "tasks", header: "Tasks 24h", align: "right", cell: (r) => <span className="tabular">{integer(r.health.tasks24h)}</span> },
     { id: "region", header: "Region", cell: (r) => <span className="uppercase">{r.region}</span> },
   ];
   if (editable) {
@@ -325,13 +336,17 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
   }
 
   const active = version.routes.filter((r) => r.status === "active").length;
-  const otherUnit = version.routes.filter((r) => r.cost.unit !== version.pricing.unit).length;
+  const withoutCost = version.routes.filter((r) => version.pricing.tiers.some((t) => r.tierCosts[t.id] === undefined)).length;
+  // Adding a route to a version that answers customers is a release decision.
+  const addLocked = answersCustomers(version) && !can.publishCatalog;
 
   return (
     <div className="flex flex-col gap-4">
       <VersionBar model={model} version={version} onPick={onPick}>
         {editable &&
-          (can.viewProviders ? (
+          (addLocked ? (
+            <span className="text-xs text-muted-foreground">Adding a route to a {version.status} version needs the Publish permission.</span>
+          ) : can.viewProviders ? (
             <Button size="sm" onClick={() => setEditing("new")} disabled={providers.isPending}>
               <Plus /> Add route
             </Button>
@@ -342,14 +357,13 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
       </VersionBar>
       {version.status === "live" && active === 0 && (
         <p role="alert" className="rounded-lg bg-status-critical/10 px-3 py-2 text-sm text-status-critical">
-          No active route: every request to this version fails. Add or resume a route.
+          No active route: every task on this version fails. Add or resume a route.
         </p>
       )}
-      {otherUnit > 0 && (
+      {withoutCost > 0 && (
         <p role="status" className="rounded-lg bg-status-warning/10 px-3 py-2 text-sm">
-          {otherUnit === 1 ? "A route costs" : `${otherUnit} routes cost`} in another unit than {version.id} bills (per{" "}
-          {UNIT_LABELS[version.pricing.unit]}), so {otherUnit === 1 ? "its" : "their"} margin can&apos;t be shown and the version
-          can&apos;t be promoted until {otherUnit === 1 ? "it costs" : "each costs"} per {UNIT_LABELS[version.pricing.unit]}.
+          {withoutCost === 1 ? "A route has" : `${withoutCost} routes have`} no cost for every tier, so {withoutCost === 1 ? "its" : "their"} margin
+          can&apos;t be shown in full and publishing is refused until {withoutCost === 1 ? "it has" : "they have"}.
         </p>
       )}
       <PolicyForm key={`${version.id}:${JSON.stringify(version.routing)}`} model={model} version={version} />
@@ -374,7 +388,7 @@ export function RoutingTab({ model, version, onPick }: { model: Model; version: 
           empty={
             <EmptyState
               title="No routes"
-              description="A route sends this version's requests to a provider's model. Add one before it goes live."
+              description="A route sends this version's tasks to a provider's model. Add one before it goes live."
             />
           }
         />

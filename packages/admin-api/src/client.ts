@@ -56,6 +56,7 @@ export interface RequestOptions {
   body?: unknown;
   query?: Query;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
   /** Off for the sign-in form, which handles 401 itself. Otherwise a 401 sends the browser to /login. */
   redirectOnUnauthorized?: boolean;
 }
@@ -121,7 +122,7 @@ async function toError(response: Response): Promise<ApiError> {
 
 export async function request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, query, signal, redirectOnUnauthorized = true } = options;
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   // The API requires a JSON content type on every request that changes state (see above).
   if (method !== "GET") headers["Content-Type"] = "application/json";
 

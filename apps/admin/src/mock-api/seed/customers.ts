@@ -1,7 +1,7 @@
-import type { LedgerEntry, Limits, Tier } from "@modelvend/admin-api/customers";
+import type { LedgerEntry, LimitOverrides } from "@modelvend/admin-api/customers";
 import { createRandom, hashSeed, type Random } from "../random";
 import type { CustomerRecord, ModelRecord } from "../types";
-import { DAY, HOUR, MINUTE, iso, money, round, startOfUtcDay, utcDay } from "../util";
+import { DAY, HOUR, MINUTE, iso, money, round, startOfUtcDay, toMicros, utcDay } from "../util";
 import type { SeedEvent } from "./audit";
 
 const COMPANIES: [string, string][] = [
@@ -79,23 +79,25 @@ const LAST = [
   "Patel", "Schmidt", "Kaya", "O'Brien", "Fischer", "Alvarez", "Sato", "Becker", "Demir", "Hughes", "Jensen",
 ];
 
-/** How many customers on each tier. */
-const TIER_PLAN: [Tier, number][] = [
+/** How much a customer uses; there are no plans, this only makes the data look real. */
+type Size = "free" | "standard" | "scale" | "enterprise";
+
+const SIZE_PLAN: [Size, number][] = [
   ["enterprise", 6],
   ["scale", 12],
   ["standard", 26],
   ["free", 16],
 ];
 
-/** Requests per 30 days. */
-const VOLUME: Record<Tier, [number, number]> = {
+/** Tasks per 30 days. */
+const VOLUME: Record<Size, [number, number]> = {
   free: [0, 150],
   standard: [300, 6000],
   scale: [8000, 40000],
   enterprise: [40000, 200000],
 };
 
-const BALANCE: Record<Tier, [number, number]> = {
+const BALANCE: Record<Size, [number, number]> = {
   free: [0, 8],
   standard: [20, 900],
   scale: [400, 9000],
@@ -126,7 +128,7 @@ export function seedCustomers(
   models: ModelRecord[],
 ): { customers: CustomerRecord[]; events: SeedEvent[] } {
   const events: SeedEvent[] = [];
-  const tiers = random.shuffle(TIER_PLAN.flatMap(([tier, count]) => Array.from({ length: count }, () => tier)));
+  const sizes = random.shuffle(SIZE_PLAN.flatMap(([size, count]) => Array.from({ length: count }, () => size)));
   const today = startOfUtcDay(now);
   const callable = models.filter((m) => m.visibility !== "private" && m.defaultVersion !== null);
   let incidentCredits = 0;
@@ -135,16 +137,16 @@ export function seedCustomers(
     // Each customer draws from its own generator, so its ID never depends on the time of day.
     const random = createRandom(hashSeed(`customer:${index}`));
     const id = random.id("cus_", 10);
-    const tier = tiers[index];
+    const size = sizes[index];
     const first = FIRST[(index * 7 + 3) % FIRST.length];
     const last = LAST[(index * 11 + 5) % LAST.length];
-    const ageDays = index < 8 ? random.int(1, 28) : tier === "enterprise" ? random.int(200, 700) : random.int(31, 600);
+    const ageDays = index < 8 ? random.int(1, 28) : size === "enterprise" ? random.int(200, 700) : random.int(31, 600);
     const createdAt = now - ageDays * DAY - random.int(0, 20) * HOUR;
     const suspension = index === 12 || index === 27 || index === 41 ? SUSPENSIONS[[12, 27, 41].indexOf(index)] : null;
     const suspendedAt = suspension ? now - suspension.daysAgo * DAY - random.int(1, 8) * HOUR : null;
-    const pricePerRequest = random.float(0.22, 0.4);
-    const idle = tier === "free" && random.chance(0.3);
-    const target = idle ? 0 : random.int(...VOLUME[tier]);
+    const pricePerTask = random.float(0.22, 0.4);
+    const idle = size === "free" && random.chance(0.3);
+    const target = idle ? 0 : random.int(...VOLUME[size]);
 
     // Daily usage, growing slowly, quieter at weekends, none before signup or after suspension.
     const weights = Array.from({ length: 30 }, (_, i) => {
@@ -157,17 +159,17 @@ export function seedCustomers(
     });
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const usage = weights.map((weight, i) => {
-      const requests = totalWeight > 0 ? Math.round((target * weight) / totalWeight) : 0;
+      const tasks = totalWeight > 0 ? Math.round((target * weight) / totalWeight) : 0;
       return {
         day: utcDay(today - (29 - i) * DAY),
-        requests,
-        spend: money(requests * pricePerRequest * random.float(0.9, 1.1)),
-        errors: Math.round(requests * random.float(0.004, 0.025)),
+        tasks,
+        spend: money(tasks * pricePerTask * random.float(0.9, 1.1)),
+        errors: Math.round(tasks * random.float(0.004, 0.025)),
       };
     });
-    const requests30d = usage.reduce((a, u) => a + u.requests, 0);
+    const tasks30d = usage.reduce((a, u) => a + u.tasks, 0);
     const spend30d = money(usage.reduce((a, u) => a + u.spend, 0));
-    const lastDay = [...usage].reverse().find((u) => u.requests > 0);
+    const lastDay = [...usage].reverse().find((u) => u.tasks > 0);
     const lastActiveAt = lastDay
       ? Math.min(Date.parse(`${lastDay.day}T00:00:00Z`) + random.int(8, 22) * HOUR, suspendedAt ?? now, now - random.int(2, 90) * MINUTE)
       : null;
@@ -181,60 +183,60 @@ export function seedCustomers(
         const version = model.versionList.find((v) => v.id === model.defaultVersion);
         return {
           modelId: model.id,
-          requests: Math.round((requests30d * shares[i]) / shareTotal),
-          spend: money((spend30d * shares[i]) / shareTotal),
+          tasks: Math.round((tasks30d * shares[i]) / shareTotal),
+          spendMicros: toMicros((spend30d * shares[i]) / shareTotal),
           unit: version?.pricing.unit ?? "request",
         };
       })
-      .filter((m) => m.requests > 0)
-      .sort((a, b) => b.requests - a.requests);
+      .filter((m) => m.tasks > 0)
+      .sort((a, b) => b.tasks - a.tasks);
 
     const autoReload =
-      tier === "standard" || tier === "scale"
-        ? { enabled: random.chance(0.45), threshold: tier === "scale" ? 200 : 50, amount: tier === "scale" ? 1000 : 200 }
-        : { enabled: false, threshold: 50, amount: 200 };
+      size === "standard" || size === "scale"
+        ? { enabled: random.chance(0.45), thresholdMicros: toMicros(size === "scale" ? 200 : 50), amountMicros: toMicros(size === "scale" ? 1000 : 200) }
+        : { enabled: false, thresholdMicros: toMicros(50), amountMicros: toMicros(200) };
 
     const ledger: LedgerEntry[] = [];
     const entry = (kind: LedgerEntry["kind"], amount: number, note: string, at: number, operator: string | null = null) =>
-      ledger.push({ id: random.id("led_", 12), kind, amount: money(amount), note, operator, at: iso(Math.min(at, now - MINUTE)) });
+      ledger.push({ id: random.id("led_", 12), kind, amountMicros: toMicros(amount), note, operator, at: iso(Math.min(at, now - MINUTE)) });
     usage.forEach((u, i) => {
-      if (u.requests > 0) {
+      if (u.tasks > 0) {
         const end = today - (29 - i) * DAY + DAY - 1000;
-        entry("usage", -u.spend, `Usage · ${u.requests.toLocaleString("en-US")} requests`, i === 29 ? now - 5 * MINUTE : end);
+        entry("usage", -u.spend, `Usage · ${u.tasks.toLocaleString("en-US")} tasks`, i === 29 ? now - 5 * MINUTE : end);
       }
     });
-    if (tier === "enterprise") {
+    if (size === "enterprise") {
       const invoice = round(spend30d * random.float(0.9, 1.2), 2);
       entry("top_up", invoice, `Invoice INV-${utcDay(today - 20 * DAY).replace(/-/g, "").slice(0, 6)}-${random.int(1000, 9999)} paid by wire`, today - 20 * DAY + 14 * HOUR);
     } else if (spend30d > 0) {
       let paid = 0;
       let at = Math.max(createdAt + HOUR, today - 29 * DAY);
       while (paid < spend30d * 1.05 && at < now) {
-        const amount = autoReload.enabled ? autoReload.amount : random.pick(tier === "scale" ? [500, 1000, 2500] : [25, 50, 100, 250]);
+        const amount = autoReload.enabled ? autoReload.amountMicros / 1_000_000 : random.pick(size === "scale" ? [500, 1000, 2500] : [25, 50, 100, 250]);
         entry("top_up", amount, autoReload.enabled ? "Auto-reload" : "Card top-up", at);
         paid += amount;
         at += random.int(3, 9) * DAY;
       }
     }
-    if (tier === "free" && createdAt > now - 30 * DAY) entry("grant", 5, "Welcome credits", createdAt + MINUTE);
+    if (size === "free" && createdAt > now - 30 * DAY) entry("grant", 5, "Welcome credits", createdAt + MINUTE);
     if (index % 15 === 4) {
       const at = now - random.int(5, 25) * DAY;
       entry("grant", 500, "Startup program", at, "Anıl Coşaran");
-      events.push({ at, operatorId: "op_anil", action: "customer.credits", targetType: "customer", targetId: id, detail: { amount: 500, reason: "Startup program" } });
+      events.push({ at, operatorId: "op_anil", action: "customer.credits", targetType: "customer", targetId: id, detail: { amountMicros: toMicros(500), reason: "Startup program" } });
     }
-    if (topModels.some((m) => m.modelId === "minimax/hailuo-03") && tier !== "free" && incidentCredits++ < 4) {
-      const amount = tier === "enterprise" ? 200 : 25;
+    if (topModels.some((m) => m.modelId === "openai/sora-2") && size !== "free" && incidentCredits++ < 4) {
+      const amount = size === "enterprise" ? 200 : 25;
       const at = now - DAY - random.int(1, 6) * HOUR;
-      entry("grant", amount, "Credit for failed Hailuo 03 renders during the MiniMax incident", at, "Deniz Aydın");
-      events.push({ at, operatorId: "op_deniz", action: "customer.credits", targetType: "customer", targetId: id, detail: { amount, reason: "Credit for failed Hailuo 03 renders during the MiniMax incident" } });
+      entry("grant", amount, "Credit for failed Sora 2 renders during the OpenAI incident", at, "Deniz Aydın");
+      events.push({ at, operatorId: "op_deniz", action: "customer.credits", targetType: "customer", targetId: id, detail: { amountMicros: toMicros(amount), reason: "Credit for failed Sora 2 renders during the OpenAI incident" } });
     }
     ledger.sort((a, b) => b.at.localeCompare(a.at));
 
-    const limitOverrides: Partial<Limits> = {};
-    if (tier === "enterprise" && index % 2 === 0) limitOverrides.requestsPerMinute = 6000;
-    if (tier === "enterprise" && index % 3 === 0) limitOverrides.concurrency = 400;
-    if (tier === "standard" && index % 7 === 0) limitOverrides.concurrency = 25;
-    if (tier === "scale" && index % 5 === 0) limitOverrides.monthlySpendCap = 15000;
+    const limitOverrides: LimitOverrides = {};
+    if (size === "enterprise" && index % 2 === 0) limitOverrides.requestsPerMinute = 6000;
+    if (size === "enterprise" && index % 3 === 0) limitOverrides.concurrency = 400;
+    if (size === "standard" && index % 7 === 0) limitOverrides.concurrency = 25;
+    if (size === "scale" && index % 5 === 0) limitOverrides.monthlySpendMicros = toMicros(15000);
 
     if (Object.keys(limitOverrides).length > 0 && index % 2 === 0) {
       events.push({
@@ -259,19 +261,19 @@ export function seedCustomers(
 
     return {
       id,
-      name: `${first} ${last}`,
-      email: `${ascii(first)}@${domain}`,
-      workspace: company,
-      tier,
+      name: company,
+      owner: { id: random.id("usr_", 10), name: `${first} ${last}`, email: `${ascii(first)}@${domain}` },
+      memberEmails: [`${ascii(first)}@${domain}`, ...(size === "free" ? [] : [`${ascii(FIRST[(index * 3 + 1) % FIRST.length])}@${domain}`])],
       status: suspension ? "suspended" : "active",
-      balance: suspension && index === 12 ? 0 : money(random.float(...BALANCE[tier])),
-      spend30d,
-      requests30d,
+      balanceMicros: suspension && index === 12 ? 0 : toMicros(random.float(...BALANCE[size])),
+      heldMicros: 0,
+      spend30dMicros: toMicros(spend30d),
+      tasks30d,
       createdAt: iso(createdAt),
       lastActiveAt: lastActiveAt === null ? null : iso(lastActiveAt),
       autoReload,
       suspendedReason: suspension?.reason ?? null,
-      usage,
+      usage: usage.map(({ spend, ...day }) => ({ ...day, spendMicros: toMicros(spend) })),
       topModels,
       ledger,
       limitOverrides,

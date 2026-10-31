@@ -3,7 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CUSTOMER_STATUSES, listCustomers, TIERS, type CustomerRow } from "@modelvend/admin-api/customers";
+import { CUSTOMER_STATUSES, listCustomers, type CustomerRow } from "@modelvend/admin-api/customers";
 import { DataTable, rowsOf, type Column } from "@/components/data/data-table";
 import { ClearFilters, FilterBar, FilterSelect, SearchInput } from "@/components/data/filters";
 import { ListPanel } from "@/components/data/list-panel";
@@ -14,7 +14,7 @@ import { Monogram } from "@/components/shared/monogram";
 import { CustomerStatusPill } from "@/components/shared/status";
 import { DateTime, RelativeTime } from "@/components/shared/time";
 import { integer, usd } from "@/lib/format";
-import { CUSTOMER_STATUS_LABELS, TIER_LABELS } from "@/lib/labels";
+import { CUSTOMER_STATUS_LABELS } from "@/lib/labels";
 import { keys } from "@/lib/query-keys";
 import { pick, usePager, useUrlState } from "@/lib/use-url-state";
 import { cn } from "@/lib/utils";
@@ -36,32 +36,38 @@ const COLUMNS: Column<CustomerRow>[] = [
           >
             {row.name}
           </Link>
-          <span className="block truncate text-xs text-muted-foreground">{row.email}</span>
+          <span className="block truncate text-xs text-muted-foreground" title={row.owner.name}>
+            {row.owner.email}
+          </span>
         </span>
       </span>
     ),
   },
-  {
-    id: "workspace",
-    header: "Workspace",
-    className: "max-w-56",
-    cell: (row) => <span className="block truncate">{row.workspace}</span>,
-  },
-  { id: "tier", header: "Tier", cell: (row) => TIER_LABELS[row.tier] },
   { id: "status", header: "Status", cell: (row) => <CustomerStatusPill status={row.status} /> },
-  { id: "balance", header: "Balance", align: "right", cell: (row) => <Balance value={row.balance} /> },
+  {
+    id: "balance",
+    header: "Balance",
+    align: "right",
+    cell: (row) => (
+      <span className="flex flex-col items-end leading-tight">
+        <Balance value={row.balanceMicros} />
+        {row.heldMicros > 0 && <span className="text-xs whitespace-nowrap text-muted-foreground">{usd(row.heldMicros)} held</span>}
+      </span>
+    ),
+  },
   {
     id: "spend",
     header: "Spend 30d",
     align: "right",
-    cell: (row) => <span className="tabular">{usd(row.spend30d)}</span>,
+    cell: (row) => <span className="tabular">{usd(row.spend30dMicros)}</span>,
   },
   {
-    id: "requests",
-    header: "Requests 30d",
+    id: "tasks",
+    header: "Tasks 30d",
     align: "right",
-    cell: (row) => <span className="tabular">{integer(row.requests30d)}</span>,
+    cell: (row) => <span className="tabular">{integer(row.tasks30d)}</span>,
   },
+  { id: "members", header: "Members", align: "right", cell: (row) => <span className="tabular">{integer(row.members)}</span> },
   {
     id: "keys",
     header: "Keys",
@@ -79,16 +85,15 @@ export function CustomersView() {
   const { get, set } = useUrlState();
   const pager = usePager();
   const query = get("query");
-  const tier = pick(get("tier"), TIERS);
   const status = pick(get("status"), CUSTOMER_STATUSES);
-  const filters = { query, tier, status, cursor: pager.cursor };
+  const filters = { query, status, cursor: pager.cursor };
 
   const list = useQuery({
     queryKey: keys.customerList(filters),
     queryFn: () => listCustomers(filters),
     placeholderData: keepPreviousData,
   });
-  const filtered = Boolean(query || tier || status);
+  const filtered = Boolean(query || status);
 
   return (
     <>
@@ -97,15 +102,9 @@ export function CustomersView() {
         <FilterBar>
           <SearchInput
             label="Search customers"
-            placeholder="Name, email or workspace"
+            placeholder="Workspace name or a member's email"
             value={query}
             onChange={(value) => set({ query: value })}
-          />
-          <FilterSelect
-            label="Tier"
-            value={tier}
-            onChange={(value) => set({ tier: value })}
-            options={TIERS.map((t) => ({ value: t, label: TIER_LABELS[t] }))}
           />
           <FilterSelect
             label="Status"
@@ -113,7 +112,7 @@ export function CustomersView() {
             onChange={(value) => set({ status: value })}
             options={CUSTOMER_STATUSES.map((s) => ({ value: s, label: CUSTOMER_STATUS_LABELS[s] }))}
           />
-          <ClearFilters active={filtered} onClear={() => set({ query: null, tier: null, status: null })} />
+          <ClearFilters active={filtered} onClear={() => set({ query: null, status: null })} />
         </FilterBar>
         <ListPanel>
           <DataTable

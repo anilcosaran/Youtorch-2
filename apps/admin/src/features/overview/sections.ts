@@ -25,9 +25,9 @@ export function overviewSections(data: Overview | undefined, can: Permissions | 
   if (data) {
     const t = data.totals;
     return {
-      traffic: t.requests24h !== undefined,
-      revenue: t.revenue !== undefined,
-      cost: t.cost !== undefined,
+      traffic: t.tasks24h !== undefined,
+      revenue: t.revenueMicros !== undefined,
+      cost: t.costMicros !== undefined,
       margin: t.margin !== undefined,
       customers: t.activeCustomers7d !== undefined,
       catalog: t.liveModels !== undefined || data.topModels !== undefined,
@@ -37,7 +37,7 @@ export function overviewSections(data: Overview | undefined, can: Permissions | 
   if (!can) return null;
   const revenue = can.viewCatalog || can.viewCustomers;
   return {
-    traffic: can.viewRequests,
+    traffic: can.viewTasks,
     revenue,
     cost: can.viewProviders,
     margin: revenue && can.viewProviders,

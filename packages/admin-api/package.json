@@ -11,16 +11,21 @@
     "./client": "./src/client.ts",
     "./customers": "./src/customers.ts",
     "./models": "./src/models.ts",
+    "./money": "./src/money.ts",
     "./operators": "./src/operators.ts",
     "./overview": "./src/overview.ts",
     "./providers": "./src/providers.ts",
-    "./requests": "./src/requests.ts"
+    "./settings": "./src/settings.ts",
+    "./tasks": "./src/tasks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "dependencies": {
+    "@modelvend/api-types": "*"
   },
   "devDependencies": {
     "@modelvend/config-eslint": "*",

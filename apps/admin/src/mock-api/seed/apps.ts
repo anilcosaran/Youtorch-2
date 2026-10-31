@@ -1,11 +1,14 @@
 import type { AppCategory, AppStatus, AppStep, ReleaseStatus } from "@modelvend/admin-api/apps";
+import type { JsonSchema } from "@modelvend/admin-api/models";
 import type { Random } from "../random";
 import type { AppRecord } from "../types";
-import { DAY, HOUR, iso, money } from "../util";
+import { DAY, HOUR, iso, toMicros } from "../util";
 
 interface ReleaseSeed {
   status: ReleaseStatus;
   steps: AppStep[];
+  stages: string[];
+  outputMap: Record<string, unknown>;
   price: number;
   notes: string;
   /** Days ago. */
@@ -23,42 +26,51 @@ interface AppSeed {
   status: AppStatus;
   paused?: { reason: string; daysAgo: number };
   runs24h: number;
+  input: JsonSchema;
+  output: JsonSchema;
   releases: ReleaseSeed[];
 }
 
 const MARA = "Mara Lindqvist";
 const ANIL = "Anıl Coşaran";
 
+const DIALECT = "https://json-schema.org/draft/2020-12/schema";
+const uri = { type: "string", format: "uri" };
+
+function inputOf(properties: Record<string, unknown>, required: string[]): JsonSchema {
+  return { $schema: DIALECT, type: "object", properties, required, additionalProperties: false };
+}
+
+const fileOutput = (field: string): JsonSchema => ({ $schema: DIALECT, type: "object", properties: { [field]: uri }, required: [field] });
+
+const IMAGE_OUTPUT = { image: "{{steps.render.output.images}}" };
+
 const cutout = (version: string, prompt: string): AppStep => ({
-  id: "cutout",
-  name: "Cut out",
-  modelId: "google/nano-banana-pro",
-  version,
-  params: { prompt, reference_image_urls: ["{{input.image}}"], image_size: "1024x1024", output_format: "png" },
+  id: "render",
+  stage: "Cutting out",
+  model: `google/nano-banana-pro@${version}`,
+  input: { prompt, reference_image_urls: ["{{input.image}}"], image_size: "1024x1024", output_format: "png" },
 });
 
 const boost: AppStep = {
   id: "boost",
-  name: "Write the scene",
-  modelId: "modelvend/prompt-boost-1",
-  version: "v1",
-  params: { prompt: "{{input.scene}} product photo", target: "image", style: "commercial studio, soft shadows" },
+  stage: "Writing the scene",
+  model: "modelvend/prompt-boost-1@v1",
+  input: { prompt: "{{input.scene}} product photo", target: "image", style: "commercial studio, soft shadows" },
 };
 
 const voice = (version: string): AppStep => ({
   id: "speak",
-  name: "Speak",
-  modelId: "elevenlabs/eleven-v3",
-  version,
-  params: { text: "{{input.script}}", voice_id: "{{input.voice}}", language_code: "{{input.language}}" },
+  stage: "Speaking",
+  model: `elevenlabs/eleven-v3@${version}`,
+  input: { text: "{{input.script}}", voice_id: "{{input.voice}}", language_code: "{{input.language}}" },
 });
 
 const revoice = (extra: Record<string, unknown>): AppStep => ({
-  id: "revoice",
-  name: "Re-voice",
-  modelId: "elevenlabs/eleven-v3",
-  version: "v2",
-  params: { text: "{{input.transcript}}", voice_id: "{{input.voice}}", ...extra },
+  id: "speak",
+  stage: "Re-voicing",
+  model: "elevenlabs/eleven-v3@v2",
+  input: { text: "{{input.transcript}}", voice_id: "{{input.voice}}", ...extra },
 });
 
 const SEEDS: AppSeed[] = [
@@ -70,10 +82,14 @@ const SEEDS: AppSeed[] = [
     category: "image",
     status: "live",
     runs24h: 2100,
+    input: inputOf({ image: uri }, ["image"]),
+    output: fileOutput("image"),
     releases: [
       {
         status: "superseded",
         steps: [cutout("2026-06-12", "Remove the background. Keep the subject untouched with clean edges.")],
+        stages: ["Cutting out"],
+        outputMap: IMAGE_OUTPUT,
         price: 0.05,
         notes: "First release.",
         created: 90,
@@ -81,17 +97,10 @@ const SEEDS: AppSeed[] = [
         by: MARA,
       },
       {
-        status: "superseded",
-        steps: [cutout("2026-06-12", "Remove the background. Keep the subject untouched; keep soft hair and fur edges.")],
-        price: 0.06,
-        notes: "Softer hair edges.",
-        created: 40,
-        published: 39,
-        by: MARA,
-      },
-      {
         status: "live",
         steps: [cutout("2026-09-30", "Remove the background. Keep the subject untouched; keep soft hair and fur edges.")],
+        stages: ["Cutting out"],
+        outputMap: IMAGE_OUTPUT,
         price: 0.06,
         notes: "Moved to the September Nano Banana Pro release.",
         created: 15,
@@ -101,161 +110,64 @@ const SEEDS: AppSeed[] = [
     ],
   },
   {
-    slug: "upscaler",
-    name: "4K Upscaler",
-    tagline: "Recover fine detail without halos.",
-    description: "Upscale photos and renders up to 4× while rebuilding texture instead of smearing it.",
-    category: "image",
-    status: "live",
-    runs24h: 1600,
-    releases: [
-      {
-        status: "superseded",
-        steps: [
-          {
-            id: "upscale",
-            name: "Upscale",
-            modelId: "bytedance/seedream-4.5",
-            version: "v1",
-            params: { prompt: "Upscale to 4K. Keep every detail; add nothing new.", reference_image_urls: ["{{input.image}}"], image_size: "4096x4096" },
-          },
-        ],
-        price: 0.09,
-        notes: "First release.",
-        created: 60,
-        published: 59,
-        by: MARA,
-      },
-      {
-        status: "live",
-        steps: [
-          {
-            id: "upscale",
-            name: "Upscale",
-            modelId: "topaz/image-upscale",
-            version: "v1",
-            params: { image_url: "{{input.image}}", scale: "{{input.scale}}", content: "{{input.style}}" },
-          },
-        ],
-        price: 0.12,
-        notes: "Switched to Topaz: sharper detail and no invented content.",
-        created: 30,
-        published: 29,
-        by: MARA,
-      },
-    ],
-  },
-  {
     slug: "image-to-video",
     name: "Image to Video",
-    tagline: "Turn any still into a moving shot.",
-    description: "Animate a photo or artwork with natural motion and a camera move of your choice.",
+    tagline: "Bring a still to life.",
+    description: "Turn a photo into a short clip with the motion and camera move you pick.",
     category: "video",
     status: "live",
-    runs24h: 900,
+    runs24h: 1300,
+    input: inputOf({ image: uri, motion: { type: "string", enum: ["Subtle", "Dynamic"] }, camera: { type: "string", enum: ["static", "push-in", "orbit"] } }, ["image"]),
+    output: fileOutput("video"),
     releases: [
-      {
-        status: "superseded",
-        steps: [
-          {
-            id: "animate",
-            name: "Animate",
-            modelId: "modelvend/lumen-1",
-            version: "v1",
-            params: { image_url: "{{input.image}}", prompt: "{{input.motion}} motion, {{input.camera}} camera", duration: 5, resolution: "1080p" },
-          },
-        ],
-        price: 0.95,
-        notes: "First release.",
-        created: 120,
-        published: 118,
-        by: ANIL,
-      },
       {
         status: "live",
         steps: [
           {
-            id: "animate",
-            name: "Animate",
-            modelId: "modelvend/lumen-1",
-            version: "v2",
-            params: {
-              image_url: "{{input.image}}",
-              prompt: "{{input.motion}} motion, {{input.camera}} camera",
-              duration: 5,
-              resolution: "1080p",
-              generate_audio: false,
-            },
+            id: "render",
+            stage: "Animating",
+            model: "kling/kling-3@v3",
+            input: { image_url: "{{input.image}}", prompt: "{{input.motion}} motion, {{input.camera}} camera", duration: 5, resolution: "1080p" },
           },
         ],
+        stages: ["Animating"],
+        outputMap: { video: "{{steps.render.output.video}}" },
         price: 0.95,
-        notes: "Lumen 2.0: smoother motion and real camera paths.",
-        created: 20,
-        published: 19,
-        by: ANIL,
+        notes: "First release.",
+        created: 40,
+        published: 39,
+        by: MARA,
       },
     ],
   },
   {
     slug: "product-shots",
     name: "Product Shots",
-    tagline: "Studio-grade product photos from one picture.",
-    description: "Place your product in a lit studio scene with realistic shadows and reflections.",
+    tagline: "Studio shots from one product photo.",
+    description: "Describe the scene and get two studio-quality shots of your product in it.",
     category: "image",
     status: "live",
-    runs24h: 1300,
+    runs24h: 900,
+    input: inputOf({ image: uri, scene: { type: "string", enum: ["Studio", "Travertine", "Splash", "Outdoor"] } }, ["image"]),
+    output: fileOutput("image"),
     releases: [
-      {
-        status: "superseded",
-        steps: [
-          {
-            id: "render",
-            name: "Render",
-            modelId: "bfl/flux-2-pro",
-            version: "v1",
-            params: { prompt: "Studio product photo, {{input.scene}} scene, soft shadows", reference_image_urls: ["{{input.image}}"], num_images: 2 },
-          },
-        ],
-        price: 0.15,
-        notes: "First release.",
-        created: 48,
-        published: 47,
-        by: MARA,
-      },
-      {
-        status: "superseded",
-        steps: [
-          boost,
-          {
-            id: "render",
-            name: "Render",
-            modelId: "bfl/flux-2-pro",
-            version: "v1",
-            params: { prompt: "{{steps.boost.prompt}}", reference_image_urls: ["{{input.image}}"], num_images: 2 },
-          },
-        ],
-        price: 0.15,
-        notes: "Prompt Boost writes the scene description.",
-        created: 30,
-        published: 29,
-        by: MARA,
-      },
       {
         status: "live",
         steps: [
           boost,
           {
             id: "render",
-            name: "Render",
-            modelId: "bfl/flux-2-pro",
-            version: "v1",
-            params: { prompt: "{{steps.boost.prompt}}", reference_image_urls: ["{{input.image}}"], num_images: 2, image_size: "landscape_4_3" },
+            stage: "Rendering",
+            model: "google/nano-banana-pro@2026-09-30",
+            input: { prompt: "{{steps.boost.output.prompt}}", reference_image_urls: ["{{input.image}}"], num_images: 2, image_size: "2048x2048" },
           },
         ],
-        price: 0.16,
-        notes: "Landscape framing by default.",
-        created: 10,
-        published: 9,
+        stages: ["Writing the scene", "Rendering"],
+        outputMap: IMAGE_OUTPUT,
+        price: 0.32,
+        notes: "Moved rendering to Nano Banana Pro.",
+        created: 20,
+        published: 19,
         by: MARA,
       },
       {
@@ -264,15 +176,16 @@ const SEEDS: AppSeed[] = [
           boost,
           {
             id: "render",
-            name: "Render",
-            modelId: "google/nano-banana-pro",
-            version: "2026-09-30",
-            params: { prompt: "{{steps.boost.prompt}}", reference_image_urls: ["{{input.image}}"], num_images: 2, image_size: "2048x2048" },
+            stage: "Rendering",
+            model: "openai/gpt-image-1.5@v1",
+            input: { prompt: "{{steps.boost.output.prompt}}", num_images: 2 },
           },
         ],
-        price: 0.18,
-        notes: "Trying Nano Banana Pro for better reflections on glass and metal.",
-        created: 1,
+        stages: ["Writing the scene", "Rendering"],
+        outputMap: IMAGE_OUTPUT,
+        price: 0.32,
+        notes: "Trying GPT Image for rendering.",
+        created: 2,
         by: MARA,
       },
     ],
@@ -280,14 +193,25 @@ const SEEDS: AppSeed[] = [
   {
     slug: "voiceover",
     name: "Voiceover",
-    tagline: "Expressive narration in 70+ languages.",
-    description: "Paste a script and get studio-quality narration with natural pauses and emotion.",
+    tagline: "Natural narration in any language.",
+    description: "Paste a script and pick a voice; get narration with natural pacing.",
     category: "audio",
     status: "live",
-    runs24h: 2400,
+    runs24h: 1100,
+    input: inputOf({ script: { type: "string" }, voice: { type: "string" }, language: { type: "string" } }, ["script", "voice"]),
+    output: fileOutput("audio"),
     releases: [
-      { status: "superseded", steps: [voice("v1")], price: 0.25, notes: "First release, on the v3 alpha.", created: 170, published: 169, by: ANIL },
-      { status: "live", steps: [voice("v2")], price: 0.25, notes: "Eleven v3 GA with audio tags.", created: 90, published: 89, by: ANIL },
+      {
+        status: "live",
+        steps: [voice("v2")],
+        stages: ["Speaking"],
+        outputMap: { audio: "{{steps.speak.output.audio}}" },
+        price: 0.25,
+        notes: "Eleven v3 GA with audio tags.",
+        created: 90,
+        published: 89,
+        by: ANIL,
+      },
     ],
   },
   {
@@ -299,10 +223,14 @@ const SEEDS: AppSeed[] = [
     status: "paused",
     paused: { reason: "Voice consent checks are under review after a misuse report.", daysAgo: 4 },
     runs24h: 140,
+    input: inputOf({ transcript: { type: "string" }, voice: { type: "string" } }, ["transcript", "voice"]),
+    output: fileOutput("audio"),
     releases: [
       {
         status: "superseded",
         steps: [revoice({ stability: 0.4 })],
+        stages: ["Re-voicing"],
+        outputMap: { audio: "{{steps.speak.output.audio}}" },
         price: 0.3,
         notes: "First release.",
         created: 50,
@@ -312,39 +240,13 @@ const SEEDS: AppSeed[] = [
       {
         status: "live",
         steps: [revoice({ stability: 0.4, similarity_boost: 0.9 })],
+        stages: ["Re-voicing"],
+        outputMap: { audio: "{{steps.speak.output.audio}}" },
         price: 0.3,
         notes: "Keeps breaths and timing closer to the original.",
         created: 22,
         published: 21,
         by: ANIL,
-      },
-    ],
-  },
-  {
-    slug: "image-to-3d",
-    name: "Image to 3D",
-    tagline: "Game-ready meshes from a single image.",
-    description: "Turn a concept or product photo into a textured 3D model you can drop into any engine.",
-    category: "3d",
-    status: "live",
-    runs24h: 260,
-    releases: [
-      {
-        status: "live",
-        steps: [
-          {
-            id: "mesh",
-            name: "Build mesh",
-            modelId: "tencent/hunyuan3d-3",
-            version: "v1",
-            params: { image_url: "{{input.image}}", texture: "pbr", format: "{{input.format}}" },
-          },
-        ],
-        price: 0.45,
-        notes: "First release.",
-        created: 35,
-        published: 34,
-        by: MARA,
       },
     ],
   },
@@ -356,18 +258,21 @@ const SEEDS: AppSeed[] = [
     category: "audio",
     status: "draft",
     runs24h: 0,
+    input: inputOf({ mood: { type: "string" }, genre: { type: "string" } }, ["mood"]),
+    output: fileOutput("audio"),
     releases: [
       {
         status: "draft",
         steps: [
           {
             id: "compose",
-            name: "Compose",
-            modelId: "google/lyria-2",
-            version: "v1",
-            params: { prompt: "{{input.mood}} instrumental, {{input.genre}}", bpm: "{{input.bpm}}" },
+            stage: "Composing",
+            model: "google/lyria-2@v1",
+            input: { prompt: "{{input.mood}} instrumental, {{input.genre}}" },
           },
         ],
+        stages: ["Composing"],
+        outputMap: { audio: "{{steps.compose.output.audio}}" },
         price: 0.1,
         notes: "",
         created: 3,
@@ -383,7 +288,9 @@ export function seedApps(now: number, random: Random): AppRecord[] {
       number: index + 1,
       status: release.status,
       steps: release.steps,
-      price: release.price,
+      stages: release.stages,
+      outputMap: release.outputMap,
+      priceMicros: toMicros(release.price),
       notes: release.notes,
       createdAt: iso(now - release.created * DAY - random.int(1, 8) * HOUR),
       createdBy: release.by,
@@ -400,9 +307,11 @@ export function seedApps(now: number, random: Random): AppRecord[] {
       description: seed.description,
       category: seed.category,
       status: seed.status,
+      inputSchema: seed.input,
+      outputSchema: seed.output,
       pausedReason: seed.paused?.reason ?? null,
       runs24h: seed.runs24h,
-      revenue30d: live ? money(seed.runs24h * 30 * 0.9 * live.price * random.float(0.95, 1.05)) : 0,
+      revenue30dMicros: live ? toMicros(seed.runs24h * 30 * 0.9 * live.price * random.float(0.95, 1.05)) : 0,
       updatedAt: changes.sort().at(-1) ?? iso(now),
       releases,
     };

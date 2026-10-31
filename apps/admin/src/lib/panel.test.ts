@@ -17,67 +17,67 @@ import {
 
 describe("parsePanel", () => {
   it("reads a kind and an ID", () => {
-    expect(parsePanel("request:req_1")).toEqual({ kind: "request", id: "req_1" });
+    expect(parsePanel("task:task_1")).toEqual({ kind: "task", id: "task_1" });
   });
 
   it("keeps colons inside the ID", () => {
-    expect(parsePanel("request:a:b")).toEqual({ kind: "request", id: "a:b" });
+    expect(parsePanel("task:a:b")).toEqual({ kind: "task", id: "a:b" });
   });
 
   it("drops unknown kinds, missing IDs and empty values", () => {
     expect(parsePanel("job:1")).toBeNull();
-    expect(parsePanel("request:")).toBeNull();
-    expect(parsePanel(":req_1")).toBeNull();
-    expect(parsePanel("request")).toBeNull();
+    expect(parsePanel("task:")).toBeNull();
+    expect(parsePanel(":task_1")).toBeNull();
+    expect(parsePanel("task")).toBeNull();
     expect(parsePanel("")).toBeNull();
     expect(parsePanel(null)).toBeNull();
   });
 
   it("round-trips through formatPanel", () => {
-    const ref = { kind: "request", id: "req 1" } as const;
+    const ref = { kind: "task", id: "task 1" } as const;
     expect(parsePanel(formatPanel(ref))).toEqual(ref);
   });
 });
 
 describe("panelFromQuery", () => {
   it("reads the panel parameter on any page", () => {
-    expect(panelFromQuery(new URLSearchParams("tab=usage&panel=request:req_1"))).toEqual({
-      kind: "request",
-      id: "req_1",
+    expect(panelFromQuery(new URLSearchParams("tab=usage&panel=task:task_1"))).toEqual({
+      kind: "task",
+      id: "task_1",
     });
   });
 
   it("is null without one", () => {
-    expect(panelFromQuery(new URLSearchParams("open=req_1"))).toBeNull();
+    expect(panelFromQuery(new URLSearchParams("open=task_1"))).toBeNull();
     expect(panelFromQuery(new URLSearchParams())).toBeNull();
   });
 });
 
 describe("withPanel and panelHref", () => {
   it("opens an item over the current page and keeps its state", () => {
-    expect(withPanel("tab=usage&status=failed", { kind: "request", id: "r1" })).toBe("tab=usage&status=failed&panel=request:r1");
-    expect(panelHref("/customers/c1", "?tab=usage", { kind: "request", id: "r1" })).toBe("/customers/c1?tab=usage&panel=request:r1");
+    expect(withPanel("tab=usage&status=failed", { kind: "task", id: "t1" })).toBe("tab=usage&status=failed&panel=task:t1");
+    expect(panelHref("/customers/c1", "?tab=usage", { kind: "task", id: "t1" })).toBe("/customers/c1?tab=usage&panel=task:t1");
   });
 
   it("replaces the open item", () => {
-    expect(withPanel("panel=request:r1", { kind: "request", id: "r2" })).toBe("panel=request:r2");
+    expect(withPanel("panel=task:t1", { kind: "task", id: "t2" })).toBe("panel=task:t2");
   });
 
   it("closes the panel", () => {
-    expect(withPanel("tab=usage&panel=request:r1", null)).toBe("tab=usage");
-    expect(withPanel("panel=request:r1", null)).toBe("");
+    expect(withPanel("tab=usage&panel=task:t1", null)).toBe("tab=usage");
+    expect(withPanel("panel=task:t1", null)).toBe("");
   });
 
   it("encodes characters an ID shouldn't carry raw", () => {
-    expect(withPanel("", { kind: "request", id: "a b&c" })).toBe("panel=request:a+b%26c");
+    expect(withPanel("", { kind: "task", id: "a b&c" })).toBe("panel=task:a+b%26c");
   });
 });
 
 describe("samePanel", () => {
   it("compares kind and ID", () => {
-    expect(samePanel({ kind: "request", id: "1" }, { kind: "request", id: "1" })).toBe(true);
-    expect(samePanel({ kind: "request", id: "1" }, { kind: "request", id: "2" })).toBe(false);
-    expect(samePanel({ kind: "request", id: "1" }, null)).toBe(false);
+    expect(samePanel({ kind: "task", id: "1" }, { kind: "task", id: "1" })).toBe(true);
+    expect(samePanel({ kind: "task", id: "1" }, { kind: "task", id: "2" })).toBe(false);
+    expect(samePanel({ kind: "task", id: "1" }, null)).toBe(false);
     expect(samePanel(null, null)).toBe(true);
   });
 });

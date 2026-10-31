@@ -1,6 +1,5 @@
-import type { BillingUnit, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@modelvend/admin-api/models";
-import { UNIT_LABELS } from "@/lib/labels";
-import { round } from "./util";
+import type { BillingUnit, Disclosure, Modality, ModelVersion, PriceTier, Pricing, Route, RoutingPolicy } from "@modelvend/admin-api/models";
+import type { ProviderRecord } from "./types";
 
 /** Typical units one request bills, for estimates such as revenue and app costs. */
 export const TYPICAL_UNITS: Record<BillingUnit, number> = {
@@ -51,31 +50,16 @@ export function defaultTier(pricing: Pricing): PriceTier {
   return pricing.tiers.find((tier) => tier.id === pricing.defaultTier) ?? pricing.tiers[0];
 }
 
-/**
- * Each tier's cost: the primary route's cost scaled by the tier's price over the default tier's. Unknown (null)
- * without a route, or when the primary route costs in another unit than the version bills.
- */
+/** Each tier's cost is what the primary route charges at it; null without a route or a cost for the tier. */
 export function withTierCosts(pricing: Pricing, routes: Route[]): Pricing {
   const primary = primaryRoute({ routes });
-  const comparable = primary !== null && primary.cost.unit === pricing.unit ? primary : null;
-  const base = defaultTier(pricing)?.price ?? 0;
   return {
     ...pricing,
-    tiers: pricing.tiers.map((tier) => ({
-      ...tier,
-      cost: comparable ? round(base > 0 ? (comparable.cost.price * tier.price) / base : comparable.cost.price, 4) : null,
-    })),
+    tiers: pricing.tiers.map((tier) => ({ ...tier, cost: primary?.tierCosts[tier.id] ?? null })),
   };
 }
 
-/** Routes whose cost is in another unit than the version bills, so their cost can't be set against its price. */
-export const mismatchedRoutes = (version: Pick<ModelVersion, "pricing" | "routes">) =>
-  version.routes.filter((route) => route.cost.unit !== version.pricing.unit);
-
-/** "per second", "per 1K characters" for messages. */
-export const perUnit = (unit: BillingUnit) => `per ${UNIT_LABELS[unit]}`;
-
-/** "fal and Replicate" for messages. */
+/** "Google and Kling" for messages. */
 export function listNames(names: string[]): string {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -85,3 +69,39 @@ export function listNames(names: string[]): string {
 export const answers = (version: Pick<ModelVersion, "status">) => version.status === "live" || version.status === "deprecated";
 
 export const activeRoutes = (version: Pick<ModelVersion, "routes">) => version.routes.filter((route) => route.status === "active");
+
+/**
+ * Routes that can really serve the version: active, on an active provider and, for a white label model, on one whose
+ * terms allow it. The router skips the rest, so a version needs one of these to go live.
+ */
+export function usableRoutes(version: Pick<ModelVersion, "routes">, providers: readonly ProviderRecord[], disclosure: Disclosure): Route[] {
+  return activeRoutes(version).filter((route) => {
+    const provider = providers.find((p) => p.id === route.providerId);
+    return provider?.status === "active" && (disclosure !== "white_label" || provider.whiteLabelAllowed);
+  });
+}
+
+/**
+ * Where a version's pricing doesn't fit its input schema, so a valid input couldn't be priced: the field at fault and
+ * why, or null. The same checks as the catalog import in services/internal/catalog/manifest.
+ */
+export function pricingProblem(version: Pick<ModelVersion, "pricing" | "inputSchema">): { field: string; message: string } | null {
+  const { pricing, inputSchema } = version;
+  const properties = (inputSchema.properties ?? {}) as Record<string, { enum?: unknown[] } | undefined>;
+  const tiers = new Set(pricing.tiers.map((tier) => tier.id));
+  if (pricing.tierField === null) {
+    if (Object.keys(pricing.tierValues).length > 0) return { field: "pricing.tierValues", message: "Tier values need a tier field." };
+  } else {
+    const values = properties[pricing.tierField]?.enum;
+    if (!properties[pricing.tierField]) return { field: "pricing.tierField", message: `"${pricing.tierField}" isn't in the input schema.` };
+    if (!values) return { field: "pricing.tierField", message: `"${pricing.tierField}" needs an enum in the input schema.` };
+    for (const value of values) {
+      const tier = pricing.tierValues[String(value)] ?? String(value);
+      if (!tiers.has(tier)) return { field: "pricing.tierValues", message: `"${String(value)}" picks no tier.` };
+    }
+  }
+  if (pricing.input && !properties[pricing.input.field]) {
+    return { field: "pricing.input.field", message: `"${pricing.input.field}" isn't in the input schema.` };
+  }
+  return null;
+}
