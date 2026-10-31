@@ -1,0 +1,6 @@
+apiVersion: v2
+name: modelvend
+description: Modelvend gateway, MCP server, worker, admin API, console and admin UI.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

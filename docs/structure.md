@@ -24,7 +24,7 @@
 | Migration                      | `pressly/goose/v3`                                                      | postpane ile aynı                                                                                                                                                              |
 | Kuyruk ve job                  | `riverqueue/river` (Postgres üzerinde)                                  | Ayrı bir broker gerekmez. Task kaydı ile işi aynı transaction'da yazar, kaybolan iş olmaz. postpane'in worker pool ve KEDA kurgusu aynen kullanılır.                           |
 | Cache, rate limit, idempotency | Redis (`go-redis/v9`)                                                   | Dakikalık limitler, sağlık sayaçları, katalog önbelleğinin geçersiz kılınması                                                                                                  |
-| Çıktı depolama                 | S3 uyumlu, Cloudflare R2 ve CDN önerilir (`minio-go`)                   | Medya ağır bir iş; R2'de egress ücreti yok                                                                                                                                     |
+| Çıktı depolama                 | Bunny Storage ve CDN, S3 uyumlu (`minio-go`) | Medya ağır bir iş; karar: roadmap.md |
 | Sözleşme                       | OpenAPI 3.1, `api/*.yaml`                                               | Tek doğruluk kaynağı. Go handler'ları elle yazılır (postpane gibi) ve contract testiyle spec'e karşı doğrulanır (`kin-openapi`). TS tipleri `openapi-typescript` ile üretilir. |
 | Model girdi doğrulama          | `santhosh-tekuri/jsonschema/v6`                                         | JSON Schema 2020-12                                                                                                                                                            |
 | MCP                            | `modelcontextprotocol/go-sdk`, Streamable HTTP                          | Resmî SDK; aynı API anahtarıyla doğrulama                                                                                                                                      |
@@ -32,7 +32,7 @@
 | Gözlem                         | `log/slog`, Prometheus, OpenTelemetry trace                             | postpane'de Prometheus var. Task başına trace, attempt zincirini görmeyi kolaylaştırır.                                                                                        |
 | Frontend                       | Next.js 16, React 19, Tailwind 4                                        | Bugünkü konsol ve admin                                                                                                                                                        |
 | JS monorepo                    | npm workspaces (konsol taşıma branch'inde kuruldu), istenirse Turborepo | Kurulu olanı kullan; build önbelleği gerekirse Turborepo eklenir                                                                                                               |
-| Yerel geliştirme               | Docker Compose: Postgres, Redis, MinIO, Mailpit                         | `make dev` ile hepsi ayağa kalkar                                                                                                                                              |
+| Yerel geliştirme               | Docker Compose: Postgres, Redis, SeaweedFS, Mailpit                         | `make dev` ile hepsi ayağa kalkar                                                                                                                                              |
 | Dağıtım                        | Docker imajları ve Helm (postpane chart kalıbı)                         |                                                                                                                                                                                |
 
 TypeScript backend (Hono, pg-boss/BullMQ) de düşünüldü. Artısı tiplerin doğrudan paylaşılması. Eksisi postpane'de çalışan altyapıyı (River pool'ları, admin oturumları, audit, Helm) baştan yazmak. Tip paylaşımını OpenAPI'den üretim zaten sağladığı için Go seçildi.
@@ -164,7 +164,7 @@ modelvend/
 │
 ├─ deploy/
 │  ├─ docker/                           gateway, worker, adminapi, mcp, console, admin imajları
-│  ├─ compose.dev.yaml                  Postgres, Redis, MinIO, Mailpit
+│  ├─ compose.dev.yaml                  Postgres, Redis, SeaweedFS, Mailpit
 │  └─ helm/modelvend/
 ├─ docs/
 ├─ scripts/                             gen-types, seed, …
@@ -598,7 +598,7 @@ Konsol taşıma branch'i (`apps/console`, `apps/admin`, npm workspaces) temel al
    - Sahte bir sağlayıcıyla (`providers/fake`) `POST /v1/tasks`, ardından `GET /v1/tasks/{id}` uçtan uca çalışır.
 3. **Sözleşme ve tip üretimi:** `api/public.yaml`, `admin.yaml` ve `webhooks.yaml` task, model ve app uçlarıyla başlar. `packages/api-types` `make gen` ile üretilir.
 4. **Yerel ortam ve imajlar:**
-   - `deploy/compose.dev.yaml` (Postgres, Redis, MinIO).
+   - `deploy/compose.dev.yaml` (Postgres, Redis, SeaweedFS, Mailpit).
    - Servislerin Dockerfile'ları.
    - `make dev` komutu servisleri ve iki Next uygulamasını birlikte başlatır.
 5. **Katalog:** `catalog/manifest.schema.json`, bir white-label model ve bir app örneği. `migrate catalog import` komutu bunları draft olarak içe aktarır.

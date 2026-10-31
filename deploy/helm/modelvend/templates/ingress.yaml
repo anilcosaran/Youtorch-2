@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled }}
+{{- $backends := dict "api" (list "gateway" .Values.services.gateway.port) "mcp" (list "mcp" .Values.services.mcp.port) "console" (list "console" .Values.apps.console.port) "admin" (list "admin" .Values.apps.admin.port) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "modelvend.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tlsSecretName }}
+  tls:
+    - secretName: {{ .Values.ingress.tlsSecretName }}
+      hosts:
+        {{- range $key, $host := .Values.ingress.hosts }}
+        {{- if $host }}
+        - {{ $host | quote }}
+        {{- end }}
+        {{- end }}
+  {{- end }}
+  rules:
+    {{- range $key, $host := .Values.ingress.hosts }}
+    {{- if $host }}
+    {{- $backend := index $backends $key }}
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Release.Name }}-{{ index $backend 0 }}
+                port:
+                  number: {{ index $backend 1 }}
+    {{- end }}
+    {{- end }}
+{{- end }}

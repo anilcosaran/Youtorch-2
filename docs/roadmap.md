@@ -121,7 +121,7 @@ Her faz ayrı PR'lara bölünür ve sonunda "bitti" ölçütü doğrulanır. Faz
 Sonraki her şeyin üstüne oturacağı yapı.
 
 - CI: `npm run check`, `go test` (Postgres ile), imaj derleme.
-- `deploy/compose.dev.yaml` (Postgres, Redis, MinIO, Mailpit) ve `make dev`, `gen`, `test`, `migrate`.
+- `deploy/compose.dev.yaml` (Postgres, Redis, SeaweedFS, Mailpit) ve `make dev`, `gen`, `test`, `migrate`.
 - Go servisleri için tek imaj.
 - `deploy/helm/modelvend` chart'ı ve `deploy/argocd` altında Argo CD tanımları: Modelvend'e özel AppProject (yalnızca bu repo ve kendi namespace'i) ve Application.
 - GHCR'ye imaj gönderme ve digest'i ortam values dosyasına commit'leme. Kümeye pull token'ı.

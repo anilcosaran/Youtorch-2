@@ -2,7 +2,7 @@
 
 > Durum: 31 Ekim 2026. Go backend, admin sözleşmesi ve müşteri konsolu kod okunarak denetlendi. Düzeltmeler henüz yapılmadı; "Faz" sütunu [roadmap.md](roadmap.md)'deki fazdır.
 >
-> **Doğrulama:** ✓ işaretlilerin satırları ayrıca açılıp kontrol edildi; diğerleri denetim raporundan geliyor ve düzeltilirken yeniden doğrulanmalı. Hiçbiri çalışma zamanında denenmedi. Backend'in veritabanı testleri `TEST_DATABASE_URL` olmadığı için denetimde çalışmadı; yarış ve kilit bulguları okumaya dayanıyor.
+> **Doğrulama:** ✓ işaretlilerin satırları ayrıca açılıp kontrol edildi; diğerleri denetim raporundan geliyor ve düzeltilirken yeniden doğrulanmalı. Hiçbiri çalışma zamanında denenmedi. Backend'in veritabanı testleri denetim sırasında çalışmadı; sonradan Faz 0'daki yerel Postgres ile çalıştırıldı ve geçti. Yine de bu testler aşağıdaki hataları yakalamıyor, yarış ve kilit bulguları okumaya dayanıyor.
 >
 > **Temiz çıkanlar (kod okumasına göre):** tahsilat ve çift ücret, idempotency, kiracı ayrımı, anahtar hash'leme, SSRF koruması, hata mesajı temizliği, import sınırları; konsolun REST örnek yolları ve MCP araç adları; admin'de sayfalama ve son admin kuralları.
 

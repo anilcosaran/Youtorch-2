@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: modelvend
+  namespace: argocd
+spec:
+  description: Modelvend workloads, restricted to this repository and the modelvend namespace.
+  sourceRepos:
+    - git@github.com:brieeflabs/Modelvend.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: modelvend
+  # Only for CreateNamespace; nothing else outside the namespace.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true

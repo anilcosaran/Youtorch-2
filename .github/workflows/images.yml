@@ -1,0 +1,122 @@
+name: Images
+
+# Pull requests only prove the images build. A push to main publishes them to GHCR and commits their digests to
+# values-dev.yaml, which Argo CD watches. The digest commit changes only that file, so it starts no new build.
+on:
+  pull_request:
+    paths:
+      - apps/**
+      - packages/**
+      - services/**
+      - deploy/docker/**
+      - package-lock.json
+      - .github/workflows/images.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/**
+      - packages/**
+      - services/**
+      - deploy/docker/**
+      - package-lock.json
+      - .github/workflows/images.yml
+  workflow_dispatch:
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: services
+            dockerfile: deploy/docker/services.Dockerfile
+          - name: console
+            dockerfile: apps/console/Dockerfile
+          - name: admin
+            dockerfile: apps/admin/Dockerfile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/brieeflabs/modelvend-${{ matrix.name }}:main
+            ghcr.io/brieeflabs/modelvend-${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # NEXT_PUBLIC_* values are inlined at build time; an unset repository variable leaves the app's default.
+          build-args: |
+            VERSION=${{ github.sha }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.DEV_CONSOLE_URL }}
+            NEXT_PUBLIC_CONSOLE_URL=${{ vars.DEV_CONSOLE_URL }}
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.DEV_API_BASE_URL }}
+            NEXT_PUBLIC_MCP_URL=${{ vars.DEV_MCP_URL }}
+      - name: Keep the digest for the pin job
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: echo "$DIGEST" > digest-${{ matrix.name }}
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digest-${{ matrix.name }}
+          path: digest-${{ matrix.name }}
+          retention-days: 1
+
+  pin:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+      - name: Pin the digests
+        run: |
+          for name in services console admin; do
+            digest="$(cat "digest-$name")"
+            case "$digest" in
+              sha256:*) ;;
+              *) echo "No valid digest for $name: $digest"; exit 1 ;;
+            esac
+            yq -i ".images.$name.digest = \"$digest\"" deploy/helm/modelvend/values-dev.yaml
+          done
+      - name: Commit the digests
+        run: |
+          if git diff --quiet; then
+            echo "Digests are unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/helm/modelvend/values-dev.yaml
+          git commit -m "Deploy ${GITHUB_SHA::12} to dev."
+          git pull --rebase origin main
+          git push origin HEAD:main

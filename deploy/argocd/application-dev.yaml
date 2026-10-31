@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: modelvend-dev
+  namespace: argocd
+spec:
+  project: modelvend
+  source:
+    repoURL: git@github.com:brieeflabs/Modelvend.git
+    targetRevision: main
+    path: deploy/helm/modelvend
+    helm:
+      releaseName: modelvend
+      valueFiles:
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: modelvend
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
